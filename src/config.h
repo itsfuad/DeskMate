@@ -25,9 +25,10 @@
 #define TFT_WIDTH  240
 #define TFT_HEIGHT 240
 
-// Some SmallTV backlight circuits are active-low. Default active-high; can be
-// overridden at runtime via settings (backlightInverted).
-#define TFT_BL_DEFAULT_INVERTED false
+// The SmallTV backlight is active-low (confirmed against the GeekMagic community
+// firmwares: ESPHome uses `inverted: true`, others drive the pin LOW to enable).
+// Still runtime-overridable via settings (backlightInverted) for odd revisions.
+#define TFT_BL_DEFAULT_INVERTED true
 
 // Optional ambient light sensor (LDR) on the ADC. Not all units populate it.
 // Disabled by default; can be enabled in settings for auto-brightness.
@@ -43,6 +44,21 @@
 #define MAX_URL_LEN     200    // webhook base URL
 
 // ---------------------------------------------------------------------------
+// Data source
+//   0 = custom webhook (n8n / Node-RED / your own HTTP endpoint)
+//   1 = Yahoo Finance, fetched directly by the device (no backend needed)
+// ---------------------------------------------------------------------------
+#define SRC_WEBHOOK  0
+#define SRC_YAHOO    1
+#define DEFAULT_SOURCE  SRC_YAHOO            // works out of the box, no server
+
+// Yahoo Finance public chart endpoint. A browser-like User-Agent is required —
+// requests with an empty UA are rejected with HTTP 429. TLS records from Yahoo
+// are <=~1.3 KB, so the 4 KB BearSSL receive buffer in StockClient is plenty.
+#define YAHOO_CHART_URL   "https://query1.finance.yahoo.com/v8/finance/chart/"
+#define YAHOO_USER_AGENT  "Mozilla/5.0 (SmallTV)"
+
+// ---------------------------------------------------------------------------
 // Defaults (used on first boot / factory reset)
 // ---------------------------------------------------------------------------
 #define DEFAULT_AP_SSID      "SmallTV-Setup"
@@ -50,7 +66,7 @@
 #define DEFAULT_HOSTNAME     "smalltv"
 #define DEFAULT_POLL_SEC      120            // how often to refresh data
 #define DEFAULT_ROTATE_SEC    10             // how long each symbol is shown
-#define DEFAULT_RANGE        "1d"            // chart timeframe passed to webhook
+#define DEFAULT_RANGE        "1d"            // chart timeframe (e.g. 1d/5d/1mo/1y)
 #define DEFAULT_POINTS        48             // sparkline points requested
 #define DEFAULT_BRIGHTNESS    90             // 0..100 %
 #define DEFAULT_HTTP_TIMEOUT  8000           // ms per request

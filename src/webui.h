@@ -105,12 +105,18 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
     <div><label>Show each ticker (s)</label><input id="rotateSec" type="number" min="2" max="300"></div>
     <div><label>Refresh data (s)</label><input id="pollSec" type="number" min="10" max="3600"></div>
    </div>
-   <label>Webhook URL (n8n)</label><input id="webhookUrl" type="url" placeholder="http://n8n.local:5678/webhook/stock">
+   <label>Data source</label>
+   <select id="source" onchange="srcChanged()">
+    <option value="yahoo">Yahoo Finance (direct, no server)</option>
+    <option value="webhook">Custom webhook (n8n / your own)</option>
+   </select>
+   <div id="webhookRow"><label>Webhook URL</label>
+    <input id="webhookUrl" type="url" placeholder="http://n8n.local:5678/webhook/stock"></div>
    <div class="row">
     <div><label>Chart timeframe</label><input id="range" type="text" placeholder="1d"></div>
     <div><label>Chart points</label><input id="points" type="number" min="0" max="60"></div>
    </div>
-   <small class="hint">The device requests <code>?symbol=..&amp;range=..&amp;points=..</code> from this URL.</small>
+   <small class="hint" id="srcHint"></small>
   </div>
   <div class="card"><h2>What to show</h2>
    <div class="chk"><input id="showName" type="checkbox"><label>Name / symbol</label></div>
@@ -128,7 +134,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
   <div class="card"><h2>Tickers (rotate on screen)</h2>
    <table id="symTable"></table>
    <button class="btn sec" style="margin-top:10px" onclick="addSym()">+ Add ticker</button>
-   <small class="hint">Symbol is sent to your webhook (e.g. AAPL, BTC-USD, EURUSD=X). Name is optional.</small>
+   <small class="hint">Ticker symbol, e.g. <code>AAPL</code>, <code>NESN.SW</code>, <code>BTC-USD</code>, <code>EURUSD=X</code> (Swiss stocks use the <code>.SW</code> suffix on Yahoo). Name is optional &mdash; if set it overrides the source's name.</small>
   </div>
  </section>
 
@@ -175,9 +181,15 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  $('brVal').textContent=c.brightness;
  $('rotation').value=c.rotation;
  $('colorInverted').value=c.colorInverted?'true':'false';
+ $('source').value=c.source||'yahoo';srcChanged();
  $('apPass').placeholder=c.apPassSet?'(unchanged)':'(open)';
  renderSyms(c.symbols||[]);
 })}
+function srcChanged(){var y=$('source').value!=='webhook';
+ $('webhookRow').style.display=y?'none':'block';
+ $('srcHint').innerHTML=y
+  ?'The device fetches <b>Yahoo Finance</b> directly over HTTPS — no server needed. Use Yahoo symbols (e.g. <code>AAPL</code>, <code>NESN.SW</code>, <code>BTC-USD</code>, <code>EURUSD=X</code>).'
+  :'The device requests <code>?symbol=..&amp;range=..&amp;points=..</code> from this URL and expects the SmallTV JSON contract back.';}
 
 function collect(){
  var o={};
@@ -186,6 +198,7 @@ function collect(){
  BOOL.forEach(function(k){o[k]=$(k).checked});
  o.rotation=parseInt($('rotation').value);
  o.colorInverted=$('colorInverted').value==='true';
+ o.source=$('source').value;
  var p=$('staPass').value; if(p)o.staPass=p;
  o.symbols=[];
  document.querySelectorAll('#symTable tr').forEach(function(tr){

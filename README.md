@@ -3,8 +3,9 @@
 Custom open-source firmware for the **GeekMagic SmallTV** (the cheap ESP‑12F /
 ESP8266 version with a 1.54" 240×240 ST7789 display). It turns the little display
 into a **stock / crypto ticker**: it shows the current price, the change and
-%‑change, and a tiny sparkline chart, rotating through several symbols. All data
-comes from **your own n8n webhook** (or any HTTP endpoint), and everything is
+%‑change, and a tiny sparkline chart, rotating through several symbols. Out of
+the box it pulls data **directly from Yahoo Finance** — no server required — or
+you can point it at **your own webhook** (n8n, Node‑RED, anything). Everything is
 configured from a built‑in **web UI** — WiFi, what to show, the symbol list, and
 **OTA firmware updates**.
 
@@ -17,8 +18,11 @@ configured from a built‑in **web UI** — WiFi, what to show, the symbol list,
 - 📈 **Stock / crypto ticker** — price, absolute change, %‑change with up/down
   arrow, and a sparkline chart.
 - 🔁 **Multiple symbols** that rotate on a configurable interval.
-- 🌐 **Pull-based data** from a configurable webhook (n8n, Node‑RED, anything).
-  *You* own the data source; the device just renders what it's given.
+- 🟣 **Built-in Yahoo Finance** — fetches quotes & charts directly over HTTPS,
+  **no backend needed**. Stocks, ETFs, Swiss equities (`NESN.SW`), crypto
+  (`BTC-USD`) and FX (`EURUSD=X`) all work.
+- 🌐 **Or your own webhook** (n8n, Node‑RED, anything) if you'd rather own the
+  data source — the device just renders the small JSON contract it's given.
 - 🛠 **Full web UI** — connect to WiFi, configure the AP/hotspot, pick what to
   show, manage the symbol list, set brightness/orientation/colours.
 - ⬆️ **OTA updates** — flash new firmware from the browser, no cable needed.
@@ -105,9 +109,12 @@ Or with PlatformIO (wiring connected): `pio run -t upload`.
    **http://192.168.4.1**.
 3. Go to the **WiFi** tab → **Scan** → pick your 2.4 GHz network → enter the
    password → **Save & connect**. The device reboots and joins your network.
-4. Its new IP is shown on screen. Browse to it (or `http://smalltv.local`).
-5. Go to **Display → Webhook URL**, paste your n8n webhook, and add tickers under
-   **Symbols**.
+4. The device shows the **network it joined and its IP** on screen at boot (and
+   the `http://smalltv.local` address). Browse to it.
+5. Add a few tickers under **Symbols** (e.g. `AAPL`, `NESN.SW`, `BTC-USD`). The
+   default data source is **Yahoo Finance**, so it works immediately — no server
+   to set up. (To use your own backend instead, switch **Display → Data source**
+   to *Custom webhook* and paste its URL.)
 
 ## Web UI
 
@@ -115,16 +122,49 @@ Or with PlatformIO (wiring connected): `pio run -t upload`.
 |-----|-----------------|
 | **Status** | Live device info (mode, IP, signal, heap, uptime) and current ticker values. “Refresh data now” forces a poll. |
 | **WiFi** | Scan & join a network; configure the AP name/password and the mDNS hostname. |
-| **Display** | Brightness (+ optional auto‑brightness), orientation, backlight polarity, colour scheme, rotation/refresh intervals, webhook URL, chart timeframe & points, and **what to show** (name, price, change, chart, timeframe label, “updated N s ago”, rotation dots). |
-| **Symbols** | Up to **8** tickers. `symbol` is sent to your webhook (e.g. `AAPL`, `BTC-USD`, `EURUSD=X`); `name` is an optional friendly label. |
+| **Display** | Brightness (+ optional auto‑brightness), orientation, backlight polarity, colour scheme, rotation/refresh intervals, **data source** (Yahoo Finance or custom webhook), webhook URL, chart timeframe & points, and **what to show** (name, price, change, chart, timeframe label, “updated N s ago”, rotation dots). |
+| **Symbols** | Up to **8** tickers. `symbol` is the Yahoo ticker (e.g. `AAPL`, `NESN.SW`, `BTC-USD`, `EURUSD=X`); `name` is an optional friendly label that overrides the source's name. |
 | **Update** | OTA firmware upload, reboot, factory reset. |
 
 “**Save settings**” applies most changes live. Changing the WiFi network reboots
 the device.
 
-## Data source / webhook
+## Data source
 
-The device periodically calls your webhook, **one request per symbol**:
+Pick one in **Display → Data source**:
+
+### Yahoo Finance (default — no server)
+
+The device fetches Yahoo's public chart endpoint directly over HTTPS, one request
+per symbol:
+
+```
+GET https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=5m
+```
+
+It parses the price, previous close (for the change/%‑change), currency and
+sparkline itself. Use any Yahoo symbol:
+
+| What | Examples |
+|------|----------|
+| US / global stocks & ETFs | `AAPL`, `MSFT`, `VOO` |
+| Swiss / European stocks | `NESN.SW`, `ROG.SW`, `UBSG.SW`, `BMW.DE` |
+| Crypto | `BTC-USD`, `ETH-EUR` |
+| FX | `EURUSD=X`, `EURCHF=X` |
+
+The **Chart timeframe** (`1d`, `5d`, `1mo`, `3mo`, `6mo`, `ytd`, `1y`, `2y`,
+`5y`, `max`) selects the candle interval automatically. Non‑USD currencies show
+as their ISO code (e.g. `CHF 79.73`) since the bitmap font has no `€`/`£` glyph.
+
+> No API key, no account, no backend. The only requirement is outbound HTTPS,
+> which the device handles with a bounded TLS buffer (Yahoo's records are small).
+> Yahoo's endpoint is unofficial and rate‑limited, so keep the refresh interval
+> reasonable (the default 120 s is fine for 8 symbols).
+
+### Custom webhook
+
+Prefer to own the data (other providers, caching, secrets)? Switch the source to
+**Custom webhook**. The device then calls *your* URL, **one request per symbol**:
 
 ```
 GET  <webhookUrl>?symbol=AAPL&range=1d&points=48
@@ -147,10 +187,16 @@ and expects a small JSON object back:
 ```
 
 Only `price` is required. Full contract, field table, and a **ready-to-import
-n8n workflow** (sourcing from Yahoo Finance) are in **[`n8n/`](n8n/README.md)**.
+n8n workflow** are in **[`n8n/`](n8n/README.md)**.
 
-Why pull instead of push? The device fetches on its own schedule, so n8n never
-needs to know the device's IP, and it keeps working if the IP changes.
+Why pull instead of push? The device fetches on its own schedule, so the backend
+never needs to know the device's IP, and it keeps working if the IP changes.
+
+> **Why no cash.ch integration?** cash.ch exposes only a GraphQL API behind
+> Akamai bot protection (direct requests return `403`), which an ESP8266 can't
+> realistically pass. Swiss equities are already covered via Yahoo's `.SW`
+> symbols (priced in CHF), so a dedicated cash.ch path would add fragility for no
+> gain. Use the custom‑webhook mode if you ever need a bespoke Swiss source.
 
 ## Building from source
 

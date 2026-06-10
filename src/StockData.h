@@ -19,6 +19,7 @@ struct StockData {
 
   bool     valid;     // has been successfully populated at least once
   bool     error;     // most recent fetch failed
+  bool     userNamed; // user supplied a custom name (don't override from source)
   uint32_t lastOkMs;  // millis() of last good update
 
   void clear() {
@@ -28,6 +29,7 @@ struct StockData {
     sparkCount = 0;
     valid = false;
     error = false;
+    userNamed = false;
     lastOkMs = 0;
   }
 };

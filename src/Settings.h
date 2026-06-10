@@ -20,8 +20,9 @@ struct Settings {
   String hostname;      // mDNS name => http://<hostname>.local
 
   // --- Data source ---
-  String webhookUrl;    // n8n webhook base URL
-  String range;         // chart timeframe token passed to the webhook (e.g. "1d")
+  uint8_t source;       // SRC_WEBHOOK or SRC_YAHOO (see config.h)
+  String webhookUrl;    // custom webhook base URL (only used when source=webhook)
+  String range;         // chart timeframe token (e.g. "1d", "5d", "1mo", "1y")
   uint16_t points;      // sparkline points requested
   uint16_t pollSec;     // refresh period
   uint16_t rotateSec;   // per-symbol on-screen time

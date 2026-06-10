@@ -1,9 +1,16 @@
 # n8n webhook contract
 
+> **Optional.** Since the firmware can fetch **Yahoo Finance directly** (the
+> default data source — see the main [README](../README.md#data-source)), you
+> only need this if you want to own the data source: another provider, caching,
+> auth, custom symbols, etc. Switch **Display → Data source** to *Custom webhook*
+> to use it.
+
 The SmallTV **pulls** data — it periodically calls your webhook once per ticker.
 Any backend that speaks the small JSON contract below works (n8n, Node-RED, a
 Flask app, a static file…). The included [`smalltv-stock-webhook.json`](smalltv-stock-webhook.json)
-is a ready-to-import n8n workflow that sources data from Yahoo Finance.
+is a ready-to-import n8n workflow that sources data from Yahoo Finance — the same
+endpoint the firmware now calls on its own.
 
 ## Request (device → your webhook)
 

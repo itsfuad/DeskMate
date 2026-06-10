@@ -33,7 +33,7 @@ static void renderCurrent() {
     displayMessage("No tickers", netIP().c_str(), 0xFFE0);
     return;
   }
-  if (g_settings.webhookUrl.length() < 8) {
+  if (g_settings.source == SRC_WEBHOOK && g_settings.webhookUrl.length() < 8) {
     displayMessage("Set webhook", netIP().c_str(), 0xFFE0);
     return;
   }
@@ -46,22 +46,29 @@ void setup() {
   Serial.println();
   Serial.println(FW_NAME " " FW_VERSION);
 
+  Serial.println("[boot] settings");
   settingsBegin();
   loadSettings(g_settings);
 
+  Serial.println("[boot] display");
   displayBegin(g_settings);
   displayBootMessage("SmallTV", FW_VERSION);
 
+  Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
+  Serial.println("[boot] web");
   webPortalBegin(g_settings);
+  Serial.println("[boot] stocks");
   stocksInit(g_settings);
+  Serial.println("[boot] done");
 
   if (netMode() == NET_AP) {
     displayApInfo(g_settings.apSsid.c_str(), g_settings.apPass.c_str(),
                   netIP().c_str());
   } else {
-    displayMessage("Connected", netIP().c_str(), 0x07E0);
-    delay(1200);
+    // Show which network we joined and how to reach the web UI, long enough to read.
+    displayStaInfo(netSSID().c_str(), netIP().c_str(), g_settings.hostname.c_str());
+    delay(3500);
     g_needRender = true;
     g_lastRotate = millis();
   }
