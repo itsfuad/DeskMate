@@ -1,0 +1,77 @@
+{
+  "name": "SmallTV Stock Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "stock",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "smalltv-stock"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read what the SmallTV asked for and build the Yahoo Finance URL.\nconst q = $input.first().json.query || {};\nconst symbol = (q.symbol || 'AAPL').toString();\nconst range = (q.range || '1d').toString().toLowerCase();\nconst points = Math.max(0, parseInt(q.points || '48')) || 48;\n\n// Map the chart timeframe to a sensible candle interval.\nconst intervalMap = { '1d':'5m', '5d':'30m', '1mo':'1d', '3mo':'1d', '6mo':'1d', 'ytd':'1d', '1y':'1wk', '2y':'1wk', '5y':'1mo', 'max':'1mo' };\nconst interval = intervalMap[range] || '1d';\n\nconst url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${interval}`;\nreturn [{ json: { symbol, range, points, interval, url } }];"
+      },
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "User-Agent", "value": "Mozilla/5.0 (SmallTV)" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "33333333-3333-4333-8333-333333333333",
+      "name": "Yahoo Finance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform the Yahoo chart payload into the SmallTV contract.\nconst p = $('Prepare').first().json;\nconst r = $input.first().json;\nconst res = r && r.chart && r.chart.result && r.chart.result[0];\n\nif (!res || !res.meta) {\n  return [{ json: { symbol: p.symbol, ok: false } }];\n}\nconst meta = res.meta;\nconst price = meta.regularMarketPrice;\nconst prev = (meta.chartPreviousClose != null ? meta.chartPreviousClose : meta.previousClose);\n\nlet closes = [];\ntry { closes = res.indicators.quote[0].close.filter(v => v != null); } catch (e) {}\n\nfunction downsample(arr, n) {\n  if (n <= 0 || arr.length <= n) return arr;\n  const out = [];\n  const step = (arr.length - 1) / (n - 1);\n  for (let i = 0; i < n; i++) out.push(arr[Math.round(i * step)]);\n  return out;\n}\nconst round = (v, d) => v == null ? null : Math.round(v * Math.pow(10, d)) / Math.pow(10, d);\nconst spark = downsample(closes, p.points).map(v => round(v, 4));\n\nconst change = (price != null && prev != null) ? price - prev : null;\nconst changePct = (change != null && prev) ? (change / prev * 100) : null;\nconst cur = { USD:'$', EUR:'\\u20ac', GBP:'\\u00a3', JPY:'\\u00a5', CHF:'CHF ' };\n\nreturn [{ json: {\n  symbol: p.symbol,\n  name: meta.shortName || meta.symbol || p.symbol,\n  price: round(price, 4),\n  currency: cur[meta.currency] || (meta.currency || ''),\n  change: round(change, 4),\n  changePct: round(changePct, 2),\n  spark,\n  range: p.range.toUpperCase(),\n  ok: price != null\n}}];"
+      },
+      "id": "44444444-4444-4444-8444-444444444444",
+      "name": "Map",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "55555555-5555-4555-8555-555555555555",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1140, 300]
+    }
+  ],
+  "connections": {
+    "Webhook":       { "main": [[{ "node": "Prepare",       "type": "main", "index": 0 }]] },
+    "Prepare":       { "main": [[{ "node": "Yahoo Finance", "type": "main", "index": 0 }]] },
+    "Yahoo Finance": { "main": [[{ "node": "Map",           "type": "main", "index": 0 }]] },
+    "Map":           { "main": [[{ "node": "Respond",       "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

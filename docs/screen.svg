@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="300" viewBox="0 0 560 300" font-family="Consolas,Menlo,monospace">
+  <rect width="560" height="300" fill="#0e1116"/>
+
+  <!-- ===== device 1: up / green ===== -->
+  <g transform="translate(30,30)">
+    <rect x="-10" y="-10" width="260" height="260" rx="22" fill="#1b2029" stroke="#2b323d"/>
+    <rect width="240" height="240" rx="10" fill="#000"/>
+    <!-- page dots -->
+    <circle cx="108" cy="16" r="3" fill="#ffffff"/>
+    <circle cx="120" cy="16" r="3" fill="#39414d"/>
+    <circle cx="132" cy="16" r="3" fill="#39414d"/>
+    <!-- name -->
+    <text x="120" y="46" fill="#e6edf3" font-size="22" font-weight="700" text-anchor="middle">AAPL</text>
+    <!-- price -->
+    <text x="120" y="118" fill="#3fb950" font-size="44" font-weight="700" text-anchor="middle">$234.56</text>
+    <!-- change -->
+    <path d="M70 150 l9 14 h-18 z" fill="#3fb950"/>
+    <text x="86" y="163" fill="#3fb950" font-size="17" font-weight="700">+2.34 (+1.01%)</text>
+    <!-- sparkline -->
+    <polyline fill="none" stroke="#3fb950" stroke-width="2.4"
+      points="14,212 38,205 60,208 84,196 108,200 132,188 156,184 180,176 204,170 226,160"/>
+    <!-- range label -->
+    <text x="232" y="232" fill="#8b96a5" font-size="15" text-anchor="end">1D</text>
+  </g>
+
+  <!-- ===== device 2: down / red ===== -->
+  <g transform="translate(320,30)">
+    <rect x="-10" y="-10" width="260" height="260" rx="22" fill="#1b2029" stroke="#2b323d"/>
+    <rect width="240" height="240" rx="10" fill="#000"/>
+    <circle cx="108" cy="16" r="3" fill="#39414d"/>
+    <circle cx="120" cy="16" r="3" fill="#ffffff"/>
+    <circle cx="132" cy="16" r="3" fill="#39414d"/>
+    <text x="120" y="46" fill="#e6edf3" font-size="22" font-weight="700" text-anchor="middle">BTC</text>
+    <text x="120" y="118" fill="#f85149" font-size="38" font-weight="700" text-anchor="middle">$61,240</text>
+    <path d="M66 150 l9 -14 h-18 z" fill="#f85149"/>
+    <text x="82" y="163" fill="#f85149" font-size="17" font-weight="700">-1820 (-2.89%)</text>
+    <polyline fill="none" stroke="#f85149" stroke-width="2.4"
+      points="14,168 38,176 60,172 84,184 108,180 132,192 156,196 180,204 204,200 226,214"/>
+    <text x="232" y="232" fill="#8b96a5" font-size="15" text-anchor="end">1D</text>
+  </g>
+</svg>
