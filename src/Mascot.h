@@ -21,9 +21,9 @@ void mascotReset();                     // restart from frame 0 (on entering the
 void mascotSample(float sessionPct);    // feed the burn-rate tracker (per usage update)
 bool mascotTick();                      // advance frames/anim; true if something changed
 
-// Current frame, for the renderer. Pointers reference PROGMEM — read with pgm_read_*.
-const uint8_t*  mascotCells();          // 400 cells (20x20), values 0..9 index the palette
-const uint16_t* mascotPalette();        // MASCOT_PALETTE_SIZE RGB565 entries
+// Current frame, for the renderer.
+const uint8_t*  mascotCells();          // 400 cells (20x20) in PROGMEM — read with pgm_read_byte
+const uint16_t* mascotPalette();        // MASCOT_PALETTE_SIZE RGB565 entries (RAM, index directly)
 const char*     mascotName();           // current animation name (debug)
 
 // A fixed calm idle pose, for the small header logo on the stats screen. Lets

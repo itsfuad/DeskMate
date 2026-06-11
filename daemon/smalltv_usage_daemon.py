@@ -303,8 +303,19 @@ _auth_hint = ""
 
 
 def read_token() -> str | None:
-    """Read the Claude OAuth token, refreshing if expired."""
+    """Return a Claude OAuth token.
+
+    Prefers CLAUDE_CODE_OAUTH_TOKEN — a long-lived token from `claude setup-token`,
+    which is the robust choice for an always-on daemon. Otherwise falls back to the
+    credentials Claude Code stores on disk, which expire and (for some subscription
+    logins) carry no refresh token, so they can't be renewed headlessly.
+    """
     global _auth_hint
+    env_tok = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+    if env_tok:
+        _auth_hint = ""
+        return env_tok
+
     if sys.platform == "darwin":
         tok = _read_token_keychain()
         _auth_hint = "" if tok else "Not logged in - run 'claude' to log in"
@@ -312,23 +323,23 @@ def read_token() -> str | None:
 
     creds = _read_credentials_file()
     if not creds:
-        _auth_hint = "No Claude credentials - run 'claude' to log in"
+        _auth_hint = "No Claude credentials - run 'claude setup-token' or 'claude'"
         return None
     oauth = _get_oauth_block(creds)
     if not oauth or not isinstance(oauth.get("accessToken"), str):
-        _auth_hint = "Not logged in - run 'claude' to log in"
+        _auth_hint = "Not logged in - run 'claude setup-token' or 'claude'"
         return None
 
     if _is_token_expired(oauth):
         # The OAuth refresh grant needs a refresh token. Some subscription logins
         # store an empty one — then neither we nor a fresh `claude` can renew the
-        # token headlessly (it just 401s), so the only fix is an interactive
-        # re-login that writes new credentials to disk.
+        # token headlessly (it just 401s). The durable fix is a long-lived token:
+        # `claude setup-token` -> set CLAUDE_CODE_OAUTH_TOKEN.
         if not oauth.get("refreshToken"):
-            _auth_hint = "Token expired, no refresh token - re-login: claude /login"
+            _auth_hint = "Token expired - run: claude setup-token"
             return None
         tok = _refresh_token(oauth, creds) or _refresh_via_claude_code()
-        _auth_hint = "" if tok else "Token expired - re-login: claude /login"
+        _auth_hint = "" if tok else "Token expired - run: claude setup-token"
         return tok
 
     _auth_hint = ""

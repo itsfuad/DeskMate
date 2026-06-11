@@ -102,20 +102,29 @@ fresh data and, after a short timeout, switches from the stats to the idle
 
 ## Troubleshooting
 
-**Tray says "Token expired … re-login: claude /login" (or "No token") even though
-you're using Claude Code.** Your *current* Claude Code session holds a valid token
-in memory, but the copy on disk (`~/.claude/.credentials.json`) is expired, and if
-its `refreshToken` is empty nothing can renew it headlessly — a fresh `claude`
-process just returns `401`. Fix it by re-authenticating so new credentials get
-written to disk:
+**Tray says "Token expired — run: claude setup-token" (or "No token") even though
+you're using Claude Code.** Your live Claude Code session holds a valid token in
+memory, but the copy on disk (`~/.claude/.credentials.json`) has expired — and if
+its `refreshToken` is empty (common for subscription logins) nothing can renew it
+headlessly; a fresh `claude` just returns `401`.
+
+**Durable fix (recommended for an always-on daemon) — use a long-lived token:**
 
 ```sh
-claude            # then type:  /login     (or /logout then /login)
+claude setup-token        # subscription required; prints a token (sk-ant-oat…)
 ```
 
-The daemon picks up the fresh token on its next poll (within ~a minute). The token
-is good for several hours; while you actively use Claude Code it keeps getting
-refreshed, so in normal use you won't hit this again.
+Then point the daemon at it with the `CLAUDE_CODE_OAUTH_TOKEN` env var (the daemon
+prefers it over the on-disk credentials, so it never expires out from under you):
+
+- **Windows:** `setx CLAUDE_CODE_OAUTH_TOKEN "sk-ant-oat...your-token..."`, then
+  restart the daemon from a **new** shell (or after re-login) so it inherits the
+  variable.
+- **macOS/Linux:** `export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..."` in your shell
+  profile / systemd unit / launchd plist before launching the daemon.
+
+**Quick fix (temporary):** run `claude`, then `/login` — writes fresh credentials
+that work for a few hours; you'll repeat it when they expire.
 
 ## Notes
 

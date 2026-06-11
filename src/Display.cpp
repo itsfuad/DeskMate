@@ -302,7 +302,7 @@ static void blitMascot(const uint8_t* cells, const uint16_t* palette,
                        int x0, int y0, int cellPx) {
   for (int i = 0; i < MASCOT_GRID * MASCOT_GRID; i++) {
     uint8_t code = pgm_read_byte(&cells[i]);
-    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? pgm_read_word(&palette[code]) : 0;
+    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? palette[code] : 0;  // palette is RAM
     int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
     gfx->fillRect(x0 + gx * cellPx, y0 + gy * cellPx, cellPx, cellPx, color);
   }
@@ -399,7 +399,7 @@ void displayMascot(const uint8_t* cells, const uint16_t* palette, bool restart) 
     uint8_t code = pgm_read_byte(&cells[i]);
     if (!full && code == s_prevCells[i]) continue;
     s_prevCells[i] = code;
-    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? pgm_read_word(&palette[code]) : 0;
+    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? palette[code] : 0;  // palette is RAM
     int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
     gfx->fillRect(x0 + gx * CP, y0 + gy * CP, CP, CP, color);
   }
