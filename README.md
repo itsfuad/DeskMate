@@ -231,8 +231,10 @@ It renders two states:
    python smalltv_usage_daemon.py          # http://0.0.0.0:8787/
    ```
 
-   (Windows: double‑click `daemon/start-daemon.bat`.) Full details, the response
-   contract, and run‑at‑startup tips are in **[`daemon/`](daemon/README.md)**.
+   On **Windows** it runs with a **system-tray icon** (the mascot): double-click
+   `daemon/start-daemon.bat` to start it silently now, or `daemon/install.bat` to
+   auto-start it at login. Full details and the response contract are in
+   **[`daemon/`](daemon/README.md)**.
 
 2. In the web UI → **Display → Mode → Claude usage**, set **Usage URL** to
    `http://<that-pc-ip>:8787/` and **Save**.

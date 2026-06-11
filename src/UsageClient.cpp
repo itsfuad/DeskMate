@@ -1,0 +1,98 @@
+#include "UsageClient.h"
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <ESP8266HTTPClient.h>
+#include <ArduinoJson.h>
+#include <math.h>
+
+static UsageData g_usage;
+static uint32_t  g_nextPollMs = 0;
+static bool      g_inited = false;
+
+// ---------------------------------------------------------------------------
+void usageInit(const Settings& s) {
+  (void)s;
+  g_usage.clear();
+  g_nextPollMs = millis();
+  g_inited = true;
+}
+
+void usageForceRefresh() { g_nextPollMs = millis(); }
+
+const UsageData& usageGet() { return g_usage; }
+
+bool usageFresh(uint32_t withinMs) {
+  return g_usage.valid && (millis() - g_usage.lastOkMs) <= withinMs;
+}
+
+// ---- parse: usage contract -------------------------------------------------
+// { "s":29, "sr":142, "w":4, "wr":9876, "st":"allowed", "ok":true }
+//   s  = 5h utilization %        sr = minutes until 5h reset
+//   w  = 7d utilization %        wr = minutes until 7d reset
+//   st = rate-limit status       ok = false => explicit "no data"
+static bool parseUsage(UsageData& d, Stream& stream) {
+  JsonDocument filter;
+  filter["s"] = true;
+  filter["sr"] = true;
+  filter["w"] = true;
+  filter["wr"] = true;
+  filter["st"] = true;
+  filter["ok"] = true;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, stream, DeserializationOption::Filter(filter))) return false;
+
+  if (doc["ok"].is<bool>() && doc["ok"].as<bool>() == false) return false;
+  if (!doc["s"].is<float>() && !doc["s"].is<int>()) return false;   // require at least session %
+
+  d.sessionPct      = constrain(doc["s"].as<float>(), 0.0f, 100.0f);
+  d.weeklyPct       = constrain(doc["w"] | 0.0f, 0.0f, 100.0f);
+  d.sessionResetMin = doc["sr"] | 0;
+  d.weeklyResetMin  = doc["wr"] | 0;
+  strlcpy(d.status, doc["st"] | "", sizeof(d.status));
+
+  d.valid = true;
+  d.error = false;
+  d.lastOkMs = millis();
+  return true;
+}
+
+// ---- one HTTP(S) GET + parse (mirrors StockClient::fetchUrl) ----------------
+static bool fetchUsage(const Settings& s) {
+  const String& url = s.usageUrl;
+  if (url.length() < 8) return false;
+  bool https = url.startsWith("https://");
+
+  std::unique_ptr<WiFiClient> client;
+  if (https) {
+    BearSSL::WiFiClientSecure* sc = new BearSSL::WiFiClientSecure();
+    sc->setInsecure();                  // LAN / self-hosted endpoint
+    sc->setBufferSizes(4096, 512);
+    client.reset(sc);
+  } else {
+    client.reset(new WiFiClient());
+  }
+
+  HTTPClient http;
+  http.setTimeout(s.httpTimeout);
+  http.setReuse(false);
+  if (!http.begin(*client, url)) return false;
+  http.addHeader("Accept", "application/json");
+
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) { http.end(); return false; }
+
+  bool ok = parseUsage(g_usage, http.getStream());
+  http.end();
+  return ok;
+}
+
+// ---------------------------------------------------------------------------
+void usageService(const Settings& s) {
+  if (!g_inited) usageInit(s);
+  if ((int32_t)(millis() - g_nextPollMs) < 0) return;
+
+  if (!fetchUsage(s)) g_usage.error = true;   // keep stale data, flag the error
+
+  g_nextPollMs = millis() + (uint32_t)s.pollSec * 1000UL;
+}
