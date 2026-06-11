@@ -258,7 +258,7 @@ function loadStatus(){j('/api/status').then(function(s){
  $('statusBox').innerHTML=
   kv('Firmware',s.fw+' '+s.version)+kv('Mode',s.mode.toUpperCase())+
   kv('Network',s.ssid||'-')+kv('IP',s.ip||'-')+kv('Signal',s.rssi?s.rssi+' dBm':'-')+
-  kv('Free heap',s.heap+' B')+kv('Uptime',fmtUp(s.uptime));
+  kv('Free heap',s.heap+' B')+kv('Uptime',fmtUp(s.uptime))+kv('Last reset',s.reset||'-');
  var h='';(s.tickers||[]).forEach(function(t){
   var c=t.error?'var(--red)':(t.valid?'var(--acc)':'var(--mut)');
   var pc=t.changePct!=null?(t.changePct>=0?'+':'')+t.changePct.toFixed(2)+'%':'';

@@ -10,6 +10,7 @@
 
 // Defined in main.cpp — re-init usage client + force a repaint after a config change.
 extern void appInvalidate();
+extern const char* appResetReason();   // last reset reason (diagnostics)
 
 static ESP8266WebServer server(80);
 static Settings*        S = nullptr;
@@ -51,6 +52,7 @@ static void handleStatus() {
   o["rssi"] = netRSSI();
   o["heap"] = ESP.getFreeHeap();
   o["uptime"] = millis() / 1000;
+  o["reset"] = appResetReason();
 
   JsonArray arr = o["tickers"].to<JsonArray>();
   for (uint8_t i = 0; i < stocksCount(); i++) {

@@ -263,9 +263,12 @@ static bool fetchUrl(const Settings& s, const String& url, bool yahoo, StockData
 
   std::unique_ptr<WiFiClient> client;
   if (https) {
+    // TLS needs a big contiguous chunk of heap. If we're low, skip this fetch and
+    // flag an error instead of letting BearSSL's allocation fail and reset-loop.
+    if (ESP.getFreeHeap() < 16000) return false;
     BearSSL::WiFiClientSecure* sc = new BearSSL::WiFiClientSecure();
     sc->setInsecure();                  // no cert validation (LAN/self-host/Yahoo)
-    sc->setBufferSizes(4096, 512);      // keep TLS RAM bounded
+    sc->setBufferSizes(2048, 512);      // Yahoo TLS records are <=~1.3KB; small buffer frees heap
     client.reset(sc);
   } else {
     client.reset(new WiFiClient());

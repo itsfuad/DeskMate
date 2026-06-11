@@ -19,6 +19,10 @@
 #include "WebPortal.h"
 
 static Settings g_settings;
+static String   g_resetReason;   // why the chip last reset (diagnostics)
+
+// Exposed to the web portal (/api/status) so the last reset reason is visible.
+const char* appResetReason() { return g_resetReason.c_str(); }
 
 // rotation / render state (stock mode)
 static uint8_t  g_curPage = 0;
@@ -131,12 +135,22 @@ void setup() {
   Serial.println();
   Serial.println(FW_NAME " " FW_VERSION);
 
+  // Capture why we (re)booted. On a reboot loop this is the key clue, and the
+  // device's UART isn't exposed — so we also show it on screen below.
+  g_resetReason = ESP.getResetReason();
+  Serial.print("[boot] reset reason: ");
+  Serial.println(g_resetReason);
+  Serial.println(ESP.getResetInfo());
+
   Serial.println("[boot] settings");
   settingsBegin();
   loadSettings(g_settings);
 
   Serial.println("[boot] display");
   displayBegin(g_settings);
+  // Show the reset reason briefly so it's readable even in a reboot loop.
+  displayBootMessage("Last reset", g_resetReason.c_str());
+  delay(2500);
   displayBootMessage("SmallTV", FW_VERSION);
 
   Serial.println("[boot] net");

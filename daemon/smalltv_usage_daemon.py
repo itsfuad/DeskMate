@@ -92,6 +92,23 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+# Run a child process without flashing a console window on Windows (important when
+# launched via pythonw — otherwise spawning `claude` pops a visible window).
+_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+
+
+def _run(cmd, **kw):
+    if _NO_WINDOW:
+        kw["creationflags"] = kw.get("creationflags", 0) | _NO_WINDOW
+    return subprocess.run(cmd, **kw)
+
+
+# Spawning Claude Code is a last-resort token refresh; never do it more than once
+# per this many seconds, so a failing direct refresh can't pop it every poll.
+_CLAUDE_REFRESH_COOLDOWN = 900
+_last_claude_refresh = 0.0
+
+
 # ---- Shared state ---------------------------------------------------------
 
 class State:
@@ -236,11 +253,23 @@ def _refresh_token(oauth: dict, creds: dict) -> str | None:
 
 
 def _refresh_via_claude_code() -> str | None:
-    """Spawn Claude Code briefly so it refreshes its own token on disk."""
+    """Spawn Claude Code (windowless) briefly so it refreshes its own token on disk.
+
+    Rate-limited and a last resort: normally the direct OAuth refresh succeeds and
+    this is never reached. The subprocess runs with CREATE_NO_WINDOW so it doesn't
+    flash a console window when the daemon runs under pythonw.
+    """
+    global _last_claude_refresh
+    now = time.time()
+    if now - _last_claude_refresh < _CLAUDE_REFRESH_COOLDOWN:
+        log("Skipping Claude Code refresh (rate-limited)")
+        return None
+    _last_claude_refresh = now
+
     log("Spawning Claude Code to refresh token...")
     try:
-        subprocess.run(["claude", "-p", "hi", "--max-turns", "1"],
-                       capture_output=True, timeout=30)
+        _run(["claude", "-p", "hi", "--max-turns", "1"],
+             capture_output=True, timeout=30)
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
         log(f"Could not refresh via Claude Code: {e}")
         return None
@@ -256,7 +285,7 @@ def _refresh_via_claude_code() -> str | None:
 def _read_token_keychain() -> str | None:
     import getpass
     try:
-        out = subprocess.run(
+        out = _run(
             ["security", "find-generic-password", "-s",
              "Claude Code-credentials", "-a", getpass.getuser(), "-w"],
             check=True, capture_output=True, text=True, timeout=10,

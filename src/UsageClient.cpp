@@ -65,9 +65,10 @@ static bool fetchUsage(const Settings& s) {
 
   std::unique_ptr<WiFiClient> client;
   if (https) {
+    if (ESP.getFreeHeap() < 16000) return false;   // too little heap for TLS; skip, don't crash
     BearSSL::WiFiClientSecure* sc = new BearSSL::WiFiClientSecure();
     sc->setInsecure();                  // LAN / self-hosted endpoint
-    sc->setBufferSizes(4096, 512);
+    sc->setBufferSizes(2048, 512);
     client.reset(sc);
   } else {
     client.reset(new WiFiClient());
