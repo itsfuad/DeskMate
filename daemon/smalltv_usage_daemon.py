@@ -118,6 +118,7 @@ class State:
         self.payload: dict = {"ok": False}
         self.last_update = 0.0
         self.endpoint = ""
+        self.push_target = ""
         self.stop_event = threading.Event()
         self.refresh_event = threading.Event()
 
@@ -142,7 +143,9 @@ class State:
             p = self.payload
             if p.get("ok"):
                 lines.append(f"5h {p['s']}%   7d {p['w']}%")
-            if self.endpoint:
+            if self.push_target:
+                lines.append("push -> " + self.push_target)
+            elif self.endpoint:
                 lines.append(self.endpoint)
             return "\n".join(lines)
 
@@ -421,6 +424,39 @@ def poller_loop(interval: float) -> None:
         state.refresh_event.clear()
 
 
+# ---- Push (daemon -> device) ----------------------------------------------
+
+def normalize_push_url(v: str) -> str:
+    v = v.strip()
+    if not v.startswith(("http://", "https://")):
+        v = "http://" + v
+    if "/api/usage" not in v:
+        v = v.rstrip("/") + "/api/usage"
+    return v
+
+
+def push_loop(url: str, interval: float) -> None:
+    """POST the latest payload to the device on a schedule. Used when the device
+    can't reach the daemon (Wi-Fi client isolation) — the daemon pushes instead."""
+    log(f"Pushing usage to {url} every {interval:.0f}s")
+    state.push_target = url
+    first_ok = True
+    while not state.stop_event.is_set():
+        payload = state.get_payload()
+        if payload.get("ok"):
+            try:
+                r = httpx.post(url, json=payload, timeout=10.0)
+                if r.status_code >= 400:
+                    log(f"Push HTTP {r.status_code}")
+                elif first_ok:
+                    log("Pushing to device OK")
+                    first_ok = False
+            except httpx.HTTPError as e:
+                log(f"Push failed: {e}")
+                first_ok = True
+        state.stop_event.wait(interval)
+
+
 # ---- HTTP server ----------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
@@ -542,6 +578,11 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=int(os.environ.get("SMALLTV_PORT", DEFAULT_PORT)))
     ap.add_argument("--interval", type=float, default=DEFAULT_POLL_INTERVAL,
                     help="seconds between Claude API refreshes (default 60)")
+    ap.add_argument("--push-to", default=os.environ.get("SMALLTV_PUSH_URL", ""),
+                    help="device address to PUSH usage to, e.g. 192.168.2.145 "
+                         "(for networks where the device can't reach this PC)")
+    ap.add_argument("--push-interval", type=float, default=20.0,
+                    help="seconds between pushes to the device (default 20)")
     ap.add_argument("--tray", action="store_true", help="show the tray icon (default)")
     ap.add_argument("--no-tray", action="store_true", help="run headless in the console")
     args = ap.parse_args()
@@ -551,7 +592,11 @@ def main() -> None:
     threading.Thread(target=poller_loop, args=(args.interval,), daemon=True).start()
 
     log(f"smalltv usage daemon on {state.endpoint}")
-    log(f"Set the SmallTV's Usage URL to http://<this-pc-ip>:{args.port}/")
+    if args.push_to:
+        push_url = normalize_push_url(args.push_to)
+        threading.Thread(target=push_loop, args=(push_url, args.push_interval), daemon=True).start()
+    else:
+        log(f"Set the SmallTV's Usage URL to http://<this-pc-ip>:{args.port}/  (or use --push-to)")
 
     use_tray = not args.no_tray
     if use_tray:

@@ -7,6 +7,7 @@
 #include "Net.h"
 #include "Display.h"
 #include "StockClient.h"
+#include "UsageClient.h"
 
 // Defined in main.cpp — re-init usage client + force a repaint after a config change.
 extern void appInvalidate();
@@ -132,6 +133,15 @@ static void handleRefresh() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+// Push endpoint: the daemon POSTs the usage payload here when the device can't
+// reach it (Wi-Fi client isolation). Body is the {s,sr,w,wr,st,ok} contract.
+static void handleUsagePush() {
+  if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+  bool ok = usageApply(server.arg("plain"));
+  server.send(ok ? 200 : 400, "application/json",
+              ok ? "{\"ok\":true}" : "{\"ok\":false}");
+}
+
 // ---- OTA ------------------------------------------------------------------
 static void handleUpdateDone() {
   bool ok = !Update.hasError();
@@ -179,6 +189,7 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/reboot", HTTP_POST, handleReboot);
   server.on("/api/factory", HTTP_POST, handleFactory);
   server.on("/api/refresh", HTTP_POST, handleRefresh);
+  server.on("/api/usage", HTTP_POST, handleUsagePush);   // daemon pushes usage here
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
 
   // Common captive-portal probe endpoints

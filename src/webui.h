@@ -199,7 +199,7 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
 function modeChanged(){var u=$('mode').value==='usage';
  $('usageRow').style.display=u?'block':'none';
  $('modeHint').innerHTML=u
-  ?'Shows your Claude <b>5h</b> &amp; <b>7d</b> usage from the local daemon (see <code>daemon/</code>). The screen plays the idle animation until the daemon starts sending data.'
+  ?'Shows your Claude <b>5h</b> &amp; <b>7d</b> usage from the local daemon. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;this-device-ip&gt;</code> (for networks where the device cannot reach the PC). Idle animation plays until data arrives.'
   :'Shows live stock / crypto prices.';
  document.querySelectorAll('.stockonly').forEach(function(e){e.style.display=u?'none':''});}
 function srcChanged(){var y=$('source').value!=='webhook';

@@ -30,18 +30,12 @@ bool usageFresh(uint32_t withinMs) {
 //   s  = 5h utilization %        sr = minutes until 5h reset
 //   w  = 7d utilization %        wr = minutes until 7d reset
 //   st = rate-limit status       ok = false => explicit "no data"
-static bool parseUsage(UsageData& d, Stream& stream) {
-  JsonDocument filter;
-  filter["s"] = true;
-  filter["sr"] = true;
-  filter["w"] = true;
-  filter["wr"] = true;
-  filter["st"] = true;
-  filter["ok"] = true;
+static void usageFilter(JsonDocument& f) {
+  f["s"] = true; f["sr"] = true; f["w"] = true;
+  f["wr"] = true; f["st"] = true; f["ok"] = true;
+}
 
-  JsonDocument doc;
-  if (deserializeJson(doc, stream, DeserializationOption::Filter(filter))) return false;
-
+static bool applyUsageDoc(UsageData& d, JsonDocument& doc) {
   if (doc["ok"].is<bool>() && doc["ok"].as<bool>() == false) return false;
   if (!doc["s"].is<float>() && !doc["s"].is<int>()) return false;   // require at least session %
 
@@ -55,6 +49,21 @@ static bool parseUsage(UsageData& d, Stream& stream) {
   d.error = false;
   d.lastOkMs = millis();
   return true;
+}
+
+static bool parseUsage(UsageData& d, Stream& stream) {
+  JsonDocument filter; usageFilter(filter);
+  JsonDocument doc;
+  if (deserializeJson(doc, stream, DeserializationOption::Filter(filter))) return false;
+  return applyUsageDoc(d, doc);
+}
+
+// Pushed payload (POST /api/usage): same contract, parsed from a String body.
+bool usageApply(const String& body) {
+  JsonDocument filter; usageFilter(filter);
+  JsonDocument doc;
+  if (deserializeJson(doc, body, DeserializationOption::Filter(filter))) return false;
+  return applyUsageDoc(g_usage, doc);
 }
 
 // ---- one HTTP(S) GET + parse (mirrors StockClient::fetchUrl) ----------------

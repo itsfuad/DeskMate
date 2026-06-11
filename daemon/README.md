@@ -100,6 +100,26 @@ fresh data and, after a short timeout, switches from the stats to the idle
 - **Linux/macOS:** a tiny systemd unit / launchd plist, or just run it under
   `tmux` with `--no-tray`.
 
+## Push mode (device can't reach the PC)
+
+If the SmallTV is on a Wi-Fi with **client/AP isolation** (common on guest/IoT
+SSIDs), it can't open a connection back to this PC, so pull mode never receives
+data. Flip the direction — the daemon **pushes** to the device (PC → device still
+works):
+
+```sh
+python smalltv_usage_daemon.py --push-to 192.168.2.145
+```
+
+(or set the `SMALLTV_PUSH_URL` env var so the tray launcher picks it up). The daemon
+POSTs the payload to `http://<device>/api/usage` every `--push-interval` seconds
+(default 20).
+
+On the device: **Mode = Claude usage** and **leave the Usage URL blank** — a
+configured URL makes it try to pull and block. It shows the idle animation until the
+first push lands, then the stats. Set the device's **Refresh (s)** to roughly your
+push interval so it doesn't fall back to the animation between pushes.
+
 ## Troubleshooting
 
 **Tray says "Token expired — run: claude setup-token" (or "No token") even though

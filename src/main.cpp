@@ -103,12 +103,11 @@ static void serviceStockMode() {
 
 // --- Claude usage mode: stats when data is flowing, idle mascot otherwise ----
 static void serviceUsageMode() {
-  if (g_settings.usageUrl.length() < 8) {
-    if (g_needRender) { displayMessage("Set usage URL", netIP().c_str(), 0xFFE0); g_needRender = false; }
-    return;
-  }
+  // Pull mode: poll the daemon when a Usage URL is set. Push mode: leave it blank
+  // and the daemon POSTs to /api/usage (for networks where the device can't reach
+  // the PC). Either way g_usage drives the render below.
+  if (g_settings.usageUrl.length() >= 8) usageService(g_settings);
 
-  usageService(g_settings);
   const UsageData& u = usageGet();
 
   // Feed the burn-rate tracker once per fresh reading (drives the mascot's mood).
