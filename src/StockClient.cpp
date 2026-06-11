@@ -79,11 +79,13 @@ static const char* yahooInterval(const String& r) {
   return "1d";
 }
 
-static String buildYahooUrl(const Settings& s, const char* symbol) {
+static String buildYahooUrl(const Settings& s, const char* host, const char* symbol) {
   String range = s.range;
   range.toLowerCase();
   if (range.length() == 0) range = "1d";
-  String url = F(YAHOO_CHART_URL);
+  String url = F("https://");
+  url += host;
+  url += F(YAHOO_CHART_PATH);
   url += urlEncode(symbol);          // e.g. AAPL, NESN.SW, BTC-USD, EURUSD=X
   url += F("?range=");
   url += range;
@@ -255,18 +257,8 @@ static bool parseYahoo(const Settings& s, StockData& d, Stream& stream) {
   return true;
 }
 
-// ---- fetch one symbol -----------------------------------------------------
-static bool fetchSymbol(const Settings& s, StockData& d) {
-  bool yahoo = (s.source == SRC_YAHOO);
-
-  String url;
-  if (yahoo) {
-    url = buildYahooUrl(s, d.symbol);
-  } else {
-    if (s.webhookUrl.length() < 8) return false;
-    url = buildWebhookUrl(s, d.symbol);
-  }
-
+// ---- one HTTP(S) GET + parse ----------------------------------------------
+static bool fetchUrl(const Settings& s, const String& url, bool yahoo, StockData& d) {
   bool https = url.startsWith("https://");
 
   std::unique_ptr<WiFiClient> client;
@@ -299,6 +291,21 @@ static bool fetchSymbol(const Settings& s, StockData& d) {
                   : parseWebhook(s, d, http.getStream());
   http.end();
   return ok;
+}
+
+// ---- fetch one symbol -----------------------------------------------------
+static bool fetchSymbol(const Settings& s, StockData& d) {
+  if (s.source == SRC_YAHOO) {
+    // A single back-to-back HTTPS fetch occasionally drops on the ESP8266, so
+    // retry once on the alternate mirror before giving up (this is what made one
+    // symbol intermittently fail while others in the same poll succeeded).
+    if (fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST1, d.symbol), true, d)) return true;
+    delay(150);
+    return fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST2, d.symbol), true, d);
+  }
+
+  if (s.webhookUrl.length() < 8) return false;
+  return fetchUrl(s, buildWebhookUrl(s, d.symbol), false, d);
 }
 
 // ---------------------------------------------------------------------------

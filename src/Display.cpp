@@ -196,7 +196,7 @@ void displayStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     int x0 = (TFT_WIDTH - total) / 2;
     for (uint8_t i = 0; i < pageCount; i++)
       gfx->fillCircle(x0 + i * 10 + 2, y + 3, 2, i == pageIndex ? C_WHITE : C_DGRAY);
-    y += 12;
+    y += 20;                       // extra breathing room below the dots
   }
 
   // Name / symbol
@@ -215,7 +215,7 @@ void displayStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     uint8_t sz = fitSize(line, 236, 6);
     int ph = 8 * sz;
     int py = s.showName ? 74 : 64;
-    drawCentered(line, py, sz, trendC);
+    drawCentered(line, py, sz, C_WHITE);   // price stays neutral (not trend-colored)
     y = py + ph + 8;
   }
 
@@ -253,13 +253,13 @@ void displayStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     if (top < bottom - 10) drawSparkline(d, top, bottom, trendC);
   }
 
-  // Range label (bottom-right)
+  // Range label (top-right; the very bottom row is overscanned on this panel)
   if (s.showRangeLabel && d.rangeLabel[0]) {
     int sz = 2;
     int tw = textW(d.rangeLabel, sz);
     gfx->setTextSize(sz);
     gfx->setTextColor(C_GRAY);
-    gfx->setCursor(TFT_WIDTH - tw - 4, 224);
+    gfx->setCursor(TFT_WIDTH - tw - 4, 4);
     gfx->print(d.rangeLabel);
   }
 
@@ -275,6 +275,7 @@ void displayStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     gfx->print(buf);
   }
 
-  // Stale/error dot (top-right) when last refresh failed but we have old data.
-  if (d.error) gfx->fillCircle(TFT_WIDTH - 6, 6, 3, C_RED);
+  // Stale/error dot (top-left) when last refresh failed but we have old data.
+  // (Top-right now holds the range label.)
+  if (d.error) gfx->fillCircle(6, 6, 3, C_RED);
 }

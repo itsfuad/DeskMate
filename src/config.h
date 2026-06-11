@@ -55,7 +55,11 @@
 // Yahoo Finance public chart endpoint. A browser-like User-Agent is required —
 // requests with an empty UA are rejected with HTTP 429. TLS records from Yahoo
 // are <=~1.3 KB, so the 4 KB BearSSL receive buffer in StockClient is plenty.
-#define YAHOO_CHART_URL   "https://query1.finance.yahoo.com/v8/finance/chart/"
+// query1/query2 are interchangeable mirrors; we fall back to the second on a
+// transient failure (a single back-to-back HTTPS fetch occasionally drops).
+#define YAHOO_CHART_HOST1 "query1.finance.yahoo.com"
+#define YAHOO_CHART_HOST2 "query2.finance.yahoo.com"
+#define YAHOO_CHART_PATH  "/v8/finance/chart/"
 #define YAHOO_USER_AGENT  "Mozilla/5.0 (SmallTV)"
 
 // ---------------------------------------------------------------------------
