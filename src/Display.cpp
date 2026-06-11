@@ -134,6 +134,20 @@ void displayMessage(const char* title, const char* msg, uint16_t titleColor) {
   if (msg && msg[0]) drawCentered(msg, 130, 2, C_GRAY);
 }
 
+// Persistent crash screen shown in safe mode (after an exception reset). Holds the
+// crash PC + fault address still so they can be read, and the IP for OTA recovery.
+void displayCrash(const char* epc, const char* addr, const char* ip) {
+  if (!gfx) return;
+  gfx->fillScreen(C_BLACK);
+  drawCentered("CRASH", 12, 4, C_RED);
+  drawCentered("epc", 60, 2, C_GRAY);
+  drawCentered(epc && epc[0] ? epc : "-", 80, 3, C_WHITE);
+  drawCentered("addr", 124, 2, C_GRAY);
+  drawCentered(addr && addr[0] ? addr : "-", 146, 2, C_WHITE);
+  drawCentered("OTA flash to fix:", 182, 2, C_GRAY);
+  drawCentered(ip && ip[0] ? ip : "-", 204, 2, C_GREEN);
+}
+
 // ---- sparkline ------------------------------------------------------------
 static void drawSparkline(const StockData& d, int top, int bottom, uint16_t color) {
   if (d.sparkCount < 2) return;
@@ -297,12 +311,23 @@ static bool            s_mascotPrimed  = false;
 static const uint16_t* s_mascotPalette = nullptr;
 static uint8_t         s_prevCells[MASCOT_GRID * MASCOT_GRID];
 
+// Copy a mascot palette into a local RAM array using *byte* reads. pgm_read_byte
+// is safe from both RAM and flash; a 16-bit load straight from flash (irom) faults
+// on the ESP8266, so this never depends on where the palette actually lives.
+static void loadPalette(const uint16_t* palette, uint16_t* out) {
+  const uint8_t* p = (const uint8_t*)palette;
+  for (int k = 0; k < MASCOT_PALETTE_SIZE; k++)
+    out[k] = (uint16_t)(pgm_read_byte(p + 2 * k) | (pgm_read_byte(p + 2 * k + 1) << 8));
+}
+
 // Draw a 20x20 mascot frame at (x0,y0), cellPx per cell. Reads PROGMEM frame data.
 static void blitMascot(const uint8_t* cells, const uint16_t* palette,
                        int x0, int y0, int cellPx) {
+  uint16_t pal[MASCOT_PALETTE_SIZE];
+  loadPalette(palette, pal);
   for (int i = 0; i < MASCOT_GRID * MASCOT_GRID; i++) {
     uint8_t code = pgm_read_byte(&cells[i]);
-    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? palette[code] : 0;  // palette is RAM
+    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? pal[code] : 0;
     int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
     gfx->fillRect(x0 + gx * cellPx, y0 + gy * cellPx, cellPx, cellPx, color);
   }
@@ -386,6 +411,8 @@ void displayUsage(const UsageData& u, const Settings& s) {
 
 void displayMascot(const uint8_t* cells, const uint16_t* palette, bool restart) {
   if (!gfx || !cells || !palette) return;
+  uint16_t pal[MASCOT_PALETTE_SIZE];
+  loadPalette(palette, pal);
   const int CP = TFT_WIDTH / MASCOT_GRID;                 // 240 / 20 = 12
   const int x0 = (TFT_WIDTH  - MASCOT_GRID * CP) / 2;
   const int y0 = (TFT_HEIGHT - MASCOT_GRID * CP) / 2;
@@ -399,7 +426,7 @@ void displayMascot(const uint8_t* cells, const uint16_t* palette, bool restart) 
     uint8_t code = pgm_read_byte(&cells[i]);
     if (!full && code == s_prevCells[i]) continue;
     s_prevCells[i] = code;
-    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? palette[code] : 0;  // palette is RAM
+    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? pal[code] : 0;
     int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
     gfx->fillRect(x0 + gx * CP, y0 + gy * CP, CP, CP, color);
   }

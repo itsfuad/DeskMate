@@ -23,6 +23,9 @@ extern "C" {
 
 static Settings g_settings;
 static String   g_resetReason;   // why the chip last reset (diagnostics)
+static bool     g_safeMode = false;   // last reset was an exception -> don't re-enter the crash
+static char     g_epcStr[16] = "";
+static char     g_addrStr[16] = "";
 
 // Exposed to the web portal (/api/status) so the last reset reason is visible.
 const char* appResetReason() { return g_resetReason.c_str(); }
@@ -147,13 +150,13 @@ void setup() {
   Serial.println(resetShort);
   Serial.println(ESP.getResetInfo());
 
-  char epcStr[16] = "", addrStr[16] = "";
   if (ri && ri->reason == REASON_EXCEPTION_RST) {
-    snprintf(epcStr,  sizeof(epcStr),  "0x%08x", (unsigned)ri->epc1);
-    snprintf(addrStr, sizeof(addrStr), "0x%08x", (unsigned)ri->excvaddr);
+    g_safeMode = true;                   // crashed last boot -> stay out of the crash path
+    snprintf(g_epcStr,  sizeof(g_epcStr),  "0x%08x", (unsigned)ri->epc1);
+    snprintf(g_addrStr, sizeof(g_addrStr), "0x%08x", (unsigned)ri->excvaddr);
     char rich[60];
     snprintf(rich, sizeof(rich), "%s epc %s addr %s",
-             resetShort.c_str(), epcStr, addrStr);
+             resetShort.c_str(), g_epcStr, g_addrStr);
     g_resetReason = rich;
   } else {
     g_resetReason = resetShort;
@@ -165,16 +168,7 @@ void setup() {
 
   Serial.println("[boot] display");
   displayBegin(g_settings);
-  // Show the reset reason briefly so it's readable even in a reboot loop.
-  displayBootMessage("Last reset", resetShort.c_str());
-  delay(2200);
-  if (epcStr[0]) {                       // an exception: show crash PC + fault address
-    displayBootMessage("Crash epc", epcStr);
-    delay(5000);
-    displayBootMessage("Fault addr", addrStr);
-    delay(4000);
-  }
-  displayBootMessage("SmallTV", FW_VERSION);
+  displayBootMessage(g_safeMode ? "Crashed" : "SmallTV", FW_VERSION);
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
@@ -190,6 +184,10 @@ void setup() {
   if (netMode() == NET_AP) {
     displayApInfo(g_settings.apSsid.c_str(), g_settings.apPass.c_str(),
                   netIP().c_str());
+  } else if (g_safeMode) {
+    // Last boot crashed: show the crash address (persistent) and keep the web
+    // server up for OTA recovery — don't enter the render path that crashed.
+    displayCrash(g_epcStr, g_addrStr, netIP().c_str());
   } else {
     // Show which network we joined and how to reach the web UI, long enough to read.
     displayStaInfo(netSSID().c_str(), netIP().c_str(), g_settings.hostname.c_str());
@@ -206,6 +204,11 @@ void loop() {
   if (webPortalRebootDue()) {
     delay(120);
     ESP.restart();
+  }
+
+  if (g_safeMode) {
+    delay(5);
+    return;  // crashed last boot: web UI stays up for OTA recovery, no rendering
   }
 
   if (netMode() == NET_AP) {

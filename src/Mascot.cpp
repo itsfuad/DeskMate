@@ -122,7 +122,9 @@ bool mascotTick() {
   const MascotAnim& a = mascot_anims[s_curAnim];
   if (a.frame_count == 0) return changed;
 
-  uint16_t hold = a.holds[s_curFrame];   // holds is RAM
+  // Byte-read the hold time (safe from RAM or flash; a 16-bit flash load faults).
+  const uint8_t* hp = (const uint8_t*)&a.holds[s_curFrame];
+  uint16_t hold = (uint16_t)(pgm_read_byte(hp) | (pgm_read_byte(hp + 1) << 8));
   if (millis() - s_frameStartMs >= hold) {
     s_curFrame = (s_curFrame + 1) % a.frame_count;
     s_frameStartMs = millis();
