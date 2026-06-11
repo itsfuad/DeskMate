@@ -297,19 +297,41 @@ def _read_token_keychain() -> str | None:
     return _extract_access_token(out.stdout)
 
 
+# Last reason read_token() returned None — surfaced in the tray/console so the
+# user sees *why* (e.g. "re-login" vs "not logged in").
+_auth_hint = ""
+
+
 def read_token() -> str | None:
     """Read the Claude OAuth token, refreshing if expired."""
+    global _auth_hint
     if sys.platform == "darwin":
-        return _read_token_keychain()
+        tok = _read_token_keychain()
+        _auth_hint = "" if tok else "Not logged in - run 'claude' to log in"
+        return tok
+
     creds = _read_credentials_file()
     if not creds:
+        _auth_hint = "No Claude credentials - run 'claude' to log in"
         return None
     oauth = _get_oauth_block(creds)
     if not oauth or not isinstance(oauth.get("accessToken"), str):
+        _auth_hint = "Not logged in - run 'claude' to log in"
         return None
+
     if _is_token_expired(oauth):
-        return (_refresh_token(oauth, creds)
-                or _refresh_via_claude_code())
+        # The OAuth refresh grant needs a refresh token. Some subscription logins
+        # store an empty one — then neither we nor a fresh `claude` can renew the
+        # token headlessly (it just 401s), so the only fix is an interactive
+        # re-login that writes new credentials to disk.
+        if not oauth.get("refreshToken"):
+            _auth_hint = "Token expired, no refresh token - re-login: claude /login"
+            return None
+        tok = _refresh_token(oauth, creds) or _refresh_via_claude_code()
+        _auth_hint = "" if tok else "Token expired - re-login: claude /login"
+        return tok
+
+    _auth_hint = ""
     return oauth.get("accessToken")
 
 
@@ -366,7 +388,7 @@ def poller_loop(interval: float) -> None:
     while not state.stop_event.is_set():
         token = read_token()
         if not token:
-            state.set_status("No token — run 'claude' to log in")
+            state.set_status(_auth_hint or "No token - run 'claude' to log in")
             state.set_payload({"ok": False})
         else:
             payload, auth_failed = poll_api(token)

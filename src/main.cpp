@@ -9,6 +9,9 @@
 //
 // License: WTFPL
 #include <Arduino.h>
+extern "C" {
+#include <user_interface.h>   // struct rst_info + REASON_* (reset cause / crash PC)
+}
 #include "config.h"
 #include "Settings.h"
 #include "Net.h"
@@ -136,11 +139,25 @@ void setup() {
   Serial.println(FW_NAME " " FW_VERSION);
 
   // Capture why we (re)booted. On a reboot loop this is the key clue, and the
-  // device's UART isn't exposed — so we also show it on screen below.
-  g_resetReason = ESP.getResetReason();
+  // device's UART isn't exposed — so we also show it on screen below. For an
+  // exception we keep the crash PC (epc1) so it can be decoded with addr2line.
+  String resetShort = ESP.getResetReason();
+  struct rst_info* ri = ESP.getResetInfoPtr();
   Serial.print("[boot] reset reason: ");
-  Serial.println(g_resetReason);
+  Serial.println(resetShort);
   Serial.println(ESP.getResetInfo());
+
+  char epcStr[16] = "", addrStr[16] = "";
+  if (ri && ri->reason == REASON_EXCEPTION_RST) {
+    snprintf(epcStr,  sizeof(epcStr),  "0x%08x", (unsigned)ri->epc1);
+    snprintf(addrStr, sizeof(addrStr), "0x%08x", (unsigned)ri->excvaddr);
+    char rich[60];
+    snprintf(rich, sizeof(rich), "%s epc %s addr %s",
+             resetShort.c_str(), epcStr, addrStr);
+    g_resetReason = rich;
+  } else {
+    g_resetReason = resetShort;
+  }
 
   Serial.println("[boot] settings");
   settingsBegin();
@@ -149,8 +166,14 @@ void setup() {
   Serial.println("[boot] display");
   displayBegin(g_settings);
   // Show the reset reason briefly so it's readable even in a reboot loop.
-  displayBootMessage("Last reset", g_resetReason.c_str());
-  delay(2500);
+  displayBootMessage("Last reset", resetShort.c_str());
+  delay(2200);
+  if (epcStr[0]) {                       // an exception: show crash PC + fault address
+    displayBootMessage("Crash epc", epcStr);
+    delay(5000);
+    displayBootMessage("Fault addr", addrStr);
+    delay(4000);
+  }
   displayBootMessage("SmallTV", FW_VERSION);
 
   Serial.println("[boot] net");

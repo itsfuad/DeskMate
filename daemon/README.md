@@ -100,6 +100,23 @@ fresh data and, after a short timeout, switches from the stats to the idle
 - **Linux/macOS:** a tiny systemd unit / launchd plist, or just run it under
   `tmux` with `--no-tray`.
 
+## Troubleshooting
+
+**Tray says "Token expired … re-login: claude /login" (or "No token") even though
+you're using Claude Code.** Your *current* Claude Code session holds a valid token
+in memory, but the copy on disk (`~/.claude/.credentials.json`) is expired, and if
+its `refreshToken` is empty nothing can renew it headlessly — a fresh `claude`
+process just returns `401`. Fix it by re-authenticating so new credentials get
+written to disk:
+
+```sh
+claude            # then type:  /login     (or /logout then /login)
+```
+
+The daemon picks up the fresh token on its next poll (within ~a minute). The token
+is good for several hours; while you actively use Claude Code it keeps getting
+refreshed, so in normal use you won't hit this again.
+
 ## Notes
 
 - LAN-only by design. The token never leaves your machine; only the percentages
