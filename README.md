@@ -15,25 +15,25 @@ your **5‑hour and 7‑day Claude usage** bars, fed over WiFi by a tiny local
 
 > Not affiliated with GeekMagic or Anthropic. This replaces the stock firmware entirely.
 
-![what it shows](docs/screen.svg)
+![SmallTV showing the stock ticker (up and down) and Claude usage mode](docs/screen.svg)
 
 ## Features
 
-- 📈 **Stock / crypto ticker** — price, absolute change, %‑change with up/down
+- **Stock / crypto ticker** — price, absolute change, %‑change with up/down
   arrow, and a sparkline chart.
-- 🔁 **Multiple symbols** that rotate on a configurable interval.
-- 🟣 **Built-in Yahoo Finance** — fetches quotes & charts directly over HTTPS,
+- **Multiple symbols** that rotate on a configurable interval.
+- **Built-in Yahoo Finance** — fetches quotes & charts directly over HTTPS,
   **no backend needed**. Stocks, ETFs, Swiss equities (`NESN.SW`), crypto
   (`BTC-USD`) and FX (`EURUSD=X`) all work.
-- 🌐 **Or your own webhook** (n8n, Node‑RED, anything) if you'd rather own the
+- **Or your own webhook** (n8n, Node‑RED, anything) if you'd rather own the
   data source — the device just renders the small JSON contract it's given.
-- 🦀 **Claude usage mode** — an animated pixel mascot + 5h/7d usage bars with reset
+- **Claude usage mode** — an animated pixel mascot + 5h/7d usage bars with reset
   countdowns, served from a small local [daemon](daemon/) (no cable, polled over WiFi).
-- 🛠 **Full web UI** — connect to WiFi, configure the AP/hotspot, pick what to
+- **Full web UI** — connect to WiFi, configure the AP/hotspot, pick what to
   show, manage the symbol list, set brightness/orientation/colours.
-- ⬆️ **OTA updates** — flash new firmware from the browser, no cable needed.
-- 📶 **Captive-portal setup** — first boot creates a `SmallTV-Setup` hotspot.
-- 🧠 Tiny footprint: ~41 KB free heap, framebuffer-less rendering, HTTP **or**
+- **OTA updates** — flash new firmware from the browser, no cable needed.
+- **Captive-portal setup** — first boot creates a `SmallTV-Setup` hotspot.
+- Tiny footprint: ~41 KB free heap, framebuffer-less rendering, HTTP **or**
   HTTPS.
 
 ## Hardware
@@ -87,7 +87,7 @@ device**:
 2. Browse to `http://<device-ip>/update`.
 3. Upload `smalltv-mod-firmware.bin`. It reboots into this firmware.
 
-> ⚠️ **Back up the stock firmware first if you want to be able to go back** — the
+> **Back up the stock firmware first if you want to be able to go back** — the
 > stock `.bin` is not redistributed here. See [recovery](#recovery--going-back).
 > Flashing custom firmware is at your own risk.
 
