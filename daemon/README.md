@@ -5,6 +5,11 @@ it in **Claude usage** mode. No cable and no serial port — the SmallTV is a Wi
 device, so it just **pulls** the numbers over HTTP, exactly like it pulls stock
 quotes.
 
+> **Shared daemon:** this is the SmallTV-specific copy. The same thing is also
+> maintained as **[clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon)**,
+> which merges it with the serial daemon and does **serial, HTTP push, and HTTP
+> serve** from one tool — use either for the SmallTV.
+
 ```
 +------------------+        polls Claude API         +-----------------------+
 |   This PC        |  (rate-limit headers, OAuth)    |  api.anthropic.com    |

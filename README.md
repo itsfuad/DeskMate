@@ -234,7 +234,10 @@ It renders two states:
    On **Windows** it runs with a **system-tray icon** (the mascot): double-click
    `daemon/start-daemon.bat` to start it silently now, or `daemon/install.bat` to
    auto-start it at login. Full details and the response contract are in
-   **[`daemon/`](daemon/README.md)**.
+   **[`daemon/`](daemon/README.md)**. The same daemon is also maintained as the
+   shared **[clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon)**
+   (serial / HTTP push / HTTP serve, one tool for both the SmallTV and the
+   USB Clawdmeter).
 
 2. In the web UI → **Display → Mode → Claude usage**, set **Usage URL** to
    `http://<that-pc-ip>:8787/` and **Save**.
