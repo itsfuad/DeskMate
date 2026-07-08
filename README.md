@@ -14,15 +14,14 @@ your **5‑hour and 7‑day Claude usage** bars, fed over WiFi by the
 **[clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon)** running on
 your PC. Pick the mode in the web UI.
 
-Or a **live plane radar**: a PPI‑style scope centred on your location showing
-nearby aircraft (heading, speed vector, callsign, altitude) from the free
-**[adsb.fi](https://adsb.fi)** open‑data API — no API key, no receiver. Each mode
-is a self‑contained feature module; you can even build a lean image with only the
-one you want (see [Build variants](#build-variants)).
+Or a **live plane radar**: a scope centred on your location showing nearby
+aircraft (heading, speed vector, callsign, altitude) pulled from the free
+[adsb.fi](https://adsb.fi) API. No API key, no receiver, nothing running on a PC.
+One firmware carries all three modes; you switch between them in the web UI.
 
 > Not affiliated with GeekMagic or Anthropic. This replaces the stock firmware entirely.
 
-![SmallTV showing the stock ticker (up and down) and Claude usage mode](docs/screen.svg)
+![SmallTV running its three modes: stock ticker, Claude usage, and plane radar](docs/screen.svg)
 
 ## Features
 
@@ -37,10 +36,11 @@ one you want (see [Build variants](#build-variants)).
 - **Claude usage mode** — an animated pixel mascot + 5h/7d usage bars with reset
   countdowns, fed by the [clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon)
   on your PC (no cable; pushed or polled over WiFi).
-- **Plane radar mode** — a live ADS‑B radar of nearby aircraft (heading triangles,
-  speed vectors, callsign/altitude, off‑screen bearing dots) from the free
-  [adsb.fi](https://adsb.fi) API **or** your own LAN webhook, with a few
-  configurable home airports.
+- **Plane radar mode** puts nearby aircraft on a radar scope: heading triangles
+  with speed vectors, callsign and altitude, and rim dots for traffic outside the
+  ring, from the free [adsb.fi](https://adsb.fi) API or your own LAN webhook, plus
+  a few home airports you set. Marker size, an altitude filter, and label
+  decluttering are all configurable.
 - **Full web UI** — connect to WiFi, configure the AP/hotspot, pick what to
   show, manage the symbol list, set brightness/orientation/colours.
 - **OTA updates** — flash new firmware from the browser, no cable needed.
@@ -266,60 +266,60 @@ ST7789.
 
 ## Plane radar mode
 
-Switch **Display → Mode** to **Plane radar** and configure it in the **Radar** tab.
-The device shows a PPI‑style radar centred on your home location: range rings, a
-home marker, nearby aircraft as red heading triangles with a magenta speed vector
-and callsign/altitude labels, aircraft beyond the ring as bearing dots on the rim,
-and any home airports you add as small markers.
+Switch **Display → Mode** to **Plane radar** and set it up in the **Radar** tab.
+The screen becomes a radar scope centred on your location: range rings, a home
+marker in the middle, nearby aircraft as red heading triangles with a speed vector
+and a callsign/altitude label, traffic outside the ring as dots on the rim, and
+any airports you add as small markers.
 
-Set your **home latitude/longitude** (decimal degrees), a **range** preset
-(5/10/15/25/50), **km or mi**, and pick a **data source**:
+Set your **home latitude/longitude** in decimal degrees, a **range** ring
+(5/10/15/25/50), **km or mi**, and a **data source** (below).
 
-### adsb.fi (default — no server)
+### Display options
 
-The device fetches the free [adsb.fi](https://adsb.fi) open‑data API directly over
-HTTPS, one request per refresh:
+Three controls in the Radar tab tune what shows on screen:
+
+- **Marker & label size** (Small / Medium / Large) scales the triangles, markers
+  and text together. Medium is the default; Large reads from across the room,
+  Small keeps a busy sky uncluttered.
+- **Hide aircraft below (ft)** drops ground traffic and low flights. Set it to
+  `500` and planes parked or taxiing at the airport disappear; `0` shows all.
+- Callsigns are placed nearest-first, and any that would overlap a label already
+  on screen is skipped, so a crowded scope stays legible. The triangle still shows
+  even when its label was dropped.
+
+### adsb.fi (default, no server)
+
+The device fetches the free [adsb.fi](https://adsb.fi) API directly over HTTPS,
+one request per refresh:
 
 ```
 GET https://opendata.adsb.fi/api/v3/lat/<lat>/lon/<lon>/dist/<nm>
 ```
 
-No API key. It parses the nearest aircraft itself and keeps the closest 24. The
-public endpoint is rate‑limited (~1 req/s), so keep the refresh interval sensible
-(default 10 s).
+No API key. The device parses the feed itself and keeps the closest 24 aircraft.
+The endpoint is rate-limited to about one request a second, so keep the refresh
+interval sensible (10 s by default).
 
-> **ESP8266 TLS caveat.** HTTPS is RAM‑tight on the ESP8266. The device probes the
-> server's Maximum Fragment Length support so BearSSL can use a small buffer; if
-> adsb.fi sends large TLS records without MFLN, the direct fetch can fail in busy
-> airspace. If you see it dropping, use the **webhook** source below.
+> **ESP8266 TLS note.** HTTPS is tight on RAM here. The device probes the server's
+> Maximum Fragment Length support so BearSSL can run with a small buffer. If
+> adsb.fi ever sends large TLS records without MFLN, the direct fetch can fail in
+> busy airspace; switch to the webhook source below if that happens.
 
-### Custom webhook (LAN proxy — most reliable)
+### Custom webhook (LAN proxy)
 
-Point a tiny proxy (n8n, Node‑RED, a small script) at adsb.fi, filter it to the
-nearest few aircraft, and return a small JSON over plain HTTP on your LAN. Set the
-source to **Custom webhook** and the URL; the device calls:
+Point a small proxy (n8n, Node-RED, a short script) at adsb.fi, filter it down to
+the nearest few aircraft, and return a small JSON over plain HTTP on your LAN. Set
+the source to **Custom webhook**, give it the URL, and the device calls:
 
 ```
 GET  <webhookUrl>?lat=<lat>&lon=<lon>&dist=<km>
 ```
 
-and expects the same `{"ac":[ ... ]}` shape adsb.fi returns (fields per aircraft:
-`lat`, `lon`, `track`, `gs`, `flight`, `hex`, `alt_baro`). This offloads filtering
-and the big TLS handshake from the device — the most robust option on the ESP8266.
-
-## Build variants
-
-All three features ship in the default `smalltv` image and you switch between them
-in the web UI. Each feature is gated by a compile‑time flag (`WITH_TICKER`,
-`WITH_USAGE`, `WITH_RADAR`, all on by default), so you can build a leaner image
-with only what you want — handy if flash or heap ever gets tight:
-
-```bash
-pio run -e smalltv           # all three (default)
-pio run -e smalltv-radar     # radar only
-pio run -e smalltv-ticker    # ticker only
-pio run -e smalltv-usage     # usage only
-```
+It expects the same `{"ac":[ ... ]}` shape adsb.fi returns, with these fields per
+aircraft: `lat`, `lon`, `track`, `gs`, `flight`, `hex`, `alt_baro`. The proxy does
+the filtering and the TLS handshake, which is the most reliable setup on the
+ESP8266.
 
 ## Building from source
 

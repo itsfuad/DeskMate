@@ -69,10 +69,11 @@ struct RadarSettings {
   uint16_t pollSec;       // refresh period
   bool     unitsMi;       // show distances in miles instead of km
 
-  bool    showLabels;     // callsign + altitude next to each aircraft
-  bool    showVectors;    // speed/heading vector line
-  bool    showRimDots;    // aircraft beyond the ring as bearing dots on the rim
-  uint8_t uiScale;        // marker/text size: 0 = small, 1 = medium, 2 = large
+  bool     showLabels;    // callsign + altitude next to each aircraft
+  bool     showVectors;   // speed/heading vector line
+  bool     showRimDots;   // aircraft beyond the ring as bearing dots on the rim
+  uint8_t  uiScale;       // marker/text size: 0 = small, 1 = medium, 2 = large
+  uint16_t minAltFt;      // hide aircraft below this altitude (ft); 0 = show all
 
   Airport airports[MAX_AIRPORTS];
   uint8_t airportCount;

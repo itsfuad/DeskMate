@@ -52,6 +52,15 @@ static void planeTri(Arduino_GFX* gfx, int x, int y, float trackDeg, float k, ui
   gfx->fillTriangle(nx, ny, lx, ly, rx, ry, color);
 }
 
+// Label bounding box + AABB overlap test, used to declutter callsigns: labels
+// are placed nearest-first and any that would collide with one already drawn are
+// dropped (the plane's triangle still shows).
+struct LblBox { int16_t x, y, w, h; };
+static bool boxHit(const LblBox& a, const LblBox& b) {
+  return !(a.x + a.w <= b.x || b.x + b.w <= a.x ||
+           a.y + a.h <= b.y || b.y + b.h <= a.y);
+}
+
 // ---- the radar view --------------------------------------------------------
 static void drawRadar(const Settings& s) {
   Arduino_GFX* gfx = gfxDev();
@@ -93,6 +102,8 @@ static void drawRadar(const Settings& s) {
 
   // Aircraft, nearest first.
   uint8_t n = radarCount();
+  LblBox  lbl[MAX_AIRCRAFT];    // labels already placed (for declutter)
+  uint8_t nLbl = 0;
   for (uint8_t i = 0; i < n; i++) {
     const Aircraft& a = aircraftAt(i);
 
@@ -119,16 +130,25 @@ static void drawRadar(const Settings& s) {
     else                 gfx->fillCircle(x, y, scaleR(4, k), C_RED);
 
     if (s.radar.showLabels && a.callsign[0]) {
-      gfx->setTextSize(txt);
-      gfx->setTextColor(C_GRAY);
-      gfx->setCursor(x + lblDX, y - (txt == 1 ? 4 : 8));
-      gfx->print(a.callsign);
-      if (a.altFt > 0) {
-        char fl[8];
-        snprintf(fl, sizeof(fl), "FL%03d", (int)(a.altFt / 100));
-        gfx->setTextSize(1);
-        gfx->setCursor(x + lblDX, y + (txt == 1 ? 6 : 10));
-        gfx->print(fl);
+      int lw = (int)strlen(a.callsign) * 6 * txt;
+      int lh = 8 * txt + (a.altFt > 0 ? 8 : 0);
+      LblBox box = {(int16_t)(x + lblDX), (int16_t)(y - (txt == 1 ? 4 : 8)),
+                    (int16_t)lw, (int16_t)lh};
+      bool clash = false;
+      for (uint8_t j = 0; j < nLbl; j++) if (boxHit(box, lbl[j])) { clash = true; break; }
+      if (!clash) {                          // skip labels that would collide
+        if (nLbl < MAX_AIRCRAFT) lbl[nLbl++] = box;
+        gfx->setTextSize(txt);
+        gfx->setTextColor(C_GRAY);
+        gfx->setCursor(box.x, box.y);
+        gfx->print(a.callsign);
+        if (a.altFt > 0) {
+          char fl[8];
+          snprintf(fl, sizeof(fl), "FL%03d", (int)(a.altFt / 100));
+          gfx->setTextSize(1);
+          gfx->setCursor(box.x, y + (txt == 1 ? 6 : 10));
+          gfx->print(fl);
+        }
       }
     }
   }

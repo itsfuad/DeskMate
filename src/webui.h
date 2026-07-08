@@ -194,6 +194,9 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
   <div class="card"><h2>What to show</h2>
    <label>Marker &amp; label size</label>
    <select id="radarUiScale"><option value="0">Small</option><option value="1">Medium</option><option value="2">Large</option></select>
+   <label style="margin-top:12px">Hide aircraft below (ft, 0 = show all)</label>
+   <input id="radarMinAlt" type="number" min="0" max="60000" step="100">
+   <small class="hint">Drops ground traffic (parked/taxiing) and low flights. Try <code>500</code> to hide anything on or near the ground.</small>
    <div class="chk" style="margin-top:12px"><input id="showLabels" type="checkbox"><label>Callsign &amp; altitude labels</label></div>
    <div class="chk"><input id="showVectors" type="checkbox"><label>Speed / heading vectors</label></div>
    <div class="chk"><input id="showRimDots" type="checkbox"><label>Off-screen traffic dots on the rim</label></div>
@@ -283,6 +286,7 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  sv('radarWebhookUrl',r.webhookUrl);
  sc('showLabels',r.showLabels); sc('showVectors',r.showVectors); sc('showRimDots',r.showRimDots);
  sv('radarUiScale',r.uiScale!=null?r.uiScale:1);
+ sv('radarMinAlt',r.minAltFt!=null?r.minAltFt:0);
  renderAps(r.airports||[]);
  var ap=$('apPass'); if(ap)ap.placeholder=c.apPassSet?'(unchanged)':'(open)';
 })}
@@ -329,7 +333,7 @@ function collect(){
    pollSec:parseInt(gv('radarPollSec'))||0, source:gv('radarSource'),
    webhookUrl:gv('radarWebhookUrl'),
    showLabels:gc('showLabels'), showVectors:gc('showVectors'), showRimDots:gc('showRimDots'),
-   uiScale:parseInt(gv('radarUiScale'))||0};
+   uiScale:parseInt(gv('radarUiScale'))||0, minAltFt:parseInt(gv('radarMinAlt'))||0};
   r.airports=[];
   document.querySelectorAll('#apTable tr').forEach(function(tr){
    var ic=tr.querySelector('.ai').value.trim();

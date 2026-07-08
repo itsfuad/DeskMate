@@ -122,6 +122,7 @@ void RadarSettings::setDefaults() {
   showVectors = true;
   showRimDots = true;
   uiScale = 1;            // medium
+  minAltFt = 0;           // show all
   airportCount = 0;
   for (uint8_t i = 0; i < MAX_AIRPORTS; i++) {
     airports[i].icao[0] = 0;
@@ -141,6 +142,7 @@ void RadarSettings::toJson(JsonObject o) const {
   o["showVectors"] = showVectors;
   o["showRimDots"] = showRimDots;
   o["uiScale"]     = uiScale;
+  o["minAltFt"]    = minAltFt;
 
   JsonArray arr = o["airports"].to<JsonArray>();
   for (uint8_t i = 0; i < airportCount; i++) {
@@ -166,6 +168,7 @@ void RadarSettings::fromJson(JsonObjectConst o) {
   if (o["showVectors"].is<bool>()) showVectors = o["showVectors"];
   if (o["showRimDots"].is<bool>()) showRimDots = o["showRimDots"];
   if (o["uiScale"].is<int>())      uiScale = constrain((int)o["uiScale"], 0, 2);
+  if (o["minAltFt"].is<int>())     minAltFt = constrain((int)o["minAltFt"], 0, 60000);
 
   if (o["airports"].is<JsonArrayConst>()) {
     JsonArrayConst arr = o["airports"].as<JsonArrayConst>();

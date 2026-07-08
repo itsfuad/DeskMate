@@ -125,6 +125,10 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     t.track = (a["track"].is<float>() || a["track"].is<int>()) ? a["track"].as<float>() : NAN;
     t.gs    = (a["gs"].is<float>()    || a["gs"].is<int>())    ? a["gs"].as<float>()    : NAN;
     t.altFt = a["alt_baro"].is<int>() ? a["alt_baro"].as<int>() : 0;  // "ground" => 0
+
+    // Optional: drop ground/low traffic below the configured altitude threshold.
+    if (s.radar.minAltFt > 0 && t.altFt < (int32_t)s.radar.minAltFt) continue;
+
     const char* fl = a["flight"] | (a["hex"] | "");
     strlcpy(t.callsign, fl, sizeof(t.callsign));
     trimTail(t.callsign);

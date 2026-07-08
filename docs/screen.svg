@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="868" height="320" viewBox="0 0 868 320" font-family="Consolas,Menlo,monospace">
   <rect width="868" height="320" fill="#0e1116"/>
+
+  <!-- Panel 1: stock ticker -->
   <g transform="translate(20,20)">
     <rect width="260" height="260" rx="22" fill="#1b2029" stroke="#2b323d"/>
     <rect x="10" y="10" width="240" height="240" rx="10" fill="#000"/>
@@ -8,7 +10,7 @@
       <circle cx="120" cy="16" r="3" fill="#39414d"/>
       <circle cx="132" cy="16" r="3" fill="#39414d"/>
       <text x="120" y="46" fill="#e6edf3" font-size="22" font-weight="700" text-anchor="middle">AAPL</text>
-      <text x="120" y="118" fill="#3fb950" font-size="44" font-weight="700" text-anchor="middle">$234.56</text>
+      <text x="120" y="118" fill="#e6edf3" font-size="44" font-weight="700" text-anchor="middle">$234.56</text>
       <path d="M70 150 l9 14 h-18 z" fill="#3fb950"/>
       <text x="86" y="163" fill="#3fb950" font-size="17" font-weight="700">+2.34 (+1.01%)</text>
       <polyline fill="none" stroke="#3fb950" stroke-width="2.4" points="14,212 38,205 60,208 84,196 108,200 132,188 156,184 180,176 204,170 226,160"/>
@@ -16,169 +18,26 @@
     </g>
     <text x="130" y="290" fill="#8b96a5" font-size="14" text-anchor="middle">Stock ticker</text>
   </g>
+
+  <!-- Panel 2: Claude usage -->
   <g transform="translate(304,20)">
     <rect width="260" height="260" rx="22" fill="#1b2029" stroke="#2b323d"/>
     <rect x="10" y="10" width="240" height="240" rx="10" fill="#000"/>
     <g transform="translate(10,10)">
-      <circle cx="108" cy="16" r="3" fill="#39414d"/>
-      <circle cx="120" cy="16" r="3" fill="#ffffff"/>
-      <circle cx="132" cy="16" r="3" fill="#39414d"/>
-      <text x="120" y="46" fill="#e6edf3" font-size="22" font-weight="700" text-anchor="middle">BTC</text>
-      <text x="120" y="118" fill="#f85149" font-size="38" font-weight="700" text-anchor="middle">$61,240</text>
-      <path d="M66 150 l9 -14 h-18 z" fill="#f85149"/>
-      <text x="82" y="163" fill="#f85149" font-size="17" font-weight="700">-1820 (-2.89%)</text>
-      <polyline fill="none" stroke="#f85149" stroke-width="2.4" points="14,168 38,176 60,172 84,184 108,180 132,192 156,196 180,204 204,200 226,214"/>
-      <text x="232" y="232" fill="#8b96a5" font-size="15" text-anchor="end">1D</text>
-    </g>
-    <text x="130" y="290" fill="#8b96a5" font-size="14" text-anchor="middle">Stock ticker</text>
-  </g>
-  <g transform="translate(588,20)">
-    <rect width="260" height="260" rx="22" fill="#1b2029" stroke="#2b323d"/>
-    <rect x="10" y="10" width="240" height="240" rx="10" fill="#000"/>
-    <g transform="translate(10,10)">
-      <rect x="16" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="12" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="14" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="16" width="2" height="2" fill="#0a0f0a"/>
-      <rect x="22" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="16" width="2" height="2" fill="#0a0f0a"/>
-      <rect x="34" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="16" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="12" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="14" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="18" width="2" height="2" fill="#0a0f0a"/>
-      <rect x="22" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="18" width="2" height="2" fill="#0a0f0a"/>
-      <rect x="34" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="38" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="40" y="18" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="12" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="14" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="38" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="40" y="20" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="12" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="14" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="38" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="40" y="22" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="12" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="40" y="24" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="26" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="28" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="18" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="20" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="24" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="26" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="28" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="32" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="34" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="30" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="32" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="32" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="32" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="32" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="34" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="34" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="34" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="34" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="16" y="36" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="22" y="36" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="30" y="36" width="2" height="2" fill="#ce7d6b"/>
-      <rect x="36" y="36" width="2" height="2" fill="#ce7d6b"/>
-      <text x="56" y="30" fill="#faf9f5" font-size="22" font-weight="700">CLAUDE</text>
+      <!-- mascot -->
+      <rect x="10" y="8" width="40" height="34" rx="9" fill="#d97757"/>
+      <circle cx="22" cy="24" r="3.4" fill="#0a0f0a"/>
+      <circle cx="38" cy="24" r="3.4" fill="#0a0f0a"/>
+      <path d="M22 32 q8 6 16 0" fill="none" stroke="#0a0f0a" stroke-width="2" stroke-linecap="round"/>
+      <text x="60" y="32" fill="#faf9f5" font-size="22" font-weight="700">CLAUDE</text>
+      <!-- 5h meter -->
       <rect x="8" y="50" width="224" height="82" rx="8" fill="#1f1f1e"/>
       <text x="22" y="92" fill="#faf9f5" font-size="40" font-weight="700">29%</text>
       <text x="218" y="72" fill="#b0aea5" font-size="16" text-anchor="end">5h</text>
       <rect x="22" y="102" width="196" height="12" rx="6" fill="#2a2a28"/>
       <rect x="22" y="102" width="57" height="12" rx="6" fill="#788c5d"/>
       <text x="22" y="126" fill="#b0aea5" font-size="15">Resets in 2h 22m</text>
+      <!-- 7d meter -->
       <rect x="8" y="138" width="224" height="82" rx="8" fill="#1f1f1e"/>
       <text x="22" y="180" fill="#faf9f5" font-size="40" font-weight="700">82%</text>
       <text x="218" y="160" fill="#b0aea5" font-size="16" text-anchor="end">7d</text>
@@ -186,6 +45,61 @@
       <rect x="22" y="190" width="161" height="12" rx="6" fill="#d97757"/>
       <text x="22" y="214" fill="#b0aea5" font-size="15">Resets in 6d 19h</text>
     </g>
-    <text x="130" y="290" fill="#8b96a5" font-size="14" text-anchor="middle">Claude usage mode</text>
+    <text x="130" y="290" fill="#8b96a5" font-size="14" text-anchor="middle">Claude usage</text>
+  </g>
+
+  <!-- Panel 3: plane radar -->
+  <g transform="translate(588,20)">
+    <rect width="260" height="260" rx="22" fill="#1b2029" stroke="#2b323d"/>
+    <rect x="10" y="10" width="240" height="240" rx="10" fill="#000"/>
+    <g transform="translate(10,10)">
+      <!-- rings + crosshair -->
+      <line x1="120" y1="8" x2="120" y2="232" stroke="#333a44"/>
+      <line x1="8" y1="120" x2="232" y2="120" stroke="#333a44"/>
+      <circle cx="120" cy="120" r="112" fill="none" stroke="#3a3f47"/>
+      <circle cx="120" cy="120" r="56" fill="none" stroke="#3a3f47"/>
+      <text x="120" y="26" fill="#8b96a5" font-size="16" text-anchor="middle">N</text>
+      <!-- airport -->
+      <path d="M168 145 l5 5 l-5 5 l-5 -5 z" fill="none" stroke="#2f81f7"/>
+      <text x="176" y="146" fill="#2f81f7" font-size="15">LSZH</text>
+      <!-- aircraft: vector, triangle, label -->
+      <g>
+        <line x1="150" y1="72" x2="157" y2="84" stroke="#ff5cf0"/>
+        <path d="M150,63 L145,77 L155,77 Z" fill="#f85149" transform="rotate(150 150 72)"/>
+        <text x="159" y="70" fill="#9aa4b0" font-size="14">DLH4AB</text>
+        <text x="159" y="83" fill="#9aa4b0" font-size="11">FL350</text>
+      </g>
+      <g>
+        <line x1="72" y1="105" x2="58" y2="104" stroke="#ff5cf0"/>
+        <path d="M72,96 L67,110 L77,110 Z" fill="#f85149" transform="rotate(275 72 105)"/>
+        <text x="81" y="103" fill="#9aa4b0" font-size="14">BAW23</text>
+        <text x="81" y="116" fill="#9aa4b0" font-size="11">FL120</text>
+      </g>
+      <g>
+        <line x1="128" y1="168" x2="134" y2="155" stroke="#ff5cf0"/>
+        <path d="M128,159 L123,173 L133,173 Z" fill="#f85149" transform="rotate(25 128 168)"/>
+        <text x="137" y="166" fill="#9aa4b0" font-size="14">EZY88</text>
+        <text x="137" y="179" fill="#9aa4b0" font-size="11">FL80</text>
+      </g>
+      <g>
+        <line x1="92" y1="52" x2="87" y2="65" stroke="#ff5cf0"/>
+        <path d="M92,43 L87,57 L97,57 Z" fill="#f85149" transform="rotate(200 92 52)"/>
+        <text x="26" y="50" fill="#9aa4b0" font-size="14">AFR11</text>
+        <text x="26" y="63" fill="#9aa4b0" font-size="11">FL370</text>
+      </g>
+      <g>
+        <line x1="182" y1="118" x2="170" y2="111" stroke="#ff5cf0"/>
+        <path d="M182,109 L177,123 L187,123 Z" fill="#f85149" transform="rotate(300 182 118)"/>
+        <text x="150" y="106" fill="#9aa4b0" font-size="14">RYR54</text>
+      </g>
+      <!-- off-screen traffic on the rim -->
+      <circle cx="56" cy="212" r="3" fill="#f85149"/>
+      <!-- home -->
+      <circle cx="120" cy="120" r="4" fill="#3fb950"/>
+      <!-- overlays -->
+      <text x="4" y="22" fill="#8b96a5" font-size="16">20 km</text>
+      <text x="236" y="22" fill="#8b96a5" font-size="16" text-anchor="end">7 ac</text>
+    </g>
+    <text x="130" y="290" fill="#8b96a5" font-size="14" text-anchor="middle">Plane radar</text>
   </g>
 </svg>

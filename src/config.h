@@ -8,7 +8,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "smalltv-mod"
-#define FW_VERSION  "1.0.0"
+#define FW_VERSION  "2.0.0"
 
 // ---------------------------------------------------------------------------
 // Display wiring (ST7789 240x240 over hardware SPI)
