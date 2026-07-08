@@ -192,7 +192,9 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <small class="hint" id="radarSrcHint"></small>
   </div>
   <div class="card"><h2>What to show</h2>
-   <div class="chk"><input id="showLabels" type="checkbox"><label>Callsign &amp; altitude labels</label></div>
+   <label>Marker &amp; label size</label>
+   <select id="radarUiScale"><option value="0">Small</option><option value="1">Medium</option><option value="2">Large</option></select>
+   <div class="chk" style="margin-top:12px"><input id="showLabels" type="checkbox"><label>Callsign &amp; altitude labels</label></div>
    <div class="chk"><input id="showVectors" type="checkbox"><label>Speed / heading vectors</label></div>
    <div class="chk"><input id="showRimDots" type="checkbox"><label>Off-screen traffic dots on the rim</label></div>
   </div>
@@ -280,6 +282,7 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  sv('radarSource',r.source||'direct'); radarSrcChanged();
  sv('radarWebhookUrl',r.webhookUrl);
  sc('showLabels',r.showLabels); sc('showVectors',r.showVectors); sc('showRimDots',r.showRimDots);
+ sv('radarUiScale',r.uiScale!=null?r.uiScale:1);
  renderAps(r.airports||[]);
  var ap=$('apPass'); if(ap)ap.placeholder=c.apPassSet?'(unchanged)':'(open)';
 })}
@@ -325,7 +328,8 @@ function collect(){
    rangeKm:parseInt(gv('rangeKm'))||20, unitsMi:gv('unitsMi')==='true',
    pollSec:parseInt(gv('radarPollSec'))||0, source:gv('radarSource'),
    webhookUrl:gv('radarWebhookUrl'),
-   showLabels:gc('showLabels'), showVectors:gc('showVectors'), showRimDots:gc('showRimDots')};
+   showLabels:gc('showLabels'), showVectors:gc('showVectors'), showRimDots:gc('showRimDots'),
+   uiScale:parseInt(gv('radarUiScale'))||0};
   r.airports=[];
   document.querySelectorAll('#apTable tr').forEach(function(tr){
    var ic=tr.querySelector('.ai').value.trim();

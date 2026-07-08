@@ -30,9 +30,16 @@ static void geo(float homeLat, float homeLon, float lat, float lon,
   if (brg < 0) brg += 360.0f;
 }
 
+// Marker radius scaled by the UI-size factor (min 2 px so it stays visible).
+static int scaleR(float base, float k) {
+  int v = (int)lroundf(base * k);
+  return v < 2 ? 2 : v;
+}
+
 // Filled heading triangle centred at (x,y), nose pointing along track (deg, cw N).
-static void planeTri(Arduino_GFX* gfx, int x, int y, float trackDeg, uint16_t color) {
-  const float L = 12.0f, W = 8.0f, B = 7.0f;  // nose length, half-width, tail setback
+// `k` scales the triangle with the UI-size setting.
+static void planeTri(Arduino_GFX* gfx, int x, int y, float trackDeg, float k, uint16_t color) {
+  const float L = 12.0f * k, W = 8.0f * k, B = 7.0f * k;  // nose, half-width, tail setback
   float th = trackDeg * (float)PI / 180.0f;
   float ct = cosf(th), st = sinf(th);
   // local (lx=right, ly=nose) -> screen: sx = x + lx*ct + ly*st; sy = y + lx*st - ly*ct
@@ -50,6 +57,10 @@ static void drawRadar(const Settings& s) {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
   const float range = (float)s.radar.rangeKm;
+  const uint8_t sc = s.radar.uiScale;                             // 0=small,1=med,2=large
+  const uint8_t txt = (sc == 0) ? 1 : 2;                          // built-in font scale
+  const float   k = (sc == 0) ? 0.65f : (sc == 2 ? 1.5f : 1.0f);  // marker geometry scale
+  const int lblDX = scaleR(9, k);
   gfx->fillScreen(C_BLACK);
 
   // Range rings + crosshair + N marker.
@@ -57,9 +68,10 @@ static void drawRadar(const Settings& s) {
   gfx->drawCircle(CX, CY, RR / 2, C_DGRAY);
   gfx->drawFastVLine(CX, CY - RR, 2 * RR, C_DGRAY);
   gfx->drawFastHLine(CX - RR, CY, 2 * RR, C_DGRAY);
-  gfxDrawCentered("N", CY - RR + 2, 2, C_GRAY);   // just inside the top of the ring
+  gfxDrawCentered("N", CY - RR + 2, txt, C_GRAY);   // just inside the top of the ring
 
   // Home-area airports (projected like aircraft).
+  int ad = scaleR(5, k);
   for (uint8_t i = 0; i < s.radar.airportCount; i++) {
     float d, b;
     geo(s.radar.lat, s.radar.lon, s.radar.airports[i].lat, s.radar.airports[i].lon, d, b);
@@ -67,14 +79,14 @@ static void drawRadar(const Settings& s) {
     int x, y;
     polar(d / range * RR, b, x, y);
     // diamond marker
-    gfx->drawLine(x, y - 5, x + 5, y, C_BLUE);
-    gfx->drawLine(x + 5, y, x, y + 5, C_BLUE);
-    gfx->drawLine(x, y + 5, x - 5, y, C_BLUE);
-    gfx->drawLine(x - 5, y, x, y - 5, C_BLUE);
+    gfx->drawLine(x, y - ad, x + ad, y, C_BLUE);
+    gfx->drawLine(x + ad, y, x, y + ad, C_BLUE);
+    gfx->drawLine(x, y + ad, x - ad, y, C_BLUE);
+    gfx->drawLine(x - ad, y, x, y - ad, C_BLUE);
     if (s.radar.airports[i].icao[0]) {
-      gfx->setTextSize(2);
+      gfx->setTextSize(txt);
       gfx->setTextColor(C_BLUE);
-      gfx->setCursor(x + 8, y - 7);
+      gfx->setCursor(x + ad + 3, y - ad - 1);
       gfx->print(s.radar.airports[i].icao);
     }
   }
@@ -88,7 +100,7 @@ static void drawRadar(const Settings& s) {
       if (!s.radar.showRimDots) continue;
       int x, y;
       polar(RR, a.bearingDeg, x, y);
-      gfx->fillCircle(x, y, 3, C_RED);
+      gfx->fillCircle(x, y, scaleR(3, k), C_RED);
       continue;
     }
 
@@ -97,47 +109,47 @@ static void drawRadar(const Settings& s) {
 
     if (s.radar.showVectors && !isnan(a.gs) && !isnan(a.track)) {
       float th = a.track * (float)PI / 180.0f;
-      float len = constrain(a.gs * 0.08f, 6.0f, 24.0f);
+      float len = constrain(a.gs * 0.08f, 6.0f, 24.0f) * k;
       int ex = x + (int)lroundf(sinf(th) * len);
       int ey = y - (int)lroundf(cosf(th) * len);
       gfx->drawLine(x, y, ex, ey, C_MAGENTA);
     }
 
-    if (!isnan(a.track)) planeTri(gfx, x, y, a.track, C_RED);
-    else                 gfx->fillCircle(x, y, 4, C_RED);
+    if (!isnan(a.track)) planeTri(gfx, x, y, a.track, k, C_RED);
+    else                 gfx->fillCircle(x, y, scaleR(4, k), C_RED);
 
     if (s.radar.showLabels && a.callsign[0]) {
-      gfx->setTextSize(2);
+      gfx->setTextSize(txt);
       gfx->setTextColor(C_GRAY);
-      gfx->setCursor(x + 9, y - 8);
+      gfx->setCursor(x + lblDX, y - (txt == 1 ? 4 : 8));
       gfx->print(a.callsign);
       if (a.altFt > 0) {
         char fl[8];
         snprintf(fl, sizeof(fl), "FL%03d", (int)(a.altFt / 100));
         gfx->setTextSize(1);
-        gfx->setCursor(x + 9, y + 10);
+        gfx->setCursor(x + lblDX, y + (txt == 1 ? 6 : 10));
         gfx->print(fl);
       }
     }
   }
 
   // Home marker on top.
-  gfx->fillCircle(CX, CY, 4, C_GREEN);
+  gfx->fillCircle(CX, CY, scaleR(4, k), C_GREEN);
 
   // Overlays: range (top-left), aircraft count (top-right), error dot.
   char hdr[16];
   if (s.radar.unitsMi) snprintf(hdr, sizeof(hdr), "%d mi", (int)lroundf(s.radar.rangeKm * 0.621371f));
   else                 snprintf(hdr, sizeof(hdr), "%d km", s.radar.rangeKm);
-  gfx->setTextSize(2);
+  gfx->setTextSize(txt);
   gfx->setTextColor(C_GRAY);
   gfx->setCursor(3, 3);
   gfx->print(hdr);
 
   char cnt[10];
   snprintf(cnt, sizeof(cnt), "%d ac", n);
-  gfx->setTextSize(2);
+  gfx->setTextSize(txt);
   gfx->setTextColor(C_GRAY);
-  gfx->setCursor(TFT_WIDTH - gfxTextW(cnt, 2) - 3, 3);
+  gfx->setCursor(TFT_WIDTH - gfxTextW(cnt, txt) - 3, 3);
   gfx->print(cnt);
 
   if (radarError()) gfx->fillCircle(6, TFT_HEIGHT - 7, 4, C_RED);
