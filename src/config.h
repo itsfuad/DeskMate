@@ -50,6 +50,7 @@
 // ---------------------------------------------------------------------------
 #define MODE_STOCKS  0
 #define MODE_USAGE   1
+#define MODE_RADAR   2
 #define DEFAULT_MODE MODE_STOCKS
 
 // ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@
 #define WITH_USAGE 1
 #endif
 #ifndef WITH_RADAR
-#define WITH_RADAR 0
+#define WITH_RADAR 1
 #endif
 
 // Claude usage mode: once data stops arriving for this long (PC asleep, daemon
@@ -91,6 +92,33 @@
 #define YAHOO_CHART_HOST2 "query2.finance.yahoo.com"
 #define YAHOO_CHART_PATH  "/v8/finance/chart/"
 #define YAHOO_USER_AGENT  "Mozilla/5.0 (SmallTV)"
+
+// ---------------------------------------------------------------------------
+// Plane radar (MODE_RADAR)
+//   Data source (radar's own selector, independent of the stock one):
+//     0 = adsb.fi opendata, fetched directly by the device over HTTPS (no key)
+//     1 = custom webhook (a LAN proxy that pre-filters — robust on the ESP8266)
+// ---------------------------------------------------------------------------
+#define RADAR_SRC_DIRECT   0
+#define RADAR_SRC_WEBHOOK  1
+#define DEFAULT_RADAR_SRC  RADAR_SRC_DIRECT
+
+// adsb.fi free open-data endpoint (no API key; public rate limit ~1 req/s).
+// Full path: /api/v3/lat/{lat}/lon/{lon}/dist/{nm}
+#define ADSB_HOST        "opendata.adsb.fi"
+#define ADSB_PATH        "/api/v3/lat/"
+#define ADSB_USER_AGENT  "Mozilla/5.0 (SmallTV)"
+
+// Bound RAM: nearest N aircraft kept/drawn, and a few home-area airports.
+#define MAX_AIRCRAFT     24
+#define MAX_AIRPORTS      6
+#define MAX_ICAO_LEN      8      // ICAO ident + NUL (e.g. "LSZH")
+
+// Defaults (lat/lon 0,0 is the "not set yet" sentinel -> shows a prompt).
+#define DEFAULT_RADAR_LAT       0.0f
+#define DEFAULT_RADAR_LON       0.0f
+#define DEFAULT_RADAR_RANGE_KM  20
+#define DEFAULT_RADAR_POLL_SEC  10     // >=3 keeps us under the 1 req/s limit
 
 // ---------------------------------------------------------------------------
 // Defaults (used on first boot / factory reset)

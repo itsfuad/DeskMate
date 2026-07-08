@@ -61,6 +61,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
  <button data-t="display">Display</button>
  <button data-t="ticker">Ticker</button>
  <button data-t="usage">Usage</button>
+ <button data-t="radar">Radar</button>
  <button data-t="update">Update</button>
 </nav>
 <main>
@@ -98,6 +99,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <select id="mode">
     <option value="stocks">Stock / crypto ticker</option>
     <option value="usage">Claude usage</option>
+    <option value="radar">Plane radar</option>
    </select>
    <small class="hint">Pick the active feature, then configure it in its own tab.</small>
   </div>
@@ -162,6 +164,45 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
   </div>
  </section>
 
+ <!-- RADAR (feature) -->
+ <section id="radar" class="tab">
+  <div class="card"><h2>Home location</h2>
+   <div class="row">
+    <div><label>Latitude</label><input id="radarLat" type="number" step="0.0001" placeholder="52.3676"></div>
+    <div><label>Longitude</label><input id="radarLon" type="number" step="0.0001" placeholder="4.9041"></div>
+   </div>
+   <small class="hint">The radar centres on this point. Decimal degrees, e.g. <code>52.3676</code>, <code>4.9041</code>. Leave at 0/0 and the screen prompts you to set it.</small>
+  </div>
+  <div class="card"><h2>Range &amp; data</h2>
+   <div class="row">
+    <div><label>Range</label>
+     <select id="rangeKm"><option value="5">5</option><option value="10">10</option>
+      <option value="15">15</option><option value="25">25</option><option value="50">50</option></select></div>
+    <div><label>Units</label>
+     <select id="unitsMi"><option value="false">km</option><option value="true">mi</option></select></div>
+    <div><label>Refresh (s)</label><input id="radarPollSec" type="number" min="3" max="3600"></div>
+   </div>
+   <label>Data source</label>
+   <select id="radarSource" onchange="radarSrcChanged()">
+    <option value="direct">adsb.fi (direct, no server)</option>
+    <option value="webhook">Custom webhook (LAN proxy)</option>
+   </select>
+   <div id="radarWebhookRow"><label>Webhook URL</label>
+    <input id="radarWebhookUrl" type="url" placeholder="http://n8n.local:5678/webhook/radar"></div>
+   <small class="hint" id="radarSrcHint"></small>
+  </div>
+  <div class="card"><h2>What to show</h2>
+   <div class="chk"><input id="showLabels" type="checkbox"><label>Callsign &amp; altitude labels</label></div>
+   <div class="chk"><input id="showVectors" type="checkbox"><label>Speed / heading vectors</label></div>
+   <div class="chk"><input id="showRimDots" type="checkbox"><label>Off-screen traffic dots on the rim</label></div>
+  </div>
+  <div class="card"><h2>Airports</h2>
+   <table id="apTable"></table>
+   <button class="btn sec" style="margin-top:10px" onclick="addAp()">+ Add airport</button>
+   <small class="hint">A few home-area airports drawn as markers. ICAO code (e.g. <code>LSZH</code>) and its lat/lon. Up to 6.</small>
+  </div>
+ </section>
+
  <!-- UPDATE -->
  <section id="update" class="tab">
   <div class="card"><h2>Firmware update (OTA)</h2>
@@ -184,6 +225,11 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
 <script>
 var C={};
 function $(id){return document.getElementById(id)}
+// null-safe field helpers: a lean build removes some feature tabs entirely
+function sv(id,v){var e=$(id);if(e)e.value=(v!=null?v:'')}
+function sc(id,v){var e=$(id);if(e)e.checked=!!v}
+function gv(id){var e=$(id);return e?e.value:''}
+function gc(id){var e=$(id);return e?e.checked:false}
 function toast(m){var t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2200)}
 function j(url,opt){return fetch(url,opt).then(function(r){return r.json()})}
 
@@ -199,7 +245,14 @@ var T_TEXT=['webhookUrl','range'];                   // ticker strings
 var T_NUM=['rotateSec','pollSec','points'];          // ticker numbers
 var T_BOOL=['showName','showPrice','showChange','showChart','showRangeLabel','showUpdatedAgo','showPageDots'];
 
+var MODEOPT={ticker:'stocks',usage:'usage',radar:'radar'};
+function hideFeat(name){
+ var b=document.querySelector('nav button[data-t="'+name+'"]'); if(b)b.remove();
+ var sec=$(name); if(sec)sec.remove();
+ var o=document.querySelector('#mode option[value="'+MODEOPT[name]+'"]'); if(o)o.remove();
+}
 function loadConfig(){return j('/api/config').then(function(c){C=c;
+ var f=c.features||{}; ['ticker','usage','radar'].forEach(function(k){if(f[k]===false)hideFeat(k)});
  var t=c.ticker||{}, u=c.usage||{};
  // shared
  ['staSsid','apSsid','apPass','hostname'].forEach(function(k){$(k).value=c[k]!=null?c[k]:''});
@@ -209,46 +262,77 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  $('backlightInverted').checked=!!c.backlightInverted;
  $('mode').value=c.mode||'stocks';
  // ticker slice
- T_TEXT.forEach(function(k){$(k).value=t[k]!=null?t[k]:''});
- T_NUM.forEach(function(k){$(k).value=t[k]});
- T_BOOL.forEach(function(k){$(k).checked=!!t[k]});
- $('source').value=t.source||'yahoo'; srcChanged();
- $('colorInverted').value=t.colorInverted?'true':'false';
+ T_TEXT.forEach(function(k){sv(k,t[k])});
+ T_NUM.forEach(function(k){sv(k,t[k])});
+ T_BOOL.forEach(function(k){sc(k,t[k])});
+ sv('source',t.source||'yahoo'); srcChanged();
+ sv('colorInverted',t.colorInverted?'true':'false');
  renderSyms(t.symbols||[]);
  // usage slice
- $('usageUrl').value=u.usageUrl!=null?u.usageUrl:'';
- $('usagePollSec').value=u.pollSec;
- $('apPass').placeholder=c.apPassSet?'(unchanged)':'(open)';
+ sv('usageUrl',u.usageUrl);
+ sv('usagePollSec',u.pollSec);
+ // radar slice
+ var r=c.radar||{};
+ sv('radarLat',r.lat); sv('radarLon',r.lon);
+ sv('rangeKm',r.rangeKm||20);
+ sv('unitsMi',r.unitsMi?'true':'false');
+ sv('radarPollSec',r.pollSec);
+ sv('radarSource',r.source||'direct'); radarSrcChanged();
+ sv('radarWebhookUrl',r.webhookUrl);
+ sc('showLabels',r.showLabels); sc('showVectors',r.showVectors); sc('showRimDots',r.showRimDots);
+ renderAps(r.airports||[]);
+ var ap=$('apPass'); if(ap)ap.placeholder=c.apPassSet?'(unchanged)':'(open)';
 })}
 
-function srcChanged(){var y=$('source').value!=='webhook';
+function srcChanged(){if(!$('source'))return;var y=$('source').value!=='webhook';
  $('webhookRow').style.display=y?'none':'block';
  $('srcHint').innerHTML=y
   ?'The device fetches <b>Yahoo Finance</b> directly over HTTPS — no server needed. Use Yahoo symbols (e.g. <code>AAPL</code>, <code>NESN.SW</code>, <code>BTC-USD</code>, <code>EURUSD=X</code>).'
   :'The device requests <code>?symbol=..&amp;range=..&amp;points=..</code> from this URL and expects the SmallTV JSON contract back.';}
+function radarSrcChanged(){if(!$('radarSource'))return;var d=$('radarSource').value!=='webhook';
+ $('radarWebhookRow').style.display=d?'none':'block';
+ $('radarSrcHint').innerHTML=d
+  ?'The device fetches <b>adsb.fi</b> directly over HTTPS (no key, ~1 req/s). Tight on RAM in busy airspace — use the webhook if it drops.'
+  :'The device requests <code>?lat=..&amp;lon=..&amp;dist=..</code> from your LAN proxy, which pre-filters adsb.fi to a small JSON. Most reliable on the ESP8266.';}
 
 function collect(){
- var o={mode:$('mode').value,
-  brightness:parseInt($('brightness').value)||0,
-  rotation:parseInt($('rotation').value),
-  autoBrightness:$('autoBrightness').checked,
-  backlightInverted:$('backlightInverted').checked,
-  hostname:$('hostname').value, apSsid:$('apSsid').value, apPass:$('apPass').value,
-  staSsid:$('staSsid').value};
- var p=$('staPass').value; if(p)o.staPass=p;
- // ticker slice
- var t={source:$('source').value, colorInverted:$('colorInverted').value==='true'};
- T_TEXT.forEach(function(k){t[k]=$(k).value});
- T_NUM.forEach(function(k){t[k]=parseInt($(k).value)||0});
- T_BOOL.forEach(function(k){t[k]=$(k).checked});
- t.symbols=[];
- document.querySelectorAll('#symTable tr').forEach(function(tr){
-  var s=tr.querySelector('.s').value.trim();
-  if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim()});
- });
- o.ticker=t;
+ var o={mode:gv('mode'),
+  brightness:parseInt(gv('brightness'))||0,
+  rotation:parseInt(gv('rotation')),
+  autoBrightness:gc('autoBrightness'),
+  backlightInverted:gc('backlightInverted'),
+  hostname:gv('hostname'), apSsid:gv('apSsid'), apPass:gv('apPass'),
+  staSsid:gv('staSsid')};
+ var p=gv('staPass'); if(p)o.staPass=p;
+ // ticker slice (only if compiled in)
+ if($('ticker')){
+  var t={source:gv('source'), colorInverted:gv('colorInverted')==='true'};
+  T_TEXT.forEach(function(k){t[k]=gv(k)});
+  T_NUM.forEach(function(k){t[k]=parseInt(gv(k))||0});
+  T_BOOL.forEach(function(k){t[k]=gc(k)});
+  t.symbols=[];
+  document.querySelectorAll('#symTable tr').forEach(function(tr){
+   var s=tr.querySelector('.s').value.trim();
+   if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim()});
+  });
+  o.ticker=t;
+ }
  // usage slice
- o.usage={usageUrl:$('usageUrl').value, pollSec:parseInt($('usagePollSec').value)||0};
+ if($('usage')) o.usage={usageUrl:gv('usageUrl'), pollSec:parseInt(gv('usagePollSec'))||0};
+ // radar slice
+ if($('radar')){
+  var r={lat:parseFloat(gv('radarLat'))||0, lon:parseFloat(gv('radarLon'))||0,
+   rangeKm:parseInt(gv('rangeKm'))||20, unitsMi:gv('unitsMi')==='true',
+   pollSec:parseInt(gv('radarPollSec'))||0, source:gv('radarSource'),
+   webhookUrl:gv('radarWebhookUrl'),
+   showLabels:gc('showLabels'), showVectors:gc('showVectors'), showRimDots:gc('showRimDots')};
+  r.airports=[];
+  document.querySelectorAll('#apTable tr').forEach(function(tr){
+   var ic=tr.querySelector('.ai').value.trim();
+   if(ic)r.airports.push({icao:ic,lat:parseFloat(tr.querySelector('.ala').value)||0,lon:parseFloat(tr.querySelector('.alo').value)||0});
+  });
+  o.radar=r;
+ }
  return o;
 }
 function saveAll(){j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())})
@@ -262,13 +346,23 @@ function saveWifi(){
 }
 
 // symbols
-function renderSyms(arr){var t=$('symTable');t.innerHTML='';arr.forEach(addRow);if(!arr.length)addRow({})}
+function renderSyms(arr){var t=$('symTable');if(!t)return;t.innerHTML='';arr.forEach(addRow);if(!arr.length)addRow({})}
 function addRow(o){var t=$('symTable');var tr=document.createElement('tr');tr.className='symrow';
  tr.innerHTML='<td style="width:42%"><input class="s" type="text" placeholder="AAPL" value="'+(o.symbol||'')+'"></td>'+
   '<td><input class="n" type="text" placeholder="name" value="'+(o.name||'')+'"></td>'+
   '<td style="width:34px"><button class="btn sec" style="padding:6px 10px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
  t.appendChild(tr);}
 function addSym(){if(document.querySelectorAll('#symTable tr').length>=8){toast('Max 8');return}addRow({})}
+
+// airports
+function renderAps(arr){var t=$('apTable');if(!t)return;t.innerHTML='';arr.forEach(addApRow);if(!arr.length)addApRow({})}
+function addApRow(o){var t=$('apTable');var tr=document.createElement('tr');tr.className='symrow';
+ tr.innerHTML='<td style="width:30%"><input class="ai" type="text" placeholder="LSZH" value="'+(o.icao||'')+'"></td>'+
+  '<td><input class="ala" type="number" step="0.0001" placeholder="lat" value="'+(o.lat!=null?o.lat:'')+'"></td>'+
+  '<td><input class="alo" type="number" step="0.0001" placeholder="lon" value="'+(o.lon!=null?o.lon:'')+'"></td>'+
+  '<td style="width:34px"><button class="btn sec" style="padding:6px 10px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+ t.appendChild(tr);}
+function addAp(){if(document.querySelectorAll('#apTable tr').length>=6){toast('Max 6');return}addApRow({})}
 
 // wifi scan
 function scan(){$('scanList').innerHTML='<div class="muted">Scanning...</div>';

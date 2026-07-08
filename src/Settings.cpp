@@ -108,6 +108,79 @@ void UsageSettings::fromJson(JsonObjectConst o) {
 }
 
 // ===========================================================================
+// Radar slice
+// ===========================================================================
+void RadarSettings::setDefaults() {
+  lat = DEFAULT_RADAR_LAT;
+  lon = DEFAULT_RADAR_LON;
+  source = DEFAULT_RADAR_SRC;
+  webhookUrl = "";
+  rangeKm = DEFAULT_RADAR_RANGE_KM;
+  pollSec = DEFAULT_RADAR_POLL_SEC;
+  unitsMi = false;
+  showLabels = true;
+  showVectors = true;
+  showRimDots = true;
+  airportCount = 0;
+  for (uint8_t i = 0; i < MAX_AIRPORTS; i++) {
+    airports[i].icao[0] = 0;
+    airports[i].lat = airports[i].lon = 0;
+  }
+}
+
+void RadarSettings::toJson(JsonObject o) const {
+  o["lat"]         = lat;
+  o["lon"]         = lon;
+  o["source"]      = (source == RADAR_SRC_WEBHOOK) ? "webhook" : "direct";
+  o["webhookUrl"]  = webhookUrl;
+  o["rangeKm"]     = rangeKm;
+  o["pollSec"]     = pollSec;
+  o["unitsMi"]     = unitsMi;
+  o["showLabels"]  = showLabels;
+  o["showVectors"] = showVectors;
+  o["showRimDots"] = showRimDots;
+
+  JsonArray arr = o["airports"].to<JsonArray>();
+  for (uint8_t i = 0; i < airportCount; i++) {
+    JsonObject e = arr.add<JsonObject>();
+    e["icao"] = airports[i].icao;
+    e["lat"]  = airports[i].lat;
+    e["lon"]  = airports[i].lon;
+  }
+}
+
+void RadarSettings::fromJson(JsonObjectConst o) {
+  if (o["lat"].is<float>() || o["lat"].is<int>()) lat = o["lat"].as<float>();
+  if (o["lon"].is<float>() || o["lon"].is<int>()) lon = o["lon"].as<float>();
+  if (o["source"].is<const char*>()) {
+    String src = o["source"].as<String>();
+    source = src.equalsIgnoreCase("webhook") ? RADAR_SRC_WEBHOOK : RADAR_SRC_DIRECT;
+  }
+  if (o["webhookUrl"].is<const char*>()) webhookUrl = o["webhookUrl"].as<String>();
+  if (o["rangeKm"].is<int>())    rangeKm = constrain((int)o["rangeKm"], 1, 500);
+  if (o["pollSec"].is<int>())    pollSec = max(3, (int)o["pollSec"]);
+  if (o["unitsMi"].is<bool>())   unitsMi = o["unitsMi"];
+  if (o["showLabels"].is<bool>())  showLabels = o["showLabels"];
+  if (o["showVectors"].is<bool>()) showVectors = o["showVectors"];
+  if (o["showRimDots"].is<bool>()) showRimDots = o["showRimDots"];
+
+  if (o["airports"].is<JsonArrayConst>()) {
+    JsonArrayConst arr = o["airports"].as<JsonArrayConst>();
+    airportCount = 0;
+    for (JsonObjectConst e : arr) {
+      if (airportCount >= MAX_AIRPORTS) break;
+      const char* ic = e["icao"] | "";
+      if (!ic[0]) continue;                  // skip blank rows
+      Airport& dst = airports[airportCount];
+      strlcpy(dst.icao, ic, MAX_ICAO_LEN);
+      dst.lat = e["lat"].as<float>();
+      dst.lon = e["lon"].as<float>();
+      airportCount++;
+    }
+  }
+}
+
+// ===========================================================================
 // Top-level settings
 // ===========================================================================
 void Settings::setDefaults() {
@@ -127,6 +200,7 @@ void Settings::setDefaults() {
 
   ticker.setDefaults();
   usage.setDefaults();
+  radar.setDefaults();
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +257,8 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   }
 
   // Mode + shared HTTP/display
-  root["mode"]              = (s.mode == MODE_USAGE) ? "usage" : "stocks";
+  root["mode"]              = (s.mode == MODE_RADAR) ? "radar"
+                            : (s.mode == MODE_USAGE) ? "usage" : "stocks";
   root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
   root["autoBrightness"]    = s.autoBrightness;
@@ -193,6 +268,7 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   // Feature slices
   s.ticker.toJson(root["ticker"].to<JsonObject>());
   s.usage.toJson(root["usage"].to<JsonObject>());
+  s.radar.toJson(root["radar"].to<JsonObject>());
 }
 
 // Apply only the keys that are present (partial update friendly). Accepts both
@@ -212,7 +288,8 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
 
   if (root["mode"].is<const char*>()) {
     String m = root["mode"].as<String>();
-    s.mode = m.equalsIgnoreCase("usage") ? MODE_USAGE : MODE_STOCKS;
+    s.mode = m.equalsIgnoreCase("radar") ? MODE_RADAR
+           : m.equalsIgnoreCase("usage") ? MODE_USAGE : MODE_STOCKS;
   }
 
   if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
@@ -228,4 +305,6 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
   s.ticker.fromJson(t);
   JsonObjectConst u = root["usage"].is<JsonObjectConst>() ? root["usage"].as<JsonObjectConst>() : root;
   s.usage.fromJson(u);
+  // Radar has no legacy flat layout; only apply when its nested object is present.
+  if (root["radar"].is<JsonObjectConst>()) s.radar.fromJson(root["radar"].as<JsonObjectConst>());
 }

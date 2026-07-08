@@ -14,6 +14,12 @@ your **5‑hour and 7‑day Claude usage** bars, fed over WiFi by the
 **[clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon)** running on
 your PC. Pick the mode in the web UI.
 
+Or a **live plane radar**: a PPI‑style scope centred on your location showing
+nearby aircraft (heading, speed vector, callsign, altitude) from the free
+**[adsb.fi](https://adsb.fi)** open‑data API — no API key, no receiver. Each mode
+is a self‑contained feature module; you can even build a lean image with only the
+one you want (see [Build variants](#build-variants)).
+
 > Not affiliated with GeekMagic or Anthropic. This replaces the stock firmware entirely.
 
 ![SmallTV showing the stock ticker (up and down) and Claude usage mode](docs/screen.svg)
@@ -31,6 +37,10 @@ your PC. Pick the mode in the web UI.
 - **Claude usage mode** — an animated pixel mascot + 5h/7d usage bars with reset
   countdowns, fed by the [clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon)
   on your PC (no cable; pushed or polled over WiFi).
+- **Plane radar mode** — a live ADS‑B radar of nearby aircraft (heading triangles,
+  speed vectors, callsign/altitude, off‑screen bearing dots) from the free
+  [adsb.fi](https://adsb.fi) API **or** your own LAN webhook, with a few
+  configurable home airports.
 - **Full web UI** — connect to WiFi, configure the AP/hotspot, pick what to
   show, manage the symbol list, set brightness/orientation/colours.
 - **OTA updates** — flash new firmware from the browser, no cable needed.
@@ -254,6 +264,63 @@ leaves your machine. The mascot animations are a curated subset of the
 [claudepix](https://claudepix.vercel.app) pixel‑art set, re‑rendered on the
 ST7789.
 
+## Plane radar mode
+
+Switch **Display → Mode** to **Plane radar** and configure it in the **Radar** tab.
+The device shows a PPI‑style radar centred on your home location: range rings, a
+home marker, nearby aircraft as red heading triangles with a magenta speed vector
+and callsign/altitude labels, aircraft beyond the ring as bearing dots on the rim,
+and any home airports you add as small markers.
+
+Set your **home latitude/longitude** (decimal degrees), a **range** preset
+(5/10/15/25/50), **km or mi**, and pick a **data source**:
+
+### adsb.fi (default — no server)
+
+The device fetches the free [adsb.fi](https://adsb.fi) open‑data API directly over
+HTTPS, one request per refresh:
+
+```
+GET https://opendata.adsb.fi/api/v3/lat/<lat>/lon/<lon>/dist/<nm>
+```
+
+No API key. It parses the nearest aircraft itself and keeps the closest 24. The
+public endpoint is rate‑limited (~1 req/s), so keep the refresh interval sensible
+(default 10 s).
+
+> **ESP8266 TLS caveat.** HTTPS is RAM‑tight on the ESP8266. The device probes the
+> server's Maximum Fragment Length support so BearSSL can use a small buffer; if
+> adsb.fi sends large TLS records without MFLN, the direct fetch can fail in busy
+> airspace. If you see it dropping, use the **webhook** source below.
+
+### Custom webhook (LAN proxy — most reliable)
+
+Point a tiny proxy (n8n, Node‑RED, a small script) at adsb.fi, filter it to the
+nearest few aircraft, and return a small JSON over plain HTTP on your LAN. Set the
+source to **Custom webhook** and the URL; the device calls:
+
+```
+GET  <webhookUrl>?lat=<lat>&lon=<lon>&dist=<km>
+```
+
+and expects the same `{"ac":[ ... ]}` shape adsb.fi returns (fields per aircraft:
+`lat`, `lon`, `track`, `gs`, `flight`, `hex`, `alt_baro`). This offloads filtering
+and the big TLS handshake from the device — the most robust option on the ESP8266.
+
+## Build variants
+
+All three features ship in the default `smalltv` image and you switch between them
+in the web UI. Each feature is gated by a compile‑time flag (`WITH_TICKER`,
+`WITH_USAGE`, `WITH_RADAR`, all on by default), so you can build a leaner image
+with only what you want — handy if flash or heap ever gets tight:
+
+```bash
+pio run -e smalltv           # all three (default)
+pio run -e smalltv-radar     # radar only
+pio run -e smalltv-ticker    # ticker only
+pio run -e smalltv-usage     # usage only
+```
+
 ## Building from source
 
 Requires [PlatformIO](https://platformio.org/):
@@ -267,22 +334,24 @@ pio device monitor           # serial logs @ 115200
 Project layout:
 
 ```
-src/
-  main.cpp          orchestration: setup/loop, rotation, render scheduling
-  config.h          pins, limits, compile-time defaults, firmware version
-  Settings.*        config struct + LittleFS persistence (config.json)
+src/                          shared core (device, net, web, settings)
+  main.cpp          orchestration: setup/loop + the mode registry
+  Mode.h            DisplayMode interface each feature implements
+  config.h          pins, limits, feature flags, compile-time defaults
+  Settings.*        settings struct (shared + per-feature slices) + persistence
   Net.*             WiFi STA / fallback AP / captive portal / mDNS
   WebPortal.*       web server, REST API, OTA endpoint
   webui.h           the single-page UI (HTML/CSS/JS, served from PROGMEM)
-  Display.*         ST7789 rendering (Arduino_GFX): tickers, usage meters, mascot
-  StockClient.*     webhook fetch (HTTP/HTTPS) + JSON parse + poll timing
-  StockData.h       per-ticker runtime struct
-  UsageClient.*     Claude usage fetch (from the daemon) + poll timing
-  UsageData.h       usage runtime struct (5h/7d % + resets + status)
-  Mascot.*          mascot animation state machine + burn-rate mood tracker
-  mascot_frames.h   generated PROGMEM pixel-art frames (tools/extract_mascot.py)
+  Gfx.*             shared ST7789 core (Arduino_GFX): device, text, boot screens
+  features/
+    ticker/         TickerMode + StockClient/StockData
+    usage/          UsageMode + UsageClient/UsageData + Mascot + mascot_frames.h
+    radar/          RadarMode + RadarClient + RadarData
 tools/              extract_mascot.py — regenerates mascot_frames.h from the source
 n8n/                webhook contract + importable workflow
+
+Each feature is a self-contained `DisplayMode` (its own fetch, render, dirty
+state, and settings slice); `main.cpp` just dispatches to the active one.
 ```
 
 The PC-side usage daemon lives in its own repo:

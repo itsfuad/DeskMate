@@ -37,7 +37,13 @@ static void handleRoot() {
 
 static void handleGetConfig() {
   JsonDocument doc;
-  settingsToJson(*S, doc.to<JsonObject>(), /*includeSecrets=*/false);
+  JsonObject root = doc.to<JsonObject>();
+  settingsToJson(*S, root, /*includeSecrets=*/false);
+  // Which features are compiled in (so a lean build hides the tabs it dropped).
+  JsonObject feat = root["features"].to<JsonObject>();
+  feat["ticker"] = (bool)WITH_TICKER;
+  feat["usage"]  = (bool)WITH_USAGE;
+  feat["radar"]  = (bool)WITH_RADAR;
   sendJson(doc);
 }
 
@@ -55,6 +61,7 @@ static void handleStatus() {
   o["uptime"] = millis() / 1000;
   o["reset"] = appResetReason();
 
+#if WITH_TICKER
   JsonArray arr = o["tickers"].to<JsonArray>();
   for (uint8_t i = 0; i < stocksCount(); i++) {
     const StockData& d = stockAt(i);
@@ -67,6 +74,7 @@ static void handleStatus() {
       if (d.hasChange) t["changePct"] = d.changePct;
     }
   }
+#endif
   sendJson(doc);
 }
 
@@ -127,7 +135,9 @@ static void handleFactory() {
 }
 
 static void handleRefresh() {
+#if WITH_TICKER
   stocksForceRefresh();
+#endif
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -135,7 +145,11 @@ static void handleRefresh() {
 // reach it (Wi-Fi client isolation). Body is the {s,sr,w,wr,st,ok} contract.
 static void handleUsagePush() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+#if WITH_USAGE
   bool ok = usageApply(server.arg("plain"));
+#else
+  bool ok = false;
+#endif
   server.send(ok ? 200 : 400, "application/json",
               ok ? "{\"ok\":true}" : "{\"ok\":false}");
 }

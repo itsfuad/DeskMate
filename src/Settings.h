@@ -16,6 +16,12 @@ struct SymbolCfg {
   char name[MAX_NAME_LEN];
 };
 
+// A home-area airport marker (radar feature), configured in the web UI.
+struct Airport {
+  char  icao[MAX_ICAO_LEN];
+  float lat, lon;
+};
+
 // ---- Ticker (stock/crypto) feature slice ----------------------------------
 struct TickerSettings {
   uint8_t  source;        // SRC_WEBHOOK or SRC_YAHOO (see config.h)
@@ -53,6 +59,28 @@ struct UsageSettings {
   void fromJson(JsonObjectConst o);
 };
 
+// ---- Plane radar feature slice --------------------------------------------
+struct RadarSettings {
+  float    lat;           // home latitude  (0,0 = not set yet)
+  float    lon;           // home longitude
+  uint8_t  source;        // RADAR_SRC_DIRECT or RADAR_SRC_WEBHOOK
+  String   webhookUrl;    // LAN proxy base URL (when source=webhook)
+  uint16_t rangeKm;       // outer ring radius
+  uint16_t pollSec;       // refresh period
+  bool     unitsMi;       // show distances in miles instead of km
+
+  bool showLabels;        // callsign + altitude next to each aircraft
+  bool showVectors;       // speed/heading vector line
+  bool showRimDots;       // aircraft beyond the ring as bearing dots on the rim
+
+  Airport airports[MAX_AIRPORTS];
+  uint8_t airportCount;
+
+  void setDefaults();
+  void toJson(JsonObject o) const;
+  void fromJson(JsonObjectConst o);
+};
+
 // ---- Top-level settings ----------------------------------------------------
 struct Settings {
   // --- WiFi station (the network the device joins) ---
@@ -77,6 +105,7 @@ struct Settings {
   // --- Feature slices ---
   TickerSettings ticker;
   UsageSettings  usage;
+  RadarSettings  radar;
 
   void setDefaults();
 };
