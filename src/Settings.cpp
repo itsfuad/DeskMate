@@ -3,28 +3,16 @@
 
 static const char* CONFIG_PATH = "/config.json";
 
-// ---------------------------------------------------------------------------
-void Settings::setDefaults() {
-  staSsid = "";
-  staPass = "";
-  apSsid  = DEFAULT_AP_SSID;
-  apPass  = DEFAULT_AP_PASS;
-  hostname = DEFAULT_HOSTNAME;
-
-  mode = DEFAULT_MODE;
+// ===========================================================================
+// Ticker slice
+// ===========================================================================
+void TickerSettings::setDefaults() {
   source = DEFAULT_SOURCE;
   webhookUrl = "";
-  usageUrl = "";
   range = DEFAULT_RANGE;
   points = DEFAULT_POINTS;
   pollSec = DEFAULT_POLL_SEC;
   rotateSec = DEFAULT_ROTATE_SEC;
-  httpTimeout = DEFAULT_HTTP_TIMEOUT;
-
-  brightness = DEFAULT_BRIGHTNESS;
-  autoBrightness = false;
-  backlightInverted = TFT_BL_DEFAULT_INVERTED;
-  rotation = 0;
   colorInverted = false;
 
   showName = true;
@@ -40,6 +28,105 @@ void Settings::setDefaults() {
     symbols[i].symbol[0] = 0;
     symbols[i].name[0] = 0;
   }
+}
+
+void TickerSettings::toJson(JsonObject o) const {
+  o["source"]         = (source == SRC_YAHOO) ? "yahoo" : "webhook";
+  o["webhookUrl"]     = webhookUrl;
+  o["range"]          = range;
+  o["points"]         = points;
+  o["pollSec"]        = pollSec;
+  o["rotateSec"]      = rotateSec;
+  o["colorInverted"]  = colorInverted;
+  o["showName"]       = showName;
+  o["showPrice"]      = showPrice;
+  o["showChange"]     = showChange;
+  o["showChart"]      = showChart;
+  o["showRangeLabel"] = showRangeLabel;
+  o["showUpdatedAgo"] = showUpdatedAgo;
+  o["showPageDots"]   = showPageDots;
+
+  JsonArray arr = o["symbols"].to<JsonArray>();
+  for (uint8_t i = 0; i < symbolCount; i++) {
+    JsonObject e = arr.add<JsonObject>();
+    e["symbol"] = symbols[i].symbol;
+    e["name"]   = symbols[i].name;
+  }
+}
+
+void TickerSettings::fromJson(JsonObjectConst o) {
+  if (o["source"].is<const char*>()) {
+    String src = o["source"].as<String>();
+    source = src.equalsIgnoreCase("yahoo") ? SRC_YAHOO : SRC_WEBHOOK;
+  }
+  if (o["webhookUrl"].is<const char*>()) webhookUrl = o["webhookUrl"].as<String>();
+  if (o["range"].is<const char*>())      range = o["range"].as<String>();
+  if (o["points"].is<int>())             points = constrain((int)o["points"], 0, MAX_SPARK_POINTS);
+  if (o["pollSec"].is<int>())            pollSec = max(10, (int)o["pollSec"]);
+  if (o["rotateSec"].is<int>())          rotateSec = max(2, (int)o["rotateSec"]);
+  if (o["colorInverted"].is<bool>())     colorInverted = o["colorInverted"];
+
+  if (o["showName"].is<bool>())       showName = o["showName"];
+  if (o["showPrice"].is<bool>())      showPrice = o["showPrice"];
+  if (o["showChange"].is<bool>())     showChange = o["showChange"];
+  if (o["showChart"].is<bool>())      showChart = o["showChart"];
+  if (o["showRangeLabel"].is<bool>()) showRangeLabel = o["showRangeLabel"];
+  if (o["showUpdatedAgo"].is<bool>()) showUpdatedAgo = o["showUpdatedAgo"];
+  if (o["showPageDots"].is<bool>())   showPageDots = o["showPageDots"];
+
+  if (o["symbols"].is<JsonArrayConst>()) {
+    JsonArrayConst arr = o["symbols"].as<JsonArrayConst>();
+    symbolCount = 0;
+    for (JsonObjectConst e : arr) {
+      if (symbolCount >= MAX_SYMBOLS) break;
+      const char* sym = e["symbol"] | "";
+      if (!sym[0]) continue;                 // skip blank rows
+      SymbolCfg& dst = symbols[symbolCount];
+      strlcpy(dst.symbol, sym, MAX_SYMBOL_LEN);
+      strlcpy(dst.name, e["name"] | "", MAX_NAME_LEN);
+      symbolCount++;
+    }
+  }
+}
+
+// ===========================================================================
+// Usage slice
+// ===========================================================================
+void UsageSettings::setDefaults() {
+  usageUrl = "";
+  pollSec = DEFAULT_POLL_SEC;
+}
+
+void UsageSettings::toJson(JsonObject o) const {
+  o["usageUrl"] = usageUrl;
+  o["pollSec"]  = pollSec;
+}
+
+void UsageSettings::fromJson(JsonObjectConst o) {
+  if (o["usageUrl"].is<const char*>()) usageUrl = o["usageUrl"].as<String>();
+  if (o["pollSec"].is<int>())          pollSec = max(10, (int)o["pollSec"]);
+}
+
+// ===========================================================================
+// Top-level settings
+// ===========================================================================
+void Settings::setDefaults() {
+  staSsid = "";
+  staPass = "";
+  apSsid  = DEFAULT_AP_SSID;
+  apPass  = DEFAULT_AP_PASS;
+  hostname = DEFAULT_HOSTNAME;
+
+  mode = DEFAULT_MODE;
+  httpTimeout = DEFAULT_HTTP_TIMEOUT;
+
+  brightness = DEFAULT_BRIGHTNESS;
+  autoBrightness = false;
+  backlightInverted = TFT_BL_DEFAULT_INVERTED;
+  rotation = 0;
+
+  ticker.setDefaults();
+  usage.setDefaults();
 }
 
 // ---------------------------------------------------------------------------
@@ -95,43 +182,21 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
     root["apPass"]   = s.apPass;
   }
 
-  // Mode + data
-  root["mode"]        = (s.mode == MODE_USAGE) ? "usage" : "stocks";
-  root["source"]      = (s.source == SRC_YAHOO) ? "yahoo" : "webhook";
-  root["webhookUrl"]  = s.webhookUrl;
-  root["usageUrl"]    = s.usageUrl;
-  root["range"]       = s.range;
-  root["points"]      = s.points;
-  root["pollSec"]     = s.pollSec;
-  root["rotateSec"]   = s.rotateSec;
-  root["httpTimeout"] = s.httpTimeout;
-
-  // Display
+  // Mode + shared HTTP/display
+  root["mode"]              = (s.mode == MODE_USAGE) ? "usage" : "stocks";
+  root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
   root["autoBrightness"]    = s.autoBrightness;
   root["backlightInverted"] = s.backlightInverted;
   root["rotation"]          = s.rotation;
-  root["colorInverted"]     = s.colorInverted;
 
-  // Show flags
-  root["showName"]       = s.showName;
-  root["showPrice"]      = s.showPrice;
-  root["showChange"]     = s.showChange;
-  root["showChart"]      = s.showChart;
-  root["showRangeLabel"] = s.showRangeLabel;
-  root["showUpdatedAgo"] = s.showUpdatedAgo;
-  root["showPageDots"]   = s.showPageDots;
-
-  // Symbols
-  JsonArray arr = root["symbols"].to<JsonArray>();
-  for (uint8_t i = 0; i < s.symbolCount; i++) {
-    JsonObject o = arr.add<JsonObject>();
-    o["symbol"] = s.symbols[i].symbol;
-    o["name"]   = s.symbols[i].name;
-  }
+  // Feature slices
+  s.ticker.toJson(root["ticker"].to<JsonObject>());
+  s.usage.toJson(root["usage"].to<JsonObject>());
 }
 
-// Apply only the keys that are present (partial update friendly).
+// Apply only the keys that are present (partial update friendly). Accepts both
+// the nested layout and the legacy flat layout (feature keys at the top level).
 void settingsApplyJson(Settings& s, JsonObjectConst root) {
   if (root["hostname"].is<const char*>()) s.hostname = root["hostname"].as<String>();
 
@@ -149,43 +214,18 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
     String m = root["mode"].as<String>();
     s.mode = m.equalsIgnoreCase("usage") ? MODE_USAGE : MODE_STOCKS;
   }
-  if (root["source"].is<const char*>()) {
-    String src = root["source"].as<String>();
-    s.source = src.equalsIgnoreCase("yahoo") ? SRC_YAHOO : SRC_WEBHOOK;
-  }
-  if (root["webhookUrl"].is<const char*>()) s.webhookUrl = root["webhookUrl"].as<String>();
-  if (root["usageUrl"].is<const char*>())   s.usageUrl = root["usageUrl"].as<String>();
-  if (root["range"].is<const char*>())      s.range = root["range"].as<String>();
-  if (root["points"].is<int>())             s.points = constrain((int)root["points"], 0, MAX_SPARK_POINTS);
-  if (root["pollSec"].is<int>())            s.pollSec = max(10, (int)root["pollSec"]);
-  if (root["rotateSec"].is<int>())          s.rotateSec = max(2, (int)root["rotateSec"]);
-  if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
 
+  if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
   if (root["brightness"].is<int>())         s.brightness = constrain((int)root["brightness"], 0, 100);
   if (root["autoBrightness"].is<bool>())    s.autoBrightness = root["autoBrightness"];
   if (root["backlightInverted"].is<bool>()) s.backlightInverted = root["backlightInverted"];
   if (root["rotation"].is<int>())           s.rotation = (uint8_t)(((int)root["rotation"]) & 3);
-  if (root["colorInverted"].is<bool>())     s.colorInverted = root["colorInverted"];
 
-  if (root["showName"].is<bool>())       s.showName = root["showName"];
-  if (root["showPrice"].is<bool>())      s.showPrice = root["showPrice"];
-  if (root["showChange"].is<bool>())     s.showChange = root["showChange"];
-  if (root["showChart"].is<bool>())      s.showChart = root["showChart"];
-  if (root["showRangeLabel"].is<bool>()) s.showRangeLabel = root["showRangeLabel"];
-  if (root["showUpdatedAgo"].is<bool>()) s.showUpdatedAgo = root["showUpdatedAgo"];
-  if (root["showPageDots"].is<bool>())   s.showPageDots = root["showPageDots"];
-
-  if (root["symbols"].is<JsonArrayConst>()) {
-    JsonArrayConst arr = root["symbols"].as<JsonArrayConst>();
-    s.symbolCount = 0;
-    for (JsonObjectConst o : arr) {
-      if (s.symbolCount >= MAX_SYMBOLS) break;
-      const char* sym = o["symbol"] | "";
-      if (!sym[0]) continue;                 // skip blank rows
-      SymbolCfg& dst = s.symbols[s.symbolCount];
-      strlcpy(dst.symbol, sym, MAX_SYMBOL_LEN);
-      strlcpy(dst.name, o["name"] | "", MAX_NAME_LEN);
-      s.symbolCount++;
-    }
-  }
+  // Feature slices: prefer the nested object; fall back to the top level so a
+  // legacy flat config.json (or a legacy POST) still applies. The old shared
+  // "pollSec" thus seeds both ticker and usage cadence on first upgrade.
+  JsonObjectConst t = root["ticker"].is<JsonObjectConst>() ? root["ticker"].as<JsonObjectConst>() : root;
+  s.ticker.fromJson(t);
+  JsonObjectConst u = root["usage"].is<JsonObjectConst>() ? root["usage"].as<JsonObjectConst>() : root;
+  s.usage.fromJson(u);
 }

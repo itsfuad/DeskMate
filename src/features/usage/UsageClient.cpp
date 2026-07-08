@@ -68,7 +68,7 @@ bool usageApply(const String& body) {
 
 // ---- one HTTP(S) GET + parse (mirrors StockClient::fetchUrl) ----------------
 static bool fetchUsage(const Settings& s) {
-  const String& url = s.usageUrl;
+  const String& url = s.usage.usageUrl;
   if (url.length() < 8) return false;
   bool https = url.startsWith("https://");
 
@@ -104,5 +104,5 @@ void usageService(const Settings& s) {
 
   if (!fetchUsage(s)) g_usage.error = true;   // keep stale data, flag the error
 
-  g_nextPollMs = millis() + (uint32_t)s.pollSec * 1000UL;
+  g_nextPollMs = millis() + (uint32_t)s.usage.pollSec * 1000UL;
 }

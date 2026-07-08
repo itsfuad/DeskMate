@@ -14,13 +14,13 @@ static uint32_t g_nextPollMs = 0;
 
 // ---------------------------------------------------------------------------
 void stocksInit(const Settings& s) {
-  g_count = s.symbolCount;
+  g_count = s.ticker.symbolCount;
   for (uint8_t i = 0; i < g_count; i++) {
     g_stocks[i].clear();
-    strlcpy(g_stocks[i].symbol, s.symbols[i].symbol, MAX_SYMBOL_LEN);
-    g_stocks[i].userNamed = (s.symbols[i].name[0] != 0);
+    strlcpy(g_stocks[i].symbol, s.ticker.symbols[i].symbol, MAX_SYMBOL_LEN);
+    g_stocks[i].userNamed = (s.ticker.symbols[i].name[0] != 0);
     strlcpy(g_stocks[i].name,
-            g_stocks[i].userNamed ? s.symbols[i].name : s.symbols[i].symbol,
+            g_stocks[i].userNamed ? s.ticker.symbols[i].name : s.ticker.symbols[i].symbol,
             MAX_NAME_LEN);
   }
   g_refreshing = false;
@@ -59,12 +59,12 @@ static String urlEncode(const char* src) {
 }
 
 static String buildWebhookUrl(const Settings& s, const char* symbol) {
-  String url = s.webhookUrl;
+  String url = s.ticker.webhookUrl;
   char sep = (url.indexOf('?') >= 0) ? '&' : '?';
   url += sep;
   url += "symbol=" + urlEncode(symbol);
-  url += "&range=" + urlEncode(s.range.c_str());
-  url += "&points=" + String(s.points);
+  url += "&range=" + urlEncode(s.ticker.range.c_str());
+  url += "&points=" + String(s.ticker.points);
   return url;
 }
 
@@ -80,7 +80,7 @@ static const char* yahooInterval(const String& r) {
 }
 
 static String buildYahooUrl(const Settings& s, const char* host, const char* symbol) {
-  String range = s.range;
+  String range = s.ticker.range;
   range.toLowerCase();
   if (range.length() == 0) range = "1d";
   String url = F("https://");
@@ -132,7 +132,7 @@ static bool parseWebhook(const Settings& s, StockData& d, Stream& stream) {
     strlcpy(d.name, doc["name"].as<const char*>(), MAX_NAME_LEN);
   strlcpy(d.currency, doc["currency"] | "", sizeof(d.currency));
 
-  const char* rng = doc["range"] | s.range.c_str();
+  const char* rng = doc["range"] | s.ticker.range.c_str();
   strlcpy(d.rangeLabel, rng, sizeof(d.rangeLabel));
 
   bool hasChg = doc["change"].is<float>() || doc["change"].is<int>();
@@ -214,7 +214,7 @@ static bool parseYahoo(const Settings& s, StockData& d, Stream& stream) {
     d.hasChange = false;
   }
 
-  String rl = s.range;
+  String rl = s.ticker.range;
   rl.toUpperCase();
   strlcpy(d.rangeLabel, rl.c_str(), sizeof(d.rangeLabel));
 
@@ -222,7 +222,7 @@ static bool parseYahoo(const Settings& s, StockData& d, Stream& stream) {
   // Downsample on the fly to at most `points` evenly-spaced samples.
   d.sparkCount = 0;
   JsonArrayConst closes = res["indicators"]["quote"][0]["close"];
-  uint16_t want = s.points;
+  uint16_t want = s.ticker.points;
   if (want > MAX_SPARK_POINTS) want = MAX_SPARK_POINTS;
   if (!closes.isNull() && want >= 2) {
     uint16_t valid = 0;
@@ -298,7 +298,7 @@ static bool fetchUrl(const Settings& s, const String& url, bool yahoo, StockData
 
 // ---- fetch one symbol -----------------------------------------------------
 static bool fetchSymbol(const Settings& s, StockData& d) {
-  if (s.source == SRC_YAHOO) {
+  if (s.ticker.source == SRC_YAHOO) {
     // A single back-to-back HTTPS fetch occasionally drops on the ESP8266, so
     // retry once on the alternate mirror before giving up (this is what made one
     // symbol intermittently fail while others in the same poll succeeded).
@@ -307,7 +307,7 @@ static bool fetchSymbol(const Settings& s, StockData& d) {
     return fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST2, d.symbol), true, d);
   }
 
-  if (s.webhookUrl.length() < 8) return false;
+  if (s.ticker.webhookUrl.length() < 8) return false;
   return fetchUrl(s, buildWebhookUrl(s, d.symbol), false, d);
 }
 
@@ -333,7 +333,7 @@ void stocksService(const Settings& s) {
 
   if (g_fetchIdx >= g_count) {
     g_refreshing = false;
-    uint32_t period = (uint32_t)s.pollSec * 1000UL;
+    uint32_t period = (uint32_t)s.ticker.pollSec * 1000UL;
     g_nextPollMs = millis() + period;
   }
 }

@@ -52,6 +52,22 @@
 #define MODE_USAGE   1
 #define DEFAULT_MODE MODE_STOCKS
 
+// ---------------------------------------------------------------------------
+// Compile-time feature toggles. All shipping features are on by default; a lean
+// build drops one by setting e.g. -D WITH_RADAR=0 in a PlatformIO env, which
+// omits that feature's module from the registry and its web UI section.
+// (WITH_RADAR ships off until the radar module lands.)
+// ---------------------------------------------------------------------------
+#ifndef WITH_TICKER
+#define WITH_TICKER 1
+#endif
+#ifndef WITH_USAGE
+#define WITH_USAGE 1
+#endif
+#ifndef WITH_RADAR
+#define WITH_RADAR 0
+#endif
+
 // Claude usage mode: once data stops arriving for this long (PC asleep, daemon
 // stopped, network down) the screen switches from the stats to the idle mascot
 // animation. Effective timeout also scales with the poll period (see main.cpp).

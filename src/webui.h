@@ -1,4 +1,8 @@
 // webui.h — single-page config UI served from PROGMEM
+//
+// Tabs are segmented per feature: shared Status/WiFi/Display/Update plus one tab
+// per feature (Ticker / Usage; Radar is added with WITH_RADAR). The config JSON
+// mirrors the nested Settings layout: { ..shared.., ticker:{...}, usage:{...} }.
 #pragma once
 #include <Arduino.h>
 
@@ -55,14 +59,15 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
  <button data-t="status" class="active">Status</button>
  <button data-t="wifi">WiFi</button>
  <button data-t="display">Display</button>
- <button data-t="symbols" class="stockonly">Symbols</button>
+ <button data-t="ticker">Ticker</button>
+ <button data-t="usage">Usage</button>
  <button data-t="update">Update</button>
 </nav>
 <main>
  <!-- STATUS -->
  <section id="status" class="tab active">
   <div class="card"><h2>Device</h2><div id="statusBox" class="muted">Loading...</div></div>
-  <div class="card stockonly"><h2>Tickers</h2><div id="tickBox" class="muted">-</div>
+  <div class="card"><h2>Tickers</h2><div id="tickBox" class="muted">-</div>
    <button class="btn sec" style="margin-top:10px" onclick="refreshNow()">Refresh data now</button></div>
  </section>
 
@@ -86,17 +91,15 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
   </div>
  </section>
 
- <!-- DISPLAY -->
+ <!-- DISPLAY (shared) -->
  <section id="display" class="tab">
   <div class="card"><h2>Mode</h2>
    <label>What this device shows</label>
-   <select id="mode" onchange="modeChanged()">
+   <select id="mode">
     <option value="stocks">Stock / crypto ticker</option>
     <option value="usage">Claude usage</option>
    </select>
-   <div id="usageRow"><label>Usage daemon URL</label>
-    <input id="usageUrl" type="url" placeholder="http://192.168.1.10:8787/"></div>
-   <small class="hint" id="modeHint"></small>
+   <small class="hint">Pick the active feature, then configure it in its own tab.</small>
   </div>
   <div class="card"><h2>Screen</h2>
    <label>Brightness: <span id="brVal"></span>%</label>
@@ -106,11 +109,12 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <select id="rotation"><option value="0">0&deg;</option><option value="1">90&deg;</option>
     <option value="2">180&deg;</option><option value="3">270&deg;</option></select>
    <div class="chk"><input id="backlightInverted" type="checkbox"><label>Backlight is active-low (try if screen stays dark)</label></div>
-   <label>Color scheme</label>
-   <select id="colorInverted"><option value="false">Green up / Red down</option>
-    <option value="true">Red up / Green down</option></select>
   </div>
-  <div class="card stockonly"><h2>Rotation &amp; data</h2>
+ </section>
+
+ <!-- TICKER (feature) -->
+ <section id="ticker" class="tab">
+  <div class="card"><h2>Rotation &amp; data</h2>
    <div class="row">
     <div><label>Show each ticker (s)</label><input id="rotateSec" type="number" min="2" max="300"></div>
     <div><label>Refresh data (s)</label><input id="pollSec" type="number" min="10" max="3600"></div>
@@ -128,7 +132,11 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    </div>
    <small class="hint" id="srcHint"></small>
   </div>
-  <div class="card stockonly"><h2>What to show</h2>
+  <div class="card"><h2>Color scheme</h2>
+   <select id="colorInverted"><option value="false">Green up / Red down</option>
+    <option value="true">Red up / Green down</option></select>
+  </div>
+  <div class="card"><h2>What to show</h2>
    <div class="chk"><input id="showName" type="checkbox"><label>Name / symbol</label></div>
    <div class="chk"><input id="showPrice" type="checkbox"><label>Price</label></div>
    <div class="chk"><input id="showChange" type="checkbox"><label>Change &amp; % change</label></div>
@@ -137,14 +145,20 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <div class="chk"><input id="showUpdatedAgo" type="checkbox"><label>"Updated N s ago"</label></div>
    <div class="chk"><input id="showPageDots" type="checkbox"><label>Rotation dots</label></div>
   </div>
- </section>
-
- <!-- SYMBOLS -->
- <section id="symbols" class="tab">
   <div class="card"><h2>Tickers (rotate on screen)</h2>
    <table id="symTable"></table>
    <button class="btn sec" style="margin-top:10px" onclick="addSym()">+ Add ticker</button>
    <small class="hint">Ticker symbol, e.g. <code>AAPL</code>, <code>NESN.SW</code>, <code>BTC-USD</code>, <code>EURUSD=X</code> (Swiss stocks use the <code>.SW</code> suffix on Yahoo). Name is optional &mdash; if set it overrides the source's name.</small>
+  </div>
+ </section>
+
+ <!-- USAGE (feature) -->
+ <section id="usage" class="tab">
+  <div class="card"><h2>Claude usage</h2>
+   <label>Usage daemon URL</label>
+   <input id="usageUrl" type="url" placeholder="http://192.168.1.10:8787/">
+   <label>Refresh data (s)</label><input id="usagePollSec" type="number" min="10" max="3600">
+   <small class="hint">Shows your Claude <b>5h</b> &amp; <b>7d</b> usage from the local daemon. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;this-device-ip&gt;</code> (for networks where the device cannot reach the PC). Idle animation plays until data arrives.</small>
   </div>
  </section>
 
@@ -180,28 +194,33 @@ document.querySelectorAll('nav button').forEach(function(b){b.onclick=function()
  b.classList.add('active');$(b.dataset.t).classList.add('active');
 }});
 
-var BOOL=['autoBrightness','backlightInverted','showName','showPrice','showChange','showChart','showRangeLabel','showUpdatedAgo','showPageDots'];
-var TEXT=['staSsid','apSsid','apPass','hostname','webhookUrl','usageUrl','range'];
-var NUM=['brightness','rotateSec','pollSec','points'];
+// field groups by their location in the nested config
+var T_TEXT=['webhookUrl','range'];                   // ticker strings
+var T_NUM=['rotateSec','pollSec','points'];          // ticker numbers
+var T_BOOL=['showName','showPrice','showChange','showChart','showRangeLabel','showUpdatedAgo','showPageDots'];
 
 function loadConfig(){return j('/api/config').then(function(c){C=c;
- TEXT.forEach(function(k){$(k).value=c[k]!=null?c[k]:''});
- NUM.forEach(function(k){$(k).value=c[k]});
- BOOL.forEach(function(k){$(k).checked=!!c[k]});
- $('brVal').textContent=c.brightness;
+ var t=c.ticker||{}, u=c.usage||{};
+ // shared
+ ['staSsid','apSsid','apPass','hostname'].forEach(function(k){$(k).value=c[k]!=null?c[k]:''});
+ $('brightness').value=c.brightness; $('brVal').textContent=c.brightness;
  $('rotation').value=c.rotation;
- $('colorInverted').value=c.colorInverted?'true':'false';
- $('source').value=c.source||'yahoo';srcChanged();
- $('mode').value=c.mode||'stocks';modeChanged();
+ $('autoBrightness').checked=!!c.autoBrightness;
+ $('backlightInverted').checked=!!c.backlightInverted;
+ $('mode').value=c.mode||'stocks';
+ // ticker slice
+ T_TEXT.forEach(function(k){$(k).value=t[k]!=null?t[k]:''});
+ T_NUM.forEach(function(k){$(k).value=t[k]});
+ T_BOOL.forEach(function(k){$(k).checked=!!t[k]});
+ $('source').value=t.source||'yahoo'; srcChanged();
+ $('colorInverted').value=t.colorInverted?'true':'false';
+ renderSyms(t.symbols||[]);
+ // usage slice
+ $('usageUrl').value=u.usageUrl!=null?u.usageUrl:'';
+ $('usagePollSec').value=u.pollSec;
  $('apPass').placeholder=c.apPassSet?'(unchanged)':'(open)';
- renderSyms(c.symbols||[]);
 })}
-function modeChanged(){var u=$('mode').value==='usage';
- $('usageRow').style.display=u?'block':'none';
- $('modeHint').innerHTML=u
-  ?'Shows your Claude <b>5h</b> &amp; <b>7d</b> usage from the local daemon. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;this-device-ip&gt;</code> (for networks where the device cannot reach the PC). Idle animation plays until data arrives.'
-  :'Shows live stock / crypto prices.';
- document.querySelectorAll('.stockonly').forEach(function(e){e.style.display=u?'none':''});}
+
 function srcChanged(){var y=$('source').value!=='webhook';
  $('webhookRow').style.display=y?'none':'block';
  $('srcHint').innerHTML=y
@@ -209,20 +228,27 @@ function srcChanged(){var y=$('source').value!=='webhook';
   :'The device requests <code>?symbol=..&amp;range=..&amp;points=..</code> from this URL and expects the SmallTV JSON contract back.';}
 
 function collect(){
- var o={};
- TEXT.forEach(function(k){o[k]=$(k).value});
- NUM.forEach(function(k){o[k]=parseInt($(k).value)||0});
- BOOL.forEach(function(k){o[k]=$(k).checked});
- o.rotation=parseInt($('rotation').value);
- o.colorInverted=$('colorInverted').value==='true';
- o.source=$('source').value;
- o.mode=$('mode').value;
+ var o={mode:$('mode').value,
+  brightness:parseInt($('brightness').value)||0,
+  rotation:parseInt($('rotation').value),
+  autoBrightness:$('autoBrightness').checked,
+  backlightInverted:$('backlightInverted').checked,
+  hostname:$('hostname').value, apSsid:$('apSsid').value, apPass:$('apPass').value,
+  staSsid:$('staSsid').value};
  var p=$('staPass').value; if(p)o.staPass=p;
- o.symbols=[];
+ // ticker slice
+ var t={source:$('source').value, colorInverted:$('colorInverted').value==='true'};
+ T_TEXT.forEach(function(k){t[k]=$(k).value});
+ T_NUM.forEach(function(k){t[k]=parseInt($(k).value)||0});
+ T_BOOL.forEach(function(k){t[k]=$(k).checked});
+ t.symbols=[];
  document.querySelectorAll('#symTable tr').forEach(function(tr){
   var s=tr.querySelector('.s').value.trim();
-  if(s)o.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim()});
+  if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim()});
  });
+ o.ticker=t;
+ // usage slice
+ o.usage={usageUrl:$('usageUrl').value, pollSec:parseInt($('usagePollSec').value)||0};
  return o;
 }
 function saveAll(){j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())})

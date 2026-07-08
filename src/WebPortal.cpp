@@ -5,11 +5,11 @@
 #include <ArduinoJson.h>
 #include "webui.h"
 #include "Net.h"
-#include "Display.h"
+#include "Gfx.h"
 #include "StockClient.h"
 #include "UsageClient.h"
 
-// Defined in main.cpp — re-init usage client + force a repaint after a config change.
+// Defined in main.cpp — re-init every mode + force a repaint after a config change.
 extern void appInvalidate();
 extern const char* appResetReason();   // last reset reason (diagnostics)
 
@@ -86,11 +86,9 @@ static void handlePostConfig() {
   saveSettings(*S);
 
   // Live apply (no reboot needed for these)
-  displaySetBrightness(S->brightness, S->backlightInverted);
-  if (S->rotation != oldRot) displaySetRotation(S->rotation);
-  stocksInit(*S);
-  stocksForceRefresh();
-  appInvalidate();          // re-init usage client + repaint (covers mode/URL changes)
+  gfxSetBrightness(S->brightness, S->backlightInverted);
+  if (S->rotation != oldRot) gfxSetRotation(S->rotation);
+  appInvalidate();          // re-init every mode + repaint (covers mode/URL/symbol changes)
 
   bool wifiChanged = (S->staSsid != oldSsid) || (S->staPass != oldPass);
 
