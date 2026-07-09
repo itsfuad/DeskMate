@@ -43,19 +43,36 @@ One firmware carries all three modes; you switch between them in the web UI.
   decluttering are all configurable.
 - **Full web UI** — connect to WiFi, configure the AP/hotspot, pick what to
   show, manage the symbol list, set brightness/orientation/colours.
-- **OTA updates** — flash new firmware from the browser, no cable needed.
+- **Updates from GitHub**: the device pulls and flashes the newest release itself
+  from the Update tab, or you upload a firmware.bin from the browser. No cable
+  needed.
 - **Captive-portal setup** — first boot creates a `SmallTV-Setup` hotspot.
 - Tiny footprint: ~41 KB free heap, framebuffer-less rendering, HTTP **or**
   HTTPS.
 
 ## Hardware
 
+![GeekMagic SmallTV: 45 x 35 x 40 mm body, 28 x 28 mm screen](docs/device.png)
+
+The GeekMagic SmallTV is a tiny desk gadget: a 45 x 35 x 40 mm cube with a 28 x 28 mm
+colour IPS screen, an ESP8266 inside, and a USB-C port for power. It usually sells
+for about 6 to 8 EUR on AliExpress (search "GeekMagic SmallTV"), which is the whole
+reason it is worth flashing. You get a WiFi colour display for well under 10 EUR,
+and you never have to open it: the stock firmware exposes an OTA updater, so the
+first flash and every one after happen over WiFi.
+
+Check the variant before buying. This firmware targets the cheap ESP-12F / ESP8266
+model with the 1.54" 240x240 ST7789 screen. GeekMagic also sells ESP32-S3 and
+round-screen versions that this build does not cover.
+
 | | |
 |---|---|
 | MCU | ESP‑12F (ESP8266, 4 MB flash) |
-| Display | 1.54" 240×240 IPS, **ST7789**, SPI |
+| Display | 1.54" 240×240 IPS (≈28×28 mm), **ST7789**, SPI |
+| Body | 45 × 35 × 40 mm, USB‑C power |
 | Backlight | PWM, GPIO5 |
 | Light sensor | optional LDR on `A0` (not populated on all units) |
+| Price | about 6 to 8 EUR on AliExpress |
 
 ### Pin map
 

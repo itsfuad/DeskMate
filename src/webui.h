@@ -160,7 +160,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <label>Usage daemon URL</label>
    <input id="usageUrl" type="url" placeholder="http://192.168.1.10:8787/">
    <label>Refresh data (s)</label><input id="usagePollSec" type="number" min="10" max="3600">
-   <small class="hint">Shows your Claude <b>5h</b> &amp; <b>7d</b> usage from the local daemon. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;this-device-ip&gt;</code> (for networks where the device cannot reach the PC). Idle animation plays until data arrives.</small>
+   <small class="hint">Runs on the PC-side <a href="https://github.com/giovi321/clawdmeter-daemon" target="_blank">clawdmeter-daemon</a>, which reads your Claude usage and sends it here. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;this-device-ip&gt;</code> (for networks where the device cannot reach the PC). Idle animation plays until data arrives.</small>
   </div>
  </section>
 
@@ -210,12 +210,21 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
 
  <!-- UPDATE -->
  <section id="update" class="tab">
-  <div class="card"><h2>Firmware update (OTA)</h2>
+  <div class="card"><h2>Update from GitHub</h2>
+   <div class="muted">Installed: <b id="fwVer">-</b></div>
+   <div style="margin-top:10px">
+    <button class="btn sec" onclick="checkUpdate()" id="chkBtn">Check for latest</button>
+    <button class="btn" style="margin-left:8px" onclick="selfUpdate()" id="ghUpBtn" disabled>Update now</button>
+   </div>
+   <div id="ghMsg" class="muted" style="margin-top:8px"></div>
+   <small class="hint">Pulls the newest release straight from <a id="repoLink" href="https://github.com/giovi321/smalltv-mod/releases" target="_blank">the GitHub repo</a>. HTTPS OTA is tight on the ESP8266; if it fails, use the manual upload below.</small>
+  </div>
+  <div class="card"><h2>Manual update (OTA)</h2>
    <input id="fw" type="file" accept=".bin">
    <div style="margin-top:12px"><button class="btn" onclick="upload()" id="upBtn">Upload &amp; flash</button></div>
    <div class="bar"><div id="upBar"></div></div>
    <div id="upMsg" class="muted" style="margin-top:8px"></div>
-   <small class="hint">Upload the firmware.bin built by CI. The device reboots when done.</small>
+   <small class="hint">Upload a firmware.bin from the <a href="https://github.com/giovi321/smalltv-mod/releases" target="_blank">releases page</a> or a local build. The device reboots when done.</small>
   </div>
   <div class="card"><h2>Maintenance</h2>
    <button class="btn sec" onclick="reboot()">Reboot</button>
@@ -224,7 +233,11 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
  </section>
 </main>
 
-<div style="text-align:center;padding:0 0 24px"><button class="btn" onclick="saveAll()">Save settings</button></div>
+<div style="text-align:center;padding:0 0 16px"><button class="btn" onclick="saveAll()">Save settings</button></div>
+<div style="text-align:center;padding:0 0 24px;font-size:12px">
+ <a id="footRepo" href="https://github.com/giovi321/smalltv-mod" target="_blank" style="color:var(--mut);text-decoration:none">smalltv-mod</a>
+ <span id="footVer" class="muted"></span>
+</div>
 <div id="toast" class="toast"></div>
 
 <script>
@@ -383,6 +396,9 @@ function scan(){$('scanList').innerHTML='<div class="muted">Scanning...</div>';
 function loadStatus(){j('/api/status').then(function(s){
  $('dot').className='dot'+(s.connected?' ok':'');
  $('hi').textContent=s.mode==='ap'?'setup mode':(s.ip||'');
+ var fw=$('fwVer'); if(fw)fw.textContent=s.fw+' '+s.version;
+ var fv=$('footVer'); if(fv)fv.textContent=' v'+s.version;
+ if(s.repo){var rl=$('repoLink'); if(rl)rl.href=s.repo+'/releases'; var fr=$('footRepo'); if(fr)fr.href=s.repo;}
  $('statusBox').innerHTML=
   kv('Firmware',s.fw+' '+s.version)+kv('Mode',s.mode.toUpperCase())+
   kv('Network',s.ssid||'-')+kv('IP',s.ip||'-')+kv('Signal',s.rssi?s.rssi+' dBm':'-')+
@@ -398,6 +414,26 @@ function kv(k,v){return '<div class="kv"><span class="muted">'+k+'</span><b>'+v+
 function fmtUp(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
  return (d?d+'d ':'')+(h?h+'h ':'')+m+'m'}
 function refreshNow(){j('/api/refresh',{method:'POST'}).then(function(){toast('Refreshing...');setTimeout(loadStatus,1500)})}
+
+// GitHub self-update
+function checkUpdate(){$('ghMsg').textContent='Checking GitHub...';$('chkBtn').disabled=true;
+ j('/api/checkupdate').then(function(u){$('chkBtn').disabled=false;
+  if(!u.ok){$('ghMsg').textContent='Check failed: '+(u.error||'unknown');return}
+  if(u.newer){$('ghMsg').innerHTML='Version <b>'+u.latest+'</b> is available (installed '+u.current+').';$('ghUpBtn').disabled=false}
+  else{$('ghMsg').textContent='Up to date ('+u.current+').';$('ghUpBtn').disabled=true}
+ }).catch(function(){$('chkBtn').disabled=false;$('ghMsg').textContent='Check failed'})}
+function selfUpdate(){if(!confirm('Download and flash the latest release from GitHub? The device reboots if it succeeds.'))return;
+ $('ghUpBtn').disabled=true;$('chkBtn').disabled=true;
+ $('ghMsg').textContent='Downloading and flashing... this can take a minute; the device reboots when done.';
+ j('/api/selfupdate',{method:'POST'}).then(function(){
+  var n=0;var t=setInterval(function(){n++;
+   j('/api/status').then(function(s){
+    var m=s.updateMsg||'';
+    if(m&&m!=='starting...'&&m!=='updating...'){clearInterval(t);$('ghMsg').textContent='Update failed: '+m;$('chkBtn').disabled=false}
+   }).catch(function(){});
+   if(n>60)clearInterval(t);
+  },3000);
+ }).catch(function(){$('ghMsg').textContent='Could not start update';$('chkBtn').disabled=false})}
 
 // maintenance
 function reboot(){if(confirm('Reboot device?'))j('/api/reboot',{method:'POST'}).then(function(){toast('Rebooting...')})}

@@ -6,6 +6,7 @@
 #include "webui.h"
 #include "Net.h"
 #include "Gfx.h"
+#include "OtaUpdate.h"
 #include "StockClient.h"
 #include "UsageClient.h"
 
@@ -17,6 +18,8 @@ static ESP8266WebServer server(80);
 static Settings*        S = nullptr;
 static bool             g_reboot = false;
 static uint32_t         g_rebootAt = 0;
+static bool             g_selfUpdate = false;   // GitHub self-update requested
+static String           g_updateMsg;            // last self-update status/error
 
 static void scheduleReboot(uint32_t inMs) {
   g_reboot = true;
@@ -52,6 +55,8 @@ static void handleStatus() {
   JsonObject o = doc.to<JsonObject>();
   o["fw"] = FW_NAME;
   o["version"] = FW_VERSION;
+  o["repo"] = REPO_URL;
+  if (g_updateMsg.length()) o["updateMsg"] = g_updateMsg;
   o["mode"] = (netMode() == NET_AP) ? "ap" : "sta";
   o["connected"] = netConnected();
   o["ssid"] = netSSID();
@@ -141,6 +146,27 @@ static void handleRefresh() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+// Check the newest GitHub release against the running version.
+static void handleCheckUpdate() {
+  OtaLatest r = otaCheckLatest(*S);
+  JsonDocument doc;
+  JsonObject o = doc.to<JsonObject>();
+  o["current"] = FW_VERSION;
+  o["ok"] = r.ok;
+  o["latest"] = r.tag;
+  o["newer"] = r.newer;
+  if (!r.ok) o["error"] = r.error;
+  sendJson(doc);
+}
+
+// Trigger the self-update. The actual (blocking) download runs from the loop so
+// this response returns first; on success the device reboots into the new image.
+static void handleSelfUpdate() {
+  g_selfUpdate = true;
+  g_updateMsg = "starting...";
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 // Push endpoint: the daemon POSTs the usage payload here when the device can't
 // reach it (Wi-Fi client isolation). Body is the {s,sr,w,wr,st,ok} contract.
 static void handleUsagePush() {
@@ -201,6 +227,8 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/reboot", HTTP_POST, handleReboot);
   server.on("/api/factory", HTTP_POST, handleFactory);
   server.on("/api/refresh", HTTP_POST, handleRefresh);
+  server.on("/api/checkupdate", HTTP_GET, handleCheckUpdate);
+  server.on("/api/selfupdate", HTTP_POST, handleSelfUpdate);
   server.on("/api/usage", HTTP_POST, handleUsagePush);   // daemon pushes usage here
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
 
@@ -216,6 +244,14 @@ void webPortalBegin(Settings& settings) {
 
 void webPortalLoop() {
   server.handleClient();
+
+  // Run the GitHub self-update outside the request handler so the browser gets its
+  // response first. This blocks while it downloads; on success the device reboots.
+  if (g_selfUpdate) {
+    g_selfUpdate = false;
+    String err = otaUpdateFromGitHub(*S);
+    g_updateMsg = err.length() ? err : "updating...";
+  }
 }
 
 bool webPortalRebootDue() {
