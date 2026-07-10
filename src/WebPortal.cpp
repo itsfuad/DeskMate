@@ -81,6 +81,22 @@ static void handleStatus() {
   sendJson(doc);
 }
 
+// Fingerprint of everything network-identity related: the WiFi list and the
+// hostname. Changing any of it needs a reboot, because the connection and the
+// mDNS registration are established once at boot.
+static String netFingerprint(const Settings& s) {
+  String f((int)s.wifiCount);
+  for (uint8_t i = 0; i < s.wifiCount; i++) {
+    f += '\n';
+    f += s.wifi[i].ssid;
+    f += '\x01';
+    f += s.wifi[i].pass;
+  }
+  f += '\n';
+  f += s.hostname;
+  return f;
+}
+
 static void handlePostConfig() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
 
@@ -90,7 +106,7 @@ static void handlePostConfig() {
     return;
   }
 
-  String oldSsid = S->staSsid, oldPass = S->staPass;
+  String oldNet = netFingerprint(*S);
   uint8_t oldRot = S->rotation;
 
   settingsApplyJson(*S, doc.as<JsonObjectConst>());
@@ -101,7 +117,7 @@ static void handlePostConfig() {
   if (S->rotation != oldRot) gfxSetRotation(S->rotation);
   appInvalidate();          // re-init every mode + repaint (covers mode/URL/symbol changes)
 
-  bool wifiChanged = (S->staSsid != oldSsid) || (S->staPass != oldPass);
+  bool wifiChanged = netFingerprint(*S) != oldNet;
 
   JsonDocument res;
   res["ok"] = true;

@@ -1,9 +1,9 @@
 ---
 title: Data sources
-description: "Where the ticker gets its prices: Yahoo Finance directly, or your own webhook."
+description: "Where each ticker gets its prices: Yahoo Finance, cash.ch, or your own webhook."
 ---
 
-The ticker can pull prices three ways. Yahoo Finance works out of the box with no server. cash.ch covers Swiss instruments Yahoo does not carry, also with no server. A custom webhook lets you own the source. Pick one in **Display → Data source**.
+The ticker can pull prices three ways. Yahoo Finance works out of the box with no server. cash.ch covers Swiss instruments Yahoo does not carry, also with no server. A custom webhook lets you own the source. Every ticker picks its own source in the **Ticker** tab, so a rotation can mix all three freely.
 
 ## Yahoo Finance, the default
 
@@ -23,11 +23,7 @@ No API key, no account, no backend. The only requirement is outbound HTTPS, whic
 
 Yahoo does not know many Swiss-listed products: structured products, AMCs and tracker certificates, and anything quoted off-exchange. The Swiss finance portal [cash.ch](https://www.cash.ch) does. The device queries cash.ch's public GraphQL endpoint directly over HTTPS, two small requests per symbol: a ~200-byte quote (price and day change) and a slim series of daily closes for the sparkline. No API key, no account.
 
-With this source the `symbol` field is not a ticker but a cash.ch **listing key** in the form `valor-marketId-currencyId`, for example `147478611-246-333`. To find one:
-
-1. Open the instrument's page on cash.ch (search by name, ISIN, or valor).
-2. Open the browser dev tools, Network tab, and filter for `graphql`.
-3. Reload. Any `GetChartTimeserie...` or `AutoUpdate...` request carries the key as `variables.id` or `listingKeys`.
+With this source the `symbol` field is not a ticker but a cash.ch **listing key** in the form `valor-marketId-currencyId`, for example `147478611-246-333`. The web UI's **cash.ch symbol finder** (Ticker tab) turns a pasted cash.ch link, ISIN, valor, or instrument name into one: it queries cash.ch's search from your browser and one click adds the result as a ticker. Manual fallback: open the instrument's page on cash.ch, open the browser dev tools' Network tab filtered to `graphql`, reload, and read the key from `variables.id` or `listingKeys` of any chart request.
 
 Worth knowing:
 
@@ -38,7 +34,7 @@ Worth knowing:
 
 ## Custom webhook
 
-To own the data (other providers, caching, secrets), switch the source to **Custom webhook**. The device calls your URL, one request per symbol:
+To own the data (other providers, caching, secrets), set a ticker's source to **Webhook**. The device calls your URL, one request per symbol:
 
 ```
 GET <webhookUrl>?symbol=AAPL&range=1d&points=48
@@ -62,7 +58,7 @@ and expects a small JSON object back:
 
 Only `price` is required. The full field table and two ready-to-import n8n workflows (Yahoo-only, and Yahoo + cash.ch in one) are in the repo under [`n8n/`](https://github.com/giovi321/smalltv-mod/tree/main/n8n).
 
-The device pulls rather than receives a push, so your backend never needs to know the device's IP, and it keeps working if that IP changes. The webhook also solves mixing: the built-in source setting is global, so a rotation that combines Yahoo tickers with cash.ch listing keys needs a webhook that routes per symbol, which is exactly what the included combined workflow does.
+The device pulls rather than receives a push, so your backend never needs to know the device's IP, and it keeps working if that IP changes. Since each ticker picks its own source, webhook tickers mix freely with Yahoo and cash.ch ones in the same rotation.
 
 ## TLS on the ESP8266
 

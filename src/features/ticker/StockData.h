@@ -4,10 +4,11 @@
 #include "config.h"
 
 struct StockData {
-  char  symbol[MAX_SYMBOL_LEN];
-  char  name[MAX_NAME_LEN];
-  char  currency[6];
-  char  rangeLabel[8];
+  char    symbol[MAX_SYMBOL_LEN];
+  char    name[MAX_NAME_LEN];
+  char    currency[6];
+  char    rangeLabel[8];
+  uint8_t source;     // SRC_* this ticker fetches from (copied from settings)
 
   float price;
   float change;       // absolute change in price units
@@ -24,6 +25,7 @@ struct StockData {
 
   void clear() {
     symbol[0] = name[0] = currency[0] = rangeLabel[0] = 0;
+    source = DEFAULT_SOURCE;
     price = change = changePct = 0;
     hasChange = false;
     sparkCount = 0;

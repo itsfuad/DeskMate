@@ -74,20 +74,22 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
 
  <!-- WIFI -->
  <section id="wifi" class="tab">
-  <div class="card"><h2>Connect to WiFi</h2>
+  <div class="card"><h2>Saved networks</h2>
    <button class="btn sec" onclick="scan()">Scan networks</button>
    <div id="scanList"></div>
-   <label>Network name (SSID)</label><input id="staSsid" type="text" autocomplete="off">
-   <label>Password <span class="muted">(leave blank to keep current)</span></label>
-   <input id="staPass" type="password" autocomplete="off" placeholder="••••••••">
+   <table id="wifiTable"></table>
+   <button class="btn sec" style="margin-top:10px" onclick="addWifi()">+ Add network</button>
    <div style="margin-top:14px"><button class="btn" onclick="saveWifi()">Save &amp; connect (reboots)</button></div>
-   <small class="hint">2.4&nbsp;GHz only. The device reboots and joins this network.</small>
+   <small class="hint">2.4&nbsp;GHz only. Up to 4 networks; at boot the device joins the strongest one it can see. Tap a scan result to fill a row. Leave a password blank to keep the stored one.</small>
+  </div>
+  <div class="card"><h2>Device name</h2>
+   <label>Hostname</label><input id="hostname" type="text" placeholder="smalltv">
+   <small class="hint">Reachable as <code>http://&lt;hostname&gt;.local</code> via mDNS. Running several SmallTVs? Give each its own name (<code>smalltv-desk</code>, <code>smalltv-shelf</code>) so browsers and the clawdmeter daemon's <code>--push-to</code> reach the right device. Saving a new name reboots the device.</small>
   </div>
   <div class="card"><h2>Setup hotspot (AP)</h2>
    <label>AP name</label><input id="apSsid" type="text">
    <label>AP password <span class="muted">(blank = open, else min 8 chars)</span></label>
    <input id="apPass" type="text" placeholder="(unchanged)">
-   <label>Hostname (http://name.local)</label><input id="hostname" type="text">
    <small class="hint">The AP appears when no WiFi is configured or the connection fails.</small>
   </div>
  </section>
@@ -121,19 +123,19 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
     <div><label>Show each ticker (s)</label><input id="rotateSec" type="number" min="2" max="300"></div>
     <div><label>Refresh data (s)</label><input id="pollSec" type="number" min="10" max="3600"></div>
    </div>
-   <label>Data source</label>
-   <select id="source" onchange="srcChanged()">
-    <option value="yahoo">Yahoo Finance (direct, no server)</option>
-    <option value="cash">cash.ch (direct, Swiss instruments)</option>
-    <option value="webhook">Custom webhook (n8n / your own)</option>
-   </select>
-   <div id="webhookRow"><label>Webhook URL</label>
-    <input id="webhookUrl" type="url" placeholder="http://n8n.local:5678/webhook/stock"></div>
    <div class="row">
-    <div><label>Chart timeframe</label><input id="range" type="text" placeholder="1d"></div>
+    <div><label>Chart timeframe</label>
+     <select id="range">
+      <option value="1d">1 day</option><option value="5d">5 days</option>
+      <option value="1mo">1 month</option><option value="3mo">3 months</option>
+      <option value="6mo">6 months</option><option value="ytd">Year to date</option>
+      <option value="1y">1 year</option><option value="2y">2 years</option>
+      <option value="5y">5 years</option><option value="max">Max</option>
+     </select></div>
     <div><label>Chart points</label><input id="points" type="number" min="0" max="60"></div>
    </div>
-   <small class="hint" id="srcHint"></small>
+   <label>Webhook URL <span class="muted">(only for tickers set to Webhook)</span></label>
+   <input id="webhookUrl" type="url" placeholder="http://n8n.local:5678/webhook/stock">
   </div>
   <div class="card"><h2>Color scheme</h2>
    <select id="colorInverted"><option value="false">Green up / Red down</option>
@@ -151,7 +153,16 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
   <div class="card"><h2>Tickers (rotate on screen)</h2>
    <table id="symTable"></table>
    <button class="btn sec" style="margin-top:10px" onclick="addSym()">+ Add ticker</button>
-   <small class="hint">Ticker symbol, e.g. <code>AAPL</code>, <code>NESN.SW</code>, <code>BTC-USD</code>, <code>EURUSD=X</code> (Swiss stocks use the <code>.SW</code> suffix on Yahoo). Name is optional &mdash; if set it overrides the source's name.</small>
+   <small class="hint" id="symHint"></small>
+  </div>
+  <div class="card"><h2>cash.ch symbol finder</h2>
+   <label>Instrument <span class="muted">(paste a cash.ch link, ISIN, valor, or a name)</span></label>
+   <div class="row">
+    <input id="cashQ" type="text" placeholder="https://www.cash.ch/... or EU0009654078">
+    <button class="btn sec" style="flex:0 0 auto" onclick="cashFind()">Find</button>
+   </div>
+   <div id="cashRes"></div>
+   <small class="hint">Searches cash.ch from your browser and turns the result into the listing key the ticker needs. Click a match to add it as a ticker.</small>
   </div>
  </section>
 
@@ -161,7 +172,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <label>Usage daemon URL</label>
    <input id="usageUrl" type="url" placeholder="http://192.168.1.10:8787/">
    <label>Refresh data (s)</label><input id="usagePollSec" type="number" min="10" max="3600">
-   <small class="hint">Runs on the PC-side <a href="https://github.com/giovi321/clawdmeter-daemon" target="_blank">clawdmeter-daemon</a>, which reads your Claude usage and sends it here. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;this-device-ip&gt;</code> (for networks where the device cannot reach the PC). Idle animation plays until data arrives.</small>
+   <small class="hint">Runs on the PC-side <a href="https://github.com/giovi321/clawdmeter-daemon" target="_blank">clawdmeter-daemon</a>, which reads your Claude usage and sends it here. <b>Pull:</b> set the Usage URL to the daemon. <b>Push:</b> leave it blank and run the daemon with <code>--push-to &lt;hostname&gt;.local</code> (for networks where the device cannot reach the PC). Running several SmallTVs? Give each a unique hostname in the WiFi tab so every PC pushes to its own device. Idle animation plays until data arrives.</small>
   </div>
  </section>
 
@@ -236,7 +247,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
 
 <div style="text-align:center;padding:0 0 16px"><button class="btn" onclick="saveAll()">Save settings</button></div>
 <div style="text-align:center;padding:0 0 24px;font-size:12px">
- <a id="footRepo" href="https://github.com/giovi321/smalltv-mod" target="_blank" style="color:var(--mut);text-decoration:none">smalltv-mod</a>
+ <a id="footRepo" href="https://github.com/giovi321/smalltv-mod" target="_blank" style="color:var(--acc2);text-decoration:none">GitHub: giovi321/smalltv-mod</a>
  <span id="footVer" class="muted"></span>
 </div>
 <div id="toast" class="toast"></div>
@@ -274,7 +285,8 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  var f=c.features||{}; ['ticker','usage','radar'].forEach(function(k){if(f[k]===false)hideFeat(k)});
  var t=c.ticker||{}, u=c.usage||{};
  // shared
- ['staSsid','apSsid','apPass','hostname'].forEach(function(k){$(k).value=c[k]!=null?c[k]:''});
+ ['apSsid','apPass','hostname'].forEach(function(k){$(k).value=c[k]!=null?c[k]:''});
+ renderWifi(c.wifi||(c.staSsid?[{ssid:c.staSsid,passSet:c.staPassSet}]:[]));
  $('brightness').value=c.brightness; $('brVal').textContent=c.brightness;
  $('rotation').value=c.rotation;
  $('autoBrightness').checked=!!c.autoBrightness;
@@ -284,9 +296,8 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  T_TEXT.forEach(function(k){sv(k,t[k])});
  T_NUM.forEach(function(k){sv(k,t[k])});
  T_BOOL.forEach(function(k){sc(k,t[k])});
- sv('source',t.source||'yahoo'); srcChanged();
  sv('colorInverted',t.colorInverted?'true':'false');
- renderSyms(t.symbols||[]);
+ renderSyms(t.symbols||[]); symHintFor('yahoo');
  // usage slice
  sv('usageUrl',u.usageUrl);
  sv('usagePollSec',u.pollSec);
@@ -305,13 +316,41 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  var ap=$('apPass'); if(ap)ap.placeholder=c.apPassSet?'(unchanged)':'(open)';
 })}
 
-function srcChanged(){if(!$('source'))return;var v=$('source').value;
- $('webhookRow').style.display=v==='webhook'?'block':'none';
- $('srcHint').innerHTML=v==='webhook'
-  ?'The device requests <code>?symbol=..&amp;range=..&amp;points=..</code> from this URL and expects the SmallTV JSON contract back.'
-  :v==='cash'
-  ?'The device fetches <b>cash.ch</b> directly over HTTPS — no server needed. Symbols are cash.ch <b>listing keys</b> (<code>valor-market-currency</code>); see the docs for how to find one.'
-  :'The device fetches <b>Yahoo Finance</b> directly over HTTPS — no server needed. Use Yahoo symbols (e.g. <code>AAPL</code>, <code>NESN.SW</code>, <code>BTC-USD</code>, <code>EURUSD=X</code>).';}
+function esc(s){return (''+(s==null?'':s)).replace(/[<>&"]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]})}
+function symHintFor(v){var h=$('symHint');if(!h)return;
+ h.innerHTML=(v==='cash'
+  ?'<b>cash.ch</b>: fetched directly by the device. The symbol is a listing key like <code>147478611-246-333</code>; the finder below turns a cash.ch link, ISIN, or name into one.'
+  :v==='webhook'
+  ?'<b>Webhook</b>: the device asks the webhook URL above and passes the symbol through as-is, so use whatever your endpoint understands.'
+  :'<b>Yahoo Finance</b>: fetched directly by the device. Use Yahoo symbols: <code>AAPL</code>, <code>NESN.SW</code> (Swiss stocks end in <code>.SW</code>), <code>BTC-USD</code>, <code>EURUSD=X</code>.')
+  +' Name is optional; if set it overrides the source\'s name.';}
+
+// cash.ch symbol finder: runs in YOUR browser (cash.ch answers cross-origin),
+// the device itself is not involved in the search.
+function cashFind(){var q=gv('cashQ').trim();if(!q){toast('Paste a link, ISIN, or name first');return}
+ var m=q.match(/^https?:\/\/\S*?(\d{5,12})/); if(m)q=m[1];   // a cash.ch link carries the valor in its slug
+ $('cashRes').innerHTML='<div class="muted">Searching cash.ch...</div>';
+ var gq='query{textSearch(publication:CASH,search:"'+q.replace(/["\\]/g,'')+'",sort:Relevance,sortOrder:Descending,limit:10,offset:0){'+
+  'equity{items{...on Equity{listingId mName market mCur mIsin}}} fund{items{...on Fund{listingId mName market mCur mIsin}}} '+
+  'derivative{items{...on Derivative{listingId mName market mCur mIsin}}} bond{items{...on Bond{listingId mName market mCur mIsin}}} '+
+  'index{items{...on Index{listingId mName market mCur}}} diverse{items{...on Diverse{listingId mName market mCur mIsin}}} '+
+  'cryptoCurrency{items{...on CryptoCurrency{listingId mName market mCur}}}}}';
+ fetch('https://www.cash.ch/_/api/graphql/prod?query='+encodeURIComponent(gq))
+ .then(function(r){return r.json()})
+ .then(function(d){var out=[];var b=(d.data&&d.data.textSearch)||{};
+  ['equity','derivative','fund','bond','index','diverse','cryptoCurrency'].forEach(function(k){
+   ((b[k]&&b[k].items)||[]).forEach(function(it){if(it&&it.listingId)out.push(it)});});
+  if(!out.length){$('cashRes').innerHTML='<div class="muted">Nothing found on cash.ch</div>';return}
+  var h='';out.slice(0,10).forEach(function(it){
+   h+='<div class="net" onclick="cashPick(this.dataset.k)" data-k="'+esc(it.listingId)+'"><span>'+esc(it.mName||'?')+
+    ' <span class="muted">'+esc(it.mIsin||'')+'</span></span><span class="muted">'+esc(it.market||'')+' '+esc(it.mCur||'')+'</span></div>';});
+  $('cashRes').innerHTML=h;
+ }).catch(function(){$('cashRes').innerHTML='<div class="muted">cash.ch not reachable from this browser</div>'});}
+function cashPick(k){var rows=document.querySelectorAll('#symTable tr');var tr=null;
+ for(var i=0;i<rows.length;i++){if(!rows[i].querySelector('.s').value.trim()){tr=rows[i];break}}
+ if(!tr){if(rows.length>=8){toast('Max 8');return}addRow({});tr=$('symTable').lastChild}
+ tr.querySelector('.s').value=k;tr.querySelector('.src').value='cash';symHintFor('cash');
+ toast('Added '+k+'. Set a name, then Save.');}
 function radarSrcChanged(){if(!$('radarSource'))return;var d=$('radarSource').value!=='webhook';
  $('radarWebhookRow').style.display=d?'none':'block';
  $('radarSrcHint').innerHTML=d
@@ -325,18 +364,17 @@ function collect(){
   autoBrightness:gc('autoBrightness'),
   backlightInverted:gc('backlightInverted'),
   hostname:gv('hostname'), apSsid:gv('apSsid'), apPass:gv('apPass'),
-  staSsid:gv('staSsid')};
- var p=gv('staPass'); if(p)o.staPass=p;
+  wifi:collectWifi()};
  // ticker slice (only if compiled in)
  if($('ticker')){
-  var t={source:gv('source'), colorInverted:gv('colorInverted')==='true'};
+  var t={colorInverted:gv('colorInverted')==='true'};
   T_TEXT.forEach(function(k){t[k]=gv(k)});
   T_NUM.forEach(function(k){t[k]=parseInt(gv(k))||0});
   T_BOOL.forEach(function(k){t[k]=gc(k)});
   t.symbols=[];
   document.querySelectorAll('#symTable tr').forEach(function(tr){
    var s=tr.querySelector('.s').value.trim();
-   if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim()});
+   if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim(),source:tr.querySelector('.src').value});
   });
   o.ticker=t;
  }
@@ -363,18 +401,37 @@ function saveAll(){j('/api/config',{method:'POST',headers:{'Content-Type':'appli
  .then(function(r){toast(r.reboot?'Saved — rebooting...':'Saved');if(r.reboot)setTimeout(function(){location.reload()},6000);loadStatus()})}
 
 function saveWifi(){
- var o={staSsid:$('staSsid').value};var p=$('staPass').value;if(p)o.staPass=p;
+ var o={wifi:collectWifi()};
  j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(function(){
   toast('Saved, rebooting to connect...');j('/api/reboot',{method:'POST'});
  });
 }
 
+// wifi networks (up to 4)
+function renderWifi(arr){var t=$('wifiTable');if(!t)return;t.innerHTML='';arr.forEach(addWifiRow);if(!arr.length)addWifiRow({})}
+function addWifiRow(o){var t=$('wifiTable');var tr=document.createElement('tr');tr.className='symrow';
+ tr.innerHTML='<td style="width:44%"><input class="ws" type="text" autocomplete="off" placeholder="SSID" value="'+esc(o.ssid||'')+'"></td>'+
+  '<td><input class="wp" type="password" autocomplete="off" placeholder="'+(o.passSet?'(unchanged)':'password')+'"></td>'+
+  '<td style="width:34px"><button class="btn sec" style="padding:6px 10px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+ t.appendChild(tr);}
+function addWifi(){if(document.querySelectorAll('#wifiTable tr').length>=4){toast('Max 4');return}addWifiRow({})}
+function collectWifi(){var w=[];document.querySelectorAll('#wifiTable tr').forEach(function(tr){
+ var s=tr.querySelector('.ws').value.trim();if(!s)return;
+ var e={ssid:s};var p=tr.querySelector('.wp').value;if(p)e.pass=p;w.push(e);});return w}
+function scanPick(ssid){var rows=document.querySelectorAll('#wifiTable tr');var tr=null;
+ for(var i=0;i<rows.length;i++){if(!rows[i].querySelector('.ws').value.trim()){tr=rows[i];break}}
+ if(!tr){if(rows.length>=4){toast('Max 4');return}addWifiRow({});tr=$('wifiTable').lastChild}
+ tr.querySelector('.ws').value=ssid;tr.querySelector('.wp').focus();}
+
 // symbols
 function renderSyms(arr){var t=$('symTable');if(!t)return;t.innerHTML='';arr.forEach(addRow);if(!arr.length)addRow({})}
 function addRow(o){var t=$('symTable');var tr=document.createElement('tr');tr.className='symrow';
- tr.innerHTML='<td style="width:42%"><input class="s" type="text" placeholder="AAPL" value="'+(o.symbol||'')+'"></td>'+
-  '<td><input class="n" type="text" placeholder="name" value="'+(o.name||'')+'"></td>'+
+ tr.innerHTML='<td style="width:30%"><input class="s" type="text" placeholder="AAPL" value="'+esc(o.symbol||'')+'"></td>'+
+  '<td><input class="n" type="text" placeholder="name" value="'+esc(o.name||'')+'"></td>'+
+  '<td style="width:126px"><select class="src" onchange="symHintFor(this.value)">'+
+   '<option value="yahoo">Yahoo Finance</option><option value="cash">cash.ch</option><option value="webhook">Webhook</option></select></td>'+
   '<td style="width:34px"><button class="btn sec" style="padding:6px 10px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+ tr.querySelector('.src').value=o.source||'yahoo';
  t.appendChild(tr);}
 function addSym(){if(document.querySelectorAll('#symTable tr').length>=8){toast('Max 8');return}addRow({})}
 
@@ -391,8 +448,8 @@ function addAp(){if(document.querySelectorAll('#apTable tr').length>=6){toast('M
 // wifi scan
 function scan(){$('scanList').innerHTML='<div class="muted">Scanning...</div>';
  j('/api/scan').then(function(l){var h='';l.sort(function(a,b){return b.rssi-a.rssi});
-  l.forEach(function(n){h+='<div class="net" onclick="document.getElementById(\'staSsid\').value=this.dataset.s" data-s="'+
-   n.ssid.replace(/"/g,'&quot;')+'"><span>'+(n.enc?'🔒 ':'')+n.ssid+'</span><span class="muted">'+n.rssi+' dBm</span></div>'});
+  l.forEach(function(n){h+='<div class="net" onclick="scanPick(this.dataset.s)" data-s="'+
+   esc(n.ssid)+'"><span>'+(n.enc?'🔒 ':'')+esc(n.ssid)+'</span><span class="muted">'+n.rssi+' dBm</span></div>'});
   $('scanList').innerHTML=h||'<div class="muted">No networks found</div>';})}
 
 // status
@@ -404,7 +461,8 @@ function loadStatus(){j('/api/status').then(function(s){
  if(s.repo){var rl=$('repoLink'); if(rl)rl.href=s.repo+'/releases'; var fr=$('footRepo'); if(fr)fr.href=s.repo;}
  $('statusBox').innerHTML=
   kv('Firmware',s.fw+' '+s.version)+kv('Mode',s.mode.toUpperCase())+
-  kv('Network',s.ssid||'-')+kv('IP',s.ip||'-')+kv('Signal',s.rssi?s.rssi+' dBm':'-')+
+  kv('Network',s.ssid||'-')+kv('IP',s.ip||'-')+kv('mDNS','http://'+(C.hostname||'smalltv')+'.local')+
+  kv('Signal',s.rssi?s.rssi+' dBm':'-')+
   kv('Free heap',s.heap+' B')+kv('Uptime',fmtUp(s.uptime))+kv('Last reset',s.reset||'-');
  var h='';(s.tickers||[]).forEach(function(t){
   var c=t.error?'var(--red)':(t.valid?'var(--acc)':'var(--mut)');

@@ -1,4 +1,5 @@
 #include "Settings.h"
+#include "Platform.h"   // platformChipId() for the unique default hostname
 #include <LittleFS.h>
 
 static const char* CONFIG_PATH = "/config.json";
@@ -6,8 +7,15 @@ static const char* CONFIG_PATH = "/config.json";
 // ===========================================================================
 // Ticker slice
 // ===========================================================================
+static const char* srcToStr(uint8_t s) {
+  return (s == SRC_YAHOO) ? "yahoo" : (s == SRC_CASH) ? "cash" : "webhook";
+}
+static uint8_t srcFromStr(const String& s) {
+  return s.equalsIgnoreCase("yahoo") ? SRC_YAHOO
+       : s.equalsIgnoreCase("cash")  ? SRC_CASH : SRC_WEBHOOK;
+}
+
 void TickerSettings::setDefaults() {
-  source = DEFAULT_SOURCE;
   webhookUrl = "";
   range = DEFAULT_RANGE;
   points = DEFAULT_POINTS;
@@ -27,12 +35,11 @@ void TickerSettings::setDefaults() {
   for (uint8_t i = 0; i < MAX_SYMBOLS; i++) {
     symbols[i].symbol[0] = 0;
     symbols[i].name[0] = 0;
+    symbols[i].source = DEFAULT_SOURCE;
   }
 }
 
 void TickerSettings::toJson(JsonObject o) const {
-  o["source"]         = (source == SRC_YAHOO) ? "yahoo"
-                      : (source == SRC_CASH)  ? "cash" : "webhook";
   o["webhookUrl"]     = webhookUrl;
   o["range"]          = range;
   o["points"]         = points;
@@ -52,15 +59,16 @@ void TickerSettings::toJson(JsonObject o) const {
     JsonObject e = arr.add<JsonObject>();
     e["symbol"] = symbols[i].symbol;
     e["name"]   = symbols[i].name;
+    e["source"] = srcToStr(symbols[i].source);
   }
 }
 
 void TickerSettings::fromJson(JsonObjectConst o) {
-  if (o["source"].is<const char*>()) {
-    String src = o["source"].as<String>();
-    source = src.equalsIgnoreCase("yahoo") ? SRC_YAHOO
-           : src.equalsIgnoreCase("cash")  ? SRC_CASH : SRC_WEBHOOK;
-  }
+  // Legacy (pre-2.4) configs carried one global "source"; it becomes the
+  // default for any symbol that doesn't carry its own.
+  uint8_t legacySrc = DEFAULT_SOURCE;
+  if (o["source"].is<const char*>()) legacySrc = srcFromStr(o["source"].as<String>());
+
   if (o["webhookUrl"].is<const char*>()) webhookUrl = o["webhookUrl"].as<String>();
   if (o["range"].is<const char*>())      range = o["range"].as<String>();
   if (o["points"].is<int>())             points = constrain((int)o["points"], 0, MAX_SPARK_POINTS);
@@ -86,6 +94,8 @@ void TickerSettings::fromJson(JsonObjectConst o) {
       SymbolCfg& dst = symbols[symbolCount];
       strlcpy(dst.symbol, sym, MAX_SYMBOL_LEN);
       strlcpy(dst.name, e["name"] | "", MAX_NAME_LEN);
+      dst.source = e["source"].is<const char*>()
+                     ? srcFromStr(e["source"].as<String>()) : legacySrc;
       symbolCount++;
     }
   }
@@ -192,11 +202,16 @@ void RadarSettings::fromJson(JsonObjectConst o) {
 // Top-level settings
 // ===========================================================================
 void Settings::setDefaults() {
-  staSsid = "";
-  staPass = "";
+  wifiCount = 0;
+  for (uint8_t i = 0; i < MAX_WIFI_NETS; i++) {
+    wifi[i].ssid = "";
+    wifi[i].pass = "";
+  }
   apSsid  = DEFAULT_AP_SSID;
   apPass  = DEFAULT_AP_PASS;
-  hostname = DEFAULT_HOSTNAME;
+  // Unique per device so several SmallTVs on one network don't collide on
+  // mDNS out of the box. A hostname saved in config.json overrides this.
+  hostname = String(DEFAULT_HOSTNAME) + "-" + String(platformChipId() & 0xFFFF, HEX);
 
   mode = DEFAULT_MODE;
   httpTimeout = DEFAULT_HTTP_TIMEOUT;
@@ -254,13 +269,22 @@ void factoryReset(Settings& s) {
 void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   root["hostname"]   = s.hostname;
 
-  // WiFi
-  root["staSsid"]    = s.staSsid;
-  root["staPassSet"] = s.staPass.length() > 0;
+  // WiFi networks. Passwords only reach the config file, never the web API.
+  JsonArray wf = root["wifi"].to<JsonArray>();
+  for (uint8_t i = 0; i < s.wifiCount; i++) {
+    JsonObject e = wf.add<JsonObject>();
+    e["ssid"]    = s.wifi[i].ssid;
+    e["passSet"] = s.wifi[i].pass.length() > 0;
+    if (includeSecrets) e["pass"] = s.wifi[i].pass;
+  }
+  // Legacy mirror of the primary network, kept for one release so a firmware
+  // downgrade still finds its WiFi in config.json.
+  root["staSsid"]    = s.wifiCount ? s.wifi[0].ssid : "";
+  root["staPassSet"] = s.wifiCount && s.wifi[0].pass.length() > 0;
   root["apSsid"]     = s.apSsid;
   root["apPassSet"]  = s.apPass.length() > 0;
   if (includeSecrets) {
-    root["staPass"]  = s.staPass;
+    root["staPass"]  = s.wifiCount ? s.wifi[0].pass : "";
     root["apPass"]   = s.apPass;
   }
 
@@ -284,11 +308,40 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
 void settingsApplyJson(Settings& s, JsonObjectConst root) {
   if (root["hostname"].is<const char*>()) s.hostname = root["hostname"].as<String>();
 
-  if (root["staSsid"].is<const char*>()) s.staSsid = root["staSsid"].as<String>();
-  // Station password: apply only if a non-empty value is supplied (blank = keep).
-  if (root["staPass"].is<const char*>()) {
-    String p = root["staPass"].as<String>();
-    if (p.length() > 0) s.staPass = p;
+  if (root["wifi"].is<JsonArrayConst>()) {
+    // The list is authoritative when present (order = try priority, missing
+    // row = deletion). A blank password keeps the stored one, matched by SSID
+    // so rows survive reordering.
+    WifiCred old[MAX_WIFI_NETS];
+    uint8_t oldCount = s.wifiCount;
+    for (uint8_t i = 0; i < oldCount; i++) old[i] = s.wifi[i];
+
+    s.wifiCount = 0;
+    for (JsonObjectConst e : root["wifi"].as<JsonArrayConst>()) {
+      if (s.wifiCount >= MAX_WIFI_NETS) break;
+      const char* ssid = e["ssid"] | "";
+      if (!ssid[0]) continue;                // skip blank rows
+      WifiCred& dst = s.wifi[s.wifiCount];
+      dst.ssid = ssid;
+      const char* pass = e["pass"] | "";
+      dst.pass = pass;
+      if (!pass[0])
+        for (uint8_t i = 0; i < oldCount; i++)
+          if (old[i].ssid == dst.ssid) { dst.pass = old[i].pass; break; }
+      s.wifiCount++;
+    }
+  } else if (root["staSsid"].is<const char*>()) {
+    // Legacy single-network layout (pre-2.4 config.json or an old cached web
+    // page): it becomes/updates the primary network, extras stay untouched.
+    String ssid = root["staSsid"].as<String>();
+    if (ssid.length()) {
+      s.wifi[0].ssid = ssid;
+      if (root["staPass"].is<const char*>()) {
+        String p = root["staPass"].as<String>();
+        if (p.length() > 0) s.wifi[0].pass = p;   // blank = keep
+      }
+      if (s.wifiCount < 1) s.wifiCount = 1;
+    }
   }
   if (root["apSsid"].is<const char*>()) s.apSsid = root["apSsid"].as<String>();
   // AP password: apply as-is when present (empty allowed => open AP).

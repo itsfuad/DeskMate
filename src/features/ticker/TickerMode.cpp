@@ -55,7 +55,7 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
   if (!d.valid) {
     gfxDrawCentered(d.symbol[0] ? d.symbol : "----", 80, 3, C_WHITE);
     gfxDrawCentered(d.error ? "fetch error" : "loading...", 120, 2, C_GRAY);
-    if (s.ticker.showPageDots && pageCount > 1) {
+    if (s.ticker.showPageDots) {
       int total = pageCount * 10 - 4;
       int x0 = (TFT_WIDTH - total) / 2;
       for (uint8_t i = 0; i < pageCount; i++)
@@ -72,8 +72,8 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
 
   int y = 6;
 
-  // Page dots (top)
-  if (s.ticker.showPageDots && pageCount > 1) {
+  // Page dots (top) — a single ticker still gets its one dot
+  if (s.ticker.showPageDots) {
     int total = pageCount * 10 - 4;
     int x0 = (TFT_WIDTH - total) / 2;
     for (uint8_t i = 0; i < pageCount; i++)
@@ -185,7 +185,11 @@ void TickerMode::render(const Settings& s) {
     gfxMessage("No tickers", netIP().c_str(), C_YELLOW);
     return;
   }
-  if (s.ticker.source == SRC_WEBHOOK && s.ticker.webhookUrl.length() < 8) {
+  // Only complain about a missing webhook URL if every ticker depends on it.
+  bool allWebhook = true;
+  for (uint8_t i = 0; i < n; i++)
+    if (stockAt(i).source != SRC_WEBHOOK) { allWebhook = false; break; }
+  if (allWebhook && s.ticker.webhookUrl.length() < 8) {
     gfxMessage("Set webhook", netIP().c_str(), C_YELLOW);
     return;
   }

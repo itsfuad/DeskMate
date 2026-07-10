@@ -1,25 +1,24 @@
 # n8n webhook contract
 
-> **Optional.** Since the firmware can fetch **Yahoo Finance directly** (the
-> default data source — see the main [README](../README.md#data-source)), you
-> only need this if you want to own the data source: another provider, caching,
-> auth, custom symbols, etc. Switch **Display → Data source** to *Custom webhook*
-> to use it.
+> **Optional.** Since the firmware can fetch Yahoo Finance and cash.ch directly
+> (see [Data sources](https://giovi321.github.io/smalltv-mod/reference/data-sources/)), you only need this if you
+> want to own the data source: another provider, caching, auth, custom symbols,
+> etc. Set a ticker's source to *Webhook* in the **Ticker** tab to use it.
 
-The SmallTV **pulls** data — it periodically calls your webhook once per ticker.
+The SmallTV **pulls** data: it periodically calls your webhook once per ticker.
 Any backend that speaks the small JSON contract below works (n8n, Node-RED, a
 Flask app, a static file…). Two ready-to-import n8n workflows are included:
 
 - [`smalltv-stock-webhook.json`](smalltv-stock-webhook.json) sources everything
-  from Yahoo Finance — the same endpoint the firmware calls on its own.
+  from Yahoo Finance, the same endpoint the firmware calls on its own.
 - [`smalltv-stock-webhook-cash.json`](smalltv-stock-webhook-cash.json) routes
   cash.ch listing keys (symbols like `147478611-246-333`) to cash.ch's public
-  GraphQL API and everything else to Yahoo, so Yahoo tickers and Swiss
-  instruments mix in one rotation. The firmware can also query cash.ch
-  directly (see [Data sources](https://giovi321.github.io/smalltv-mod/reference/data-sources/)),
-  but the built-in source setting is global — the webhook variant is how you mix.
+  GraphQL API and everything else to Yahoo. Since firmware 2.4.0 each ticker
+  picks its own source directly on the device, so this workflow is only needed
+  if you want webhook tickers to cover both, e.g. to add caching or massage
+  the data (see [Data sources](https://giovi321.github.io/smalltv-mod/reference/data-sources/)).
 
-Import one or the other — both use the webhook path `stock`, so n8n will refuse
+Import one or the other: both use the webhook path `stock`, so n8n will refuse
 to activate them side by side.
 
 ## Request (device → your webhook)
@@ -31,7 +30,7 @@ GET  <webhookUrl>?symbol=<SYMBOL>&range=<RANGE>&points=<N>
 | query    | meaning                                            | example   |
 |----------|----------------------------------------------------|-----------|
 | `symbol` | the ticker, exactly as you typed it in the web UI  | `AAPL`, `BTC-USD`, `EURUSD=X` |
-| `range`  | the chart timeframe from **Display → Chart timeframe** | `1d`, `5d`, `1mo`, `1y` |
+| `range`  | the chart timeframe from **Ticker → Chart timeframe** | `1d`, `5d`, `1mo`, `1y` |
 | `points` | max sparkline points the device wants              | `48`      |
 
 `<webhookUrl>` is whatever you set in the web UI (e.g.
@@ -72,7 +71,7 @@ choosing `?` or `&` automatically.
 | `ok`        | boolean | no       | set `false` to explicitly signal "no data" for this symbol. |
 
 Notes:
-- You may send **only one** of `change` / `changePct` — the device derives the
+- You may send **only one** of `change` / `changePct`; the device derives the
   other from `price`.
 - `change`/`changePct` colour everything: ≥ 0 → up colour, < 0 → down colour
   (green/red, swappable in the UI).
@@ -84,8 +83,8 @@ Notes:
 2. Open the **Webhook** node, copy its **Production URL**
    (looks like `https://<your-n8n>/webhook/stock`).
 3. **Activate** the workflow.
-4. Put that URL in the SmallTV web UI → **Display → Webhook URL**, and add your
-   tickers under **Symbols**.
+4. Put that URL in the SmallTV web UI under **Ticker → Webhook URL**, and add
+   your tickers in the same tab with their source set to *Webhook*.
 
 The example maps the timeframe to a candle interval like this:
 
@@ -100,7 +99,7 @@ The example maps the timeframe to a candle interval like this:
 ### HTTPS note for the ESP8266
 
 The ESP8266 can do HTTPS, but TLS is RAM-hungry. If you hit instability, expose
-the webhook over plain **HTTP on your LAN** (the device is LAN-only anyway) — set
-the webhook URL to `http://…`. The firmware auto-detects `http`/`https` from the
+the webhook over plain **HTTP on your LAN** (the device is LAN-only anyway) and
+set the webhook URL to `http://…`. The firmware auto-detects `http`/`https` from the
 URL scheme; HTTPS is validated *insecurely* (no certificate check), which is fine
 for a self-hosted endpoint on your own network.

@@ -16,6 +16,7 @@ void stocksInit(const Settings& s) {
   for (uint8_t i = 0; i < g_count; i++) {
     g_stocks[i].clear();
     strlcpy(g_stocks[i].symbol, s.ticker.symbols[i].symbol, MAX_SYMBOL_LEN);
+    g_stocks[i].source = s.ticker.symbols[i].source;
     g_stocks[i].userNamed = (s.ticker.symbols[i].name[0] != 0);
     strlcpy(g_stocks[i].name,
             g_stocks[i].userNamed ? s.ticker.symbols[i].name : s.ticker.symbols[i].symbol,
@@ -450,7 +451,7 @@ static bool fetchUrl(const Settings& s, const String& url, ParseKind kind, Stock
 
 // ---- fetch one symbol -----------------------------------------------------
 static bool fetchSymbol(const Settings& s, StockData& d) {
-  if (s.ticker.source == SRC_YAHOO) {
+  if (d.source == SRC_YAHOO) {
     // A single back-to-back HTTPS fetch occasionally drops on the ESP8266, so
     // retry once on the alternate mirror before giving up (this is what made one
     // symbol intermittently fail while others in the same poll succeeded).
@@ -459,7 +460,7 @@ static bool fetchSymbol(const Settings& s, StockData& d) {
     return fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST2, d.symbol), PARSE_YAHOO, d);
   }
 
-  if (s.ticker.source == SRC_CASH) {
+  if (d.source == SRC_CASH) {
     // Quote first (price + day change, ~200 B); retry once for the same
     // transient-TLS reason as Yahoo. The sparkline comes from a second slim
     // request whose failure is non-fatal — a stale chart beats no data.

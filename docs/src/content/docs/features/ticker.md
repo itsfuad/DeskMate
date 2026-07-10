@@ -16,7 +16,7 @@ Non-USD currencies show as their ISO code, for example `CHF 79.73`, because the 
 
 ## Symbols
 
-Add up to 8 tickers in the **Symbols** tab. The `symbol` field is the Yahoo ticker; the `name` field is an optional label that overrides the source's own name. Examples that work:
+Add up to 8 tickers in the **Ticker** tab. Each row has a symbol, an optional name that overrides the source's own, and its own data source, so Yahoo, cash.ch, and webhook tickers mix in one rotation. Yahoo examples that work:
 
 | What | Examples |
 |------|----------|
@@ -25,10 +25,10 @@ Add up to 8 tickers in the **Symbols** tab. The `symbol` field is the Yahoo tick
 | Crypto | `BTC-USD`, `ETH-EUR` |
 | FX | `EURUSD=X`, `EURCHF=X` |
 
-With the cash.ch source the `symbol` field takes a cash.ch listing key instead (`valor-marketId-currencyId`, e.g. `147478611-246-333`), which covers Swiss structured products and AMCs that Yahoo does not list. [Data sources](/smalltv-mod/reference/data-sources/) explains how to find a listing key.
+With the cash.ch source the `symbol` field takes a cash.ch listing key instead (`valor-marketId-currencyId`, e.g. `147478611-246-333`), which covers Swiss structured products and AMCs that Yahoo does not list. The built-in finder in the Ticker tab turns a cash.ch link, ISIN, or name into the key; [Data sources](/smalltv-mod/reference/data-sources/) has the details.
 
 ## Timing and data
 
 Two intervals control the display: how often each symbol is shown (rotation) and how often data is refreshed (poll). Both are set in the Display tab. The default poll of 120 seconds is fine for 8 symbols.
 
-Where the prices come from is a separate choice. By default the device fetches Yahoo Finance directly over HTTPS with no backend. It can fetch cash.ch directly the same way for Swiss instruments, or call your own webhook. All three are covered in [Data sources](/smalltv-mod/reference/data-sources/).
+Where the prices come from is chosen per ticker. By default a ticker fetches Yahoo Finance directly over HTTPS with no backend; cash.ch works the same way for Swiss instruments, and a webhook ticker calls your own endpoint. All three are covered in [Data sources](/smalltv-mod/reference/data-sources/).

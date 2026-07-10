@@ -12,7 +12,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "smalltv-mod"
-#define FW_VERSION  "2.3.0"
+#define FW_VERSION  "2.4.0"
 
 // Project / update references (shown in the web UI; used by the GitHub self-update)
 #define REPO_URL      "https://github.com/giovi321/smalltv-mod"
@@ -43,6 +43,7 @@
 // ---------------------------------------------------------------------------
 #define MAX_SYMBOLS       8    // max tickers in the rotation
 #define MAX_SYMBOL_LEN   24    // e.g. "BTC-USD", cash.ch key "147478611-246-333"
+#define MAX_WIFI_NETS     4    // saved WiFi networks; strongest visible wins at boot
 #define MAX_NAME_LEN     20    // friendly name shown on screen
 #define MAX_SPARK_POINTS 60    // sparkline samples kept per symbol
 #define MAX_URL_LEN     200    // webhook base URL

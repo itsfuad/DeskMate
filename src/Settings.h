@@ -12,8 +12,9 @@
 #include "config.h"
 
 struct SymbolCfg {
-  char symbol[MAX_SYMBOL_LEN];
-  char name[MAX_NAME_LEN];
+  char    symbol[MAX_SYMBOL_LEN];
+  char    name[MAX_NAME_LEN];
+  uint8_t source;     // SRC_* per ticker (see config.h)
 };
 
 // A home-area airport marker (radar feature), configured in the web UI.
@@ -22,10 +23,18 @@ struct Airport {
   float lat, lon;
 };
 
+// One saved WiFi station network. The device keeps up to MAX_WIFI_NETS and
+// joins the strongest visible one at boot (hidden SSIDs are tried last).
+struct WifiCred {
+  String ssid;
+  String pass;
+};
+
 // ---- Ticker (stock/crypto) feature slice ----------------------------------
+// The data source is per symbol (SymbolCfg.source); webhookUrl is shared by
+// every symbol whose source is SRC_WEBHOOK.
 struct TickerSettings {
-  uint8_t  source;        // SRC_WEBHOOK or SRC_YAHOO (see config.h)
-  String   webhookUrl;    // custom webhook base URL (only used when source=webhook)
+  String   webhookUrl;    // custom webhook base URL (used by webhook symbols)
   String   range;         // chart timeframe token (e.g. "1d", "5d", "1mo", "1y")
   uint16_t points;        // sparkline points requested
   uint16_t pollSec;       // refresh period
@@ -85,9 +94,9 @@ struct RadarSettings {
 
 // ---- Top-level settings ----------------------------------------------------
 struct Settings {
-  // --- WiFi station (the network the device joins) ---
-  String staSsid;
-  String staPass;
+  // --- WiFi station networks (the device joins one of these) ---
+  WifiCred wifi[MAX_WIFI_NETS];
+  uint8_t  wifiCount;
 
   // --- Access point (config / fallback hotspot) ---
   String apSsid;
