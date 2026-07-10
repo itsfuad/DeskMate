@@ -4,6 +4,9 @@
 // aircraft as heading triangles with speed vectors and callsign/altitude labels,
 // off-screen traffic as bearing dots on the rim, plus a few home-area airports.
 // Owns its fetch (RadarClient) and its render/dirty state.
+//
+// The look reimplements MatixYo/ESP32-Plane-Radar (a sonar-style ADS-B radar
+// for a 1.28" round display): https://github.com/MatixYo/ESP32-Plane-Radar
 #pragma once
 #include "Mode.h"
 #include "config.h"
