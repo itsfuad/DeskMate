@@ -75,7 +75,7 @@ python -m esptool --chip esp32c2 --port COM3 read_flash 0x0 0x400000 stock-backu
 python -m esptool --chip esp32c2 --port COM3 --baud 921600 write_flash 0x0 firmware.factory.bin
 ```
 
-**NM-TV-154 (ESP32).** Experimental. Flash over USB with esptool the same way as the C2, with `--chip esp32` and the `smalltv_esp32` build's `firmware.factory.bin`. Back up the stock image first (`read_flash 0x0 0x400000 stock-backup.bin`). Test builds are on the [Releases page](../../releases) as pre-releases; report results on [issue #1](https://github.com/giovi321/smalltv-mod/issues/1).
+**NM-TV-154 (ESP32).** Experimental. Flash over USB with esptool the same way as the C2, with `--chip esp32` and the `smalltv_esp32` build's `firmware.factory.bin`. Back up the stock image first (`read_flash 0x0 0x400000 stock-backup.bin`). Build the image from source (`pio run -e smalltv_esp32`) and report results on [issue #1](https://github.com/giovi321/smalltv-mod/issues/1).
 
 After the first flash, every board updates from the browser under the web UI's Update tab.
 

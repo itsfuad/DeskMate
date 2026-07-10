@@ -59,7 +59,7 @@ Use the system esptool, not the one bundled with PlatformIO. The bundled version
 
 ## NM-TV-154 (classic ESP32) — experimental
 
-Same procedure as the ESP32-C2, with `--chip esp32`. This target is untested on hardware, so treat the first flash as a test and report the result on [issue #1](https://github.com/giovi321/smalltv-mod/issues/1). Test images are published as pre-releases on the [Releases page](https://github.com/giovi321/smalltv-mod/releases).
+Same procedure as the ESP32-C2, with `--chip esp32`. This target is untested on hardware, so treat the first flash as a test and report the result on [issue #1](https://github.com/giovi321/smalltv-mod/issues/1). Build the image from source with `pio run -e smalltv_esp32`; no prebuilt image is published yet.
 
 ### Back up the stock image first
 
