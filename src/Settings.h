@@ -15,6 +15,8 @@ struct SymbolCfg {
   char    symbol[MAX_SYMBOL_LEN];
   char    name[MAX_NAME_LEN];
   uint8_t source;     // SRC_* per ticker (see config.h)
+  float   qty;        // position size; 0 = not a position
+  float   cost;       // cost basis per unit, in the instrument's currency
 };
 
 // A home-area airport marker (radar feature), configured in the web UI.
@@ -49,6 +51,7 @@ struct TickerSettings {
   bool showRangeLabel;
   bool showUpdatedAgo;
   bool showPageDots;
+  bool showPortfolio;   // P/L line on position tickers + portfolio summary page
 
   SymbolCfg symbols[MAX_SYMBOLS];
   uint8_t   symbolCount;
@@ -104,7 +107,11 @@ struct Settings {
   String hostname;      // mDNS name => http://<hostname>.local
 
   // --- Active feature ---
-  uint8_t mode;         // MODE_STOCKS / MODE_USAGE / MODE_RADAR (see config.h)
+  uint8_t mode;         // MODE_STOCKS / MODE_USAGE / MODE_RADAR / MODE_CAROUSEL
+
+  // --- Carousel (mode == MODE_CAROUSEL): dwell + which features rotate ---
+  uint16_t carouselSec;
+  bool carouselTicker, carouselUsage, carouselRadar;
 
   // --- Shared HTTP / display ---
   uint16_t httpTimeout; // ms

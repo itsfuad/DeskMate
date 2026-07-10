@@ -14,6 +14,10 @@ class TickerMode : public DisplayMode {
   void begin(const Settings& s) override;
   void service(const Settings& s) override;
   void invalidate(const Settings& s) override;
+  void wake(const Settings& s) override {   // carousel switched back: repaint only
+    needRender_ = true;
+    lastRotate_ = millis();
+  }
 
  private:
   void render(const Settings& s);   // draw the current page

@@ -42,15 +42,15 @@ If your board has a **CH340C** chip beside the USB-C port and the main chip read
 
 ## What it does
 
-- **Stock and crypto ticker.** Price, absolute change, percent change with an up/down arrow, and a sparkline. Up to 8 symbols rotate on a timer. Data comes straight from Yahoo Finance over HTTPS with no backend, from cash.ch for Swiss instruments Yahoo doesn't carry (structured products, AMCs, tracker certificates), or from your own webhook if you want to own the source. Stocks, ETFs, Swiss equities (`NESN.SW`), crypto (`BTC-USD`), and FX (`EURUSD=X`) all work.
+- **Stock and crypto ticker.** Price, absolute change, percent change with an up/down arrow, and a sparkline. Up to 8 symbols rotate on a timer. Data comes straight from Yahoo Finance over HTTPS with no backend, from cash.ch for Swiss instruments Yahoo doesn't carry (structured products, AMCs, tracker certificates), or from your own webhook if you want to own the source. Stocks, ETFs, Swiss equities (`NESN.SW`), crypto (`BTC-USD`), and FX (`EURUSD=X`) all work. Add a quantity and cost basis to any ticker and it shows your P/L, with a portfolio summary page in the rotation.
 - **Claude usage meter.** An animated pixel mascot plus your 5-hour and 7-day usage as big percentages with fill bars and reset countdowns. It is fed over WiFi by the [clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon) on your PC. When the data stops, the mascot plays an idle animation until it comes back.
 - **Plane radar.** A scope centred on your location with nearby aircraft as heading triangles, speed vectors, and callsign or altitude labels, from the free [adsb.fi](https://adsb.fi) API or a LAN webhook. Marker size, an altitude filter, and label decluttering are configurable.
-- **Web UI for everything.** Join WiFi, pick the mode, manage the symbol list, set brightness, orientation, and colours. First boot creates a `SmallTV-Setup` hotspot with a captive portal.
-- **Updates over WiFi.** Upload a firmware image from the browser (both boards), or let the ESP8266 pull the newest release from GitHub itself.
+- **Web UI for everything.** Join WiFi (up to 4 saved networks), pick the mode or a carousel that rotates through them, manage the symbol list, set brightness, orientation, and colours, and back up or restore the whole configuration as a file. First boot creates a `SmallTV-Setup` hotspot with a captive portal.
+- **Updates over WiFi.** Every board pulls the newest release from GitHub itself from the web UI's Update tab, or takes a manual firmware upload from the browser.
 
 ## Get the firmware
 
-You do not need a toolchain. GitHub Actions builds the image for you.
+You do not need a toolchain. GitHub Actions builds the images for all three boards.
 
 - Every push: the **Actions** tab, latest `build` run, download the firmware artifact.
 - Tagged releases (`vX.Y.Z`): attached to the [Releases](../../releases) page.
@@ -63,17 +63,17 @@ The right method depends on your board. The steps below are the short version; t
 
 **SmallTV (ESP8266).** The stock firmware exposes an OTA updater, so you can install this without opening the device. Find its IP, browse to `http://<device-ip>/update`, and upload `smalltv-mod-firmware.bin`. Back up the stock image first if you might want it back.
 
-**SmallTV (ESP32-C2).** Flash over the USB-C cable with esptool, which talks to the onboard CH340C. Auto-reset works, so no button is needed. Back up the stock image first, then write the build:
+**SmallTV (ESP32-C2).** Flash over the USB-C cable with esptool, which talks to the onboard CH340C. Auto-reset works, so no button is needed. Back up the stock image first, then write `smalltv-mod-firmware-c2.factory.bin` from the [Releases](../../releases) page:
 
 ```bash
 # back up the original 4 MB image first
 python -m esptool --chip esp32c2 --port COM3 read_flash 0x0 0x400000 stock-backup.bin
 
 # write this firmware (merged image at 0x0)
-python -m esptool --chip esp32c2 --port COM3 --baud 921600 write_flash 0x0 firmware.factory.bin
+python -m esptool --chip esp32c2 --port COM3 --baud 921600 write_flash 0x0 smalltv-mod-firmware-c2.factory.bin
 ```
 
-**NM-TV-154 (ESP32).** Flash over USB with esptool the same way as the C2, with `--chip esp32` and the `smalltv_esp32` build's `firmware.factory.bin`. Back up the stock image first (`read_flash 0x0 0x400000 stock-backup.bin`). Build the image from source with `pio run -e smalltv_esp32`; no prebuilt image is published yet.
+**NM-TV-154 (ESP32).** Flash over USB with esptool the same way as the C2, with `--chip esp32` and `smalltv-mod-firmware-esp32.factory.bin` from the [Releases](../../releases) page (or a local `pio run -e smalltv_esp32` build). Back up the stock image first (`read_flash 0x0 0x400000 stock-backup.bin`).
 
 After the first flash, every board updates from the browser under the web UI's Update tab.
 

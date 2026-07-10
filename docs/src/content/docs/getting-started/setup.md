@@ -32,15 +32,15 @@ Scan and save up to 4 networks; the device joins the strongest visible one at bo
 
 ### Display
 
-The mode selector (Stock ticker, Claude usage, or Plane radar), plus brightness with optional auto-brightness, orientation, and backlight polarity.
+The mode selector (Stock ticker, Claude usage, Plane radar, or Carousel, which rotates through the ticked features on a timer), plus brightness with optional auto-brightness, orientation, and backlight polarity.
 
 ### Ticker
 
-Up to 8 tickers, each with its own data source (Yahoo Finance, cash.ch, or your webhook). `symbol` follows the source: a Yahoo ticker (`AAPL`, `NESN.SW`, `BTC-USD`, `EURUSD=X`), a cash.ch listing key (the built-in finder turns a cash.ch link or ISIN into one), or whatever your webhook expects. `name` is an optional label that overrides the source's own name. The tab also sets the chart timeframe and point count, rotation and refresh intervals, the colour scheme, and which fields to draw.
+Up to 8 tickers, each with its own data source (Yahoo Finance, cash.ch, or your webhook). `symbol` follows the source: a Yahoo ticker (`AAPL`, `NESN.SW`, `BTC-USD`, `EURUSD=X`), a cash.ch listing key (the built-in finder turns a cash.ch link or ISIN into one), or whatever your webhook expects. `name` is an optional label that overrides the source's own name. Optional `qty` and per-unit `cost` turn a ticker into a position: its page gains a P/L line and a portfolio summary page joins the rotation. The tab also sets the chart timeframe and point count, rotation and refresh intervals, the colour scheme, and which fields to draw.
 
 ### Update
 
-Upload a firmware image, reboot, or factory reset. On the ESP8266 this tab also checks for and installs the newest GitHub release.
+Check for and install the newest GitHub release (every board fetches its own image), upload a firmware file manually, export or import the full device configuration as a JSON file, reboot, or factory reset. The exported file contains the WiFi passwords in clear text, so treat it like a password.
 
 ## Modes
 

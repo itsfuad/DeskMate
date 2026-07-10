@@ -19,6 +19,7 @@ class RadarMode : public DisplayMode {
   void begin(const Settings& s) override;
   void service(const Settings& s) override;
   void invalidate(const Settings& s) override;
+  void wake(const Settings& s) override { needRender_ = true; }  // repaint only
 
  private:
   void render(const Settings& s);

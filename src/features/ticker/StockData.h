@@ -9,6 +9,8 @@ struct StockData {
   char    currency[6];
   char    rangeLabel[8];
   uint8_t source;     // SRC_* this ticker fetches from (copied from settings)
+  float   qty;        // position size (copied from settings; 0 = no position)
+  float   cost;       // cost basis per unit
 
   float price;
   float change;       // absolute change in price units
@@ -26,6 +28,7 @@ struct StockData {
   void clear() {
     symbol[0] = name[0] = currency[0] = rangeLabel[0] = 0;
     source = DEFAULT_SOURCE;
+    qty = cost = 0;
     price = change = changePct = 0;
     hasChange = false;
     sparkCount = 0;

@@ -20,4 +20,7 @@ class DisplayMode {
   virtual void begin(const Settings& s) {}          // one-time init at boot
   virtual void service(const Settings& s) {}        // every loop tick: fetch + render
   virtual void invalidate(const Settings& s) {}     // settings changed: re-init + repaint
+  // Another mode drew on the screen (carousel switch): repaint from cached data,
+  // do NOT refetch. Falls back to invalidate for modes without a light path.
+  virtual void wake(const Settings& s) { invalidate(s); }
 };

@@ -17,6 +17,8 @@ void stocksInit(const Settings& s) {
     g_stocks[i].clear();
     strlcpy(g_stocks[i].symbol, s.ticker.symbols[i].symbol, MAX_SYMBOL_LEN);
     g_stocks[i].source = s.ticker.symbols[i].source;
+    g_stocks[i].qty  = s.ticker.symbols[i].qty;
+    g_stocks[i].cost = s.ticker.symbols[i].cost;
     g_stocks[i].userNamed = (s.ticker.symbols[i].name[0] != 0);
     strlcpy(g_stocks[i].name,
             g_stocks[i].userNamed ? s.ticker.symbols[i].name : s.ticker.symbols[i].symbol,

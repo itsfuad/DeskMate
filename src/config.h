@@ -12,13 +12,20 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "smalltv-mod"
-#define FW_VERSION  "2.4.1"
+#define FW_VERSION  "2.5.0"
 
 // Project / update references (shown in the web UI; used by the GitHub self-update)
 #define REPO_URL      "https://github.com/giovi321/smalltv-mod"
 #define REPO_OWNER    "giovi321"
 #define REPO_NAME     "smalltv-mod"
-#define UPDATE_ASSET  "smalltv-mod-firmware.bin"   // release asset the updater pulls
+// Release asset the GitHub self-updater pulls — one app image per target.
+#if defined(SMALLTV_ESP32C2)
+  #define UPDATE_ASSET "smalltv-mod-firmware-c2.bin"
+#elif defined(SMALLTV_ESP32)
+  #define UPDATE_ASSET "smalltv-mod-firmware-esp32.bin"
+#else
+  #define UPDATE_ASSET "smalltv-mod-firmware.bin"
+#endif
 #define GH_API_HOST   "api.github.com"
 #define DAEMON_URL    "https://github.com/giovi321/clawdmeter-daemon"
 
@@ -50,13 +57,17 @@
 
 // ---------------------------------------------------------------------------
 // Display mode — what the device shows
-//   0 = stock / crypto ticker (Yahoo or webhook, see SRC_* below)
+//   0 = stock / crypto ticker (per-symbol source, see SRC_* below)
 //   1 = Claude usage meter (mascot + 5h/7d usage bars, fed by the daemon/)
+//   2 = plane radar
+//   3 = carousel: rotate through the ticked features on a timer
 // ---------------------------------------------------------------------------
-#define MODE_STOCKS  0
-#define MODE_USAGE   1
-#define MODE_RADAR   2
+#define MODE_STOCKS    0
+#define MODE_USAGE     1
+#define MODE_RADAR     2
+#define MODE_CAROUSEL  3
 #define DEFAULT_MODE MODE_STOCKS
+#define DEFAULT_CAROUSEL_SEC 30      // per-mode dwell in carousel
 
 // ---------------------------------------------------------------------------
 // Compile-time feature toggles. All shipping features are on by default; a lean

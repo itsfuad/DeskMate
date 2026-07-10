@@ -43,7 +43,44 @@ static DisplayMode* kModes[] = {
 };
 static const size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
+// ---- carousel -------------------------------------------------------------
+// MODE_CAROUSEL rotates through the ticked features. Switches call wake() on
+// the incoming mode: repaint from cached data, no refetch.
+static size_t   g_carIdx = 0;
+static uint32_t g_carSwitch = 0;
+
+static bool carouselHas(const Settings& s, const DisplayMode* m) {
+  switch (m->modeConst()) {
+    case MODE_STOCKS: return s.carouselTicker;
+    case MODE_USAGE:  return s.carouselUsage;
+    case MODE_RADAR:  return s.carouselRadar;
+    default:          return true;
+  }
+}
+
+// Advance g_carIdx to the next ticked mode (stays put if none other is ticked).
+static void carouselNext(const Settings& s) {
+  for (size_t hop = 1; hop <= kModeCount; hop++) {
+    size_t cand = (g_carIdx + hop) % kModeCount;
+    if (!carouselHas(s, kModes[cand])) continue;
+    if (cand != g_carIdx) {
+      g_carIdx = cand;
+      kModes[cand]->wake(s);
+    }
+    return;
+  }
+}
+
 static DisplayMode* activeMode(const Settings& s) {
+  if (s.mode == MODE_CAROUSEL && kModeCount > 0) {
+    if (g_carSwitch == 0) g_carSwitch = millis();
+    if (!carouselHas(s, kModes[g_carIdx])) carouselNext(s);   // settings changed
+    if (millis() - g_carSwitch >= (uint32_t)s.carouselSec * 1000UL) {
+      g_carSwitch = millis();
+      carouselNext(s);
+    }
+    return kModes[g_carIdx];
+  }
   for (size_t i = 0; i < kModeCount; i++)
     if (kModes[i]->modeConst() == s.mode) return kModes[i];
   return kModeCount ? kModes[0] : nullptr;   // fall back to the first compiled mode

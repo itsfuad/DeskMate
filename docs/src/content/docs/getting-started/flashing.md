@@ -45,10 +45,10 @@ Keep `stock-backup.bin` somewhere safe. Writing it back with `write_flash 0x0 st
 
 ### Write this firmware
 
-The build produces a single merged image, `firmware.factory.bin`, that contains the bootloader, partition table, and app. Write it at offset 0:
+Download `smalltv-mod-firmware-c2.factory.bin` from the [Releases page](https://github.com/giovi321/smalltv-mod/releases): a single merged image with the bootloader, partition table, and app (a local build produces the same file as `firmware.factory.bin`). Write it at offset 0:
 
 ```bash
-python -m esptool --chip esp32c2 --port COM3 --baud 921600 write_flash 0x0 firmware.factory.bin
+python -m esptool --chip esp32c2 --port COM3 --baud 921600 write_flash 0x0 smalltv-mod-firmware-c2.factory.bin
 ```
 
 With a source checkout, `pio run -e smalltv_c2 -t upload` does the same thing.
@@ -59,7 +59,7 @@ Use the system esptool, not the one bundled with PlatformIO. The bundled version
 
 ## NM-TV-154 (classic ESP32)
 
-Same procedure as the ESP32-C2, with `--chip esp32`. Build the image from source with `pio run -e smalltv_esp32`; no prebuilt image is published yet.
+Same procedure as the ESP32-C2, with `--chip esp32` and `smalltv-mod-firmware-esp32.factory.bin` from the [Releases page](https://github.com/giovi321/smalltv-mod/releases) (or build it with `pio run -e smalltv_esp32`).
 
 ### Back up the stock image first
 
@@ -74,14 +74,14 @@ If `esptool flash_id` reports more than 4 MB of flash, adjust the read length to
 ### Write this firmware
 
 ```bash
-python -m esptool --chip esp32 --port COM3 --baud 921600 write_flash 0x0 firmware.factory.bin
+python -m esptool --chip esp32 --port COM3 --baud 921600 write_flash 0x0 smalltv-mod-firmware-esp32.factory.bin
 ```
 
 With a source checkout, `pio run -e smalltv_esp32 -t upload` does the same thing.
 
 ## After the first flash
 
-Every board then updates from the browser. Open the web UI, go to the **Update** tab, and upload a new firmware image. On the ESP8266 you can also let the device pull the newest GitHub release itself. The ESP32 boards use the manual browser upload.
+Every board then updates from the browser: open the web UI's **Update** tab and either let the device pull the newest GitHub release itself (each board fetches its own image) or upload a firmware file manually. The manual upload takes the plain app image (`smalltv-mod-firmware*.bin`), not the `.factory.bin`.
 
 ## Recovery
 

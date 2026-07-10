@@ -1,9 +1,10 @@
 // OtaUpdate.h — pull the latest release from GitHub and flash it over the air.
 //
 // Checks the repo's newest release via the GitHub API, compares its tag to
-// FW_VERSION, and (on request) streams the release's firmware asset straight into
-// the OTA partition with ESP8266httpUpdate. The write is atomic: a failed download
-// leaves the running firmware untouched, so this cannot brick the device.
+// FW_VERSION, and (on request) streams the target's firmware asset (UPDATE_ASSET
+// in config.h) straight into the OTA partition — ESP8266httpUpdate on the
+// ESP8266, HTTPUpdate on the ESP32 targets. The write is atomic: a failed
+// download leaves the running firmware untouched, so this cannot brick the device.
 //
 // Caveat: HTTPS on the ESP8266 is RAM-tight. GitHub's asset CDN can send large TLS
 // records; if it does not negotiate a small fragment length, the download needs a

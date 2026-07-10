@@ -1,6 +1,7 @@
 #include "WebPortal.h"
 #include "Platform.h"
 #include <ArduinoJson.h>
+#include <LittleFS.h>
 #include "webui.h"
 #include "Net.h"
 #include "Gfx.h"
@@ -153,6 +154,30 @@ static void handleFactory() {
   scheduleReboot(400);
 }
 
+// Full settings backup: stream the persisted config.json verbatim. It includes
+// the WiFi passwords — same trust domain as typing them into this page.
+static void handleExport() {
+  File f = LittleFS.open("/config.json", "r");
+  if (!f) { server.send(404, "text/plain", "no config saved yet"); return; }
+  server.sendHeader("Content-Disposition", "attachment; filename=smalltv-config.json");
+  server.streamFile(f, "application/json");
+  f.close();
+}
+
+// Restore a backup: apply everything, persist, reboot (WiFi/hostname may change).
+static void handleImport() {
+  if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "text/plain", "bad json");
+    return;
+  }
+  settingsApplyJson(*S, doc.as<JsonObjectConst>());
+  saveSettings(*S);
+  server.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
+  scheduleReboot(800);
+}
+
 static void handleRefresh() {
 #if WITH_TICKER
   stocksForceRefresh();
@@ -243,6 +268,8 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/reboot", HTTP_POST, handleReboot);
   server.on("/api/factory", HTTP_POST, handleFactory);
   server.on("/api/refresh", HTTP_POST, handleRefresh);
+  server.on("/api/export", HTTP_GET, handleExport);
+  server.on("/api/import", HTTP_POST, handleImport);
   server.on("/api/checkupdate", HTTP_GET, handleCheckUpdate);
   server.on("/api/selfupdate", HTTP_POST, handleSelfUpdate);
   server.on("/api/usage", HTTP_POST, handleUsagePush);   // daemon pushes usage here

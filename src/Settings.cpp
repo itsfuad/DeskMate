@@ -30,12 +30,15 @@ void TickerSettings::setDefaults() {
   showRangeLabel = true;
   showUpdatedAgo = false;
   showPageDots = true;
+  showPortfolio = true;   // only visible once a symbol has qty+cost set
 
   symbolCount = 0;
   for (uint8_t i = 0; i < MAX_SYMBOLS; i++) {
     symbols[i].symbol[0] = 0;
     symbols[i].name[0] = 0;
     symbols[i].source = DEFAULT_SOURCE;
+    symbols[i].qty = 0;
+    symbols[i].cost = 0;
   }
 }
 
@@ -53,6 +56,7 @@ void TickerSettings::toJson(JsonObject o) const {
   o["showRangeLabel"] = showRangeLabel;
   o["showUpdatedAgo"] = showUpdatedAgo;
   o["showPageDots"]   = showPageDots;
+  o["showPortfolio"]  = showPortfolio;
 
   JsonArray arr = o["symbols"].to<JsonArray>();
   for (uint8_t i = 0; i < symbolCount; i++) {
@@ -60,6 +64,8 @@ void TickerSettings::toJson(JsonObject o) const {
     e["symbol"] = symbols[i].symbol;
     e["name"]   = symbols[i].name;
     e["source"] = srcToStr(symbols[i].source);
+    e["qty"]    = symbols[i].qty;
+    e["cost"]   = symbols[i].cost;
   }
 }
 
@@ -83,6 +89,7 @@ void TickerSettings::fromJson(JsonObjectConst o) {
   if (o["showRangeLabel"].is<bool>()) showRangeLabel = o["showRangeLabel"];
   if (o["showUpdatedAgo"].is<bool>()) showUpdatedAgo = o["showUpdatedAgo"];
   if (o["showPageDots"].is<bool>())   showPageDots = o["showPageDots"];
+  if (o["showPortfolio"].is<bool>())  showPortfolio = o["showPortfolio"];
 
   if (o["symbols"].is<JsonArrayConst>()) {
     JsonArrayConst arr = o["symbols"].as<JsonArrayConst>();
@@ -96,6 +103,10 @@ void TickerSettings::fromJson(JsonObjectConst o) {
       strlcpy(dst.name, e["name"] | "", MAX_NAME_LEN);
       dst.source = e["source"].is<const char*>()
                      ? srcFromStr(e["source"].as<String>()) : legacySrc;
+      dst.qty  = e["qty"].as<float>();     // absent -> 0
+      dst.cost = e["cost"].as<float>();
+      if (dst.qty < 0)  dst.qty = 0;
+      if (dst.cost < 0) dst.cost = 0;
       symbolCount++;
     }
   }
@@ -214,6 +225,8 @@ void Settings::setDefaults() {
   hostname = String(DEFAULT_HOSTNAME) + "-" + String(platformChipId() & 0xFFFF, HEX);
 
   mode = DEFAULT_MODE;
+  carouselSec = DEFAULT_CAROUSEL_SEC;
+  carouselTicker = carouselUsage = carouselRadar = true;
   httpTimeout = DEFAULT_HTTP_TIMEOUT;
 
   brightness = DEFAULT_BRIGHTNESS;
@@ -289,8 +302,13 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   }
 
   // Mode + shared HTTP/display
-  root["mode"]              = (s.mode == MODE_RADAR) ? "radar"
-                            : (s.mode == MODE_USAGE) ? "usage" : "stocks";
+  root["mode"]              = (s.mode == MODE_RADAR)    ? "radar"
+                            : (s.mode == MODE_USAGE)    ? "usage"
+                            : (s.mode == MODE_CAROUSEL) ? "carousel" : "stocks";
+  root["carouselSec"]       = s.carouselSec;
+  root["carouselTicker"]    = s.carouselTicker;
+  root["carouselUsage"]     = s.carouselUsage;
+  root["carouselRadar"]     = s.carouselRadar;
   root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
   root["autoBrightness"]    = s.autoBrightness;
@@ -349,9 +367,14 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
 
   if (root["mode"].is<const char*>()) {
     String m = root["mode"].as<String>();
-    s.mode = m.equalsIgnoreCase("radar") ? MODE_RADAR
-           : m.equalsIgnoreCase("usage") ? MODE_USAGE : MODE_STOCKS;
+    s.mode = m.equalsIgnoreCase("radar")    ? MODE_RADAR
+           : m.equalsIgnoreCase("usage")    ? MODE_USAGE
+           : m.equalsIgnoreCase("carousel") ? MODE_CAROUSEL : MODE_STOCKS;
   }
+  if (root["carouselSec"].is<int>())      s.carouselSec = constrain((int)root["carouselSec"], 5, 3600);
+  if (root["carouselTicker"].is<bool>())  s.carouselTicker = root["carouselTicker"];
+  if (root["carouselUsage"].is<bool>())   s.carouselUsage = root["carouselUsage"];
+  if (root["carouselRadar"].is<bool>())   s.carouselRadar = root["carouselRadar"];
 
   if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
   if (root["brightness"].is<int>())         s.brightness = constrain((int)root["brightness"], 0, 100);

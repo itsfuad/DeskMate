@@ -3,6 +3,10 @@
 #include <ArduinoJson.h>
 #include "config.h"
 
+#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
+#include <HTTPUpdate.h>
+#endif
+
 #if defined(SMALLTV_ESP8266)
 // Prefer MFLN so BearSSL can run with a tiny buffer; fall back to 4 KB.
 static uint16_t probeMfln(const char* host) {
@@ -79,18 +83,32 @@ OtaLatest otaCheckLatest(const Settings& s) {
 }
 
 String otaUpdateFromGitHub(const Settings& s) {
-#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
-  // No ESP32 release assets are published (local builds only), and the ESP8266
-  // asset is not a valid image for these chips. Use the manual firmware upload
-  // (Update tab) instead. otaCheckLatest() still reports the newest version.
-  (void)s;
-  return F("GitHub self-update is off on this build - use manual firmware upload");
-#else
   OtaLatest r = otaCheckLatest(s);
   if (!r.ok) return "check failed: " + r.error;
   if (!r.newer) return "already up to date (" FW_VERSION ")";
   if (ESP.getFreeHeap() < 22000) return F("not enough free heap for a TLS update");
 
+#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
+  // mbedTLS manages its own buffers; each target pulls its own release asset
+  // (UPDATE_ASSET in config.h). The two-slot OTA layout makes this atomic.
+  SecureClient client;
+  client.setInsecure();
+
+  HTTPUpdate up;
+  up.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  up.rebootOnUpdate(true);
+
+  t_httpUpdate_return ret = up.update(client, r.url);
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      return "download failed: " + up.getLastErrorString();
+    case HTTP_UPDATE_NO_UPDATES:
+      return F("server reported no update");
+    case HTTP_UPDATE_OK:
+      return "";   // success — rebootOnUpdate restarts into the new image
+  }
+  return F("unknown result");
+#else
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   // The github.com asset URL redirects to a CDN host that may send large TLS

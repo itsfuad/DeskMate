@@ -98,12 +98,19 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
  <section id="display" class="tab">
   <div class="card"><h2>Mode</h2>
    <label>What this device shows</label>
-   <select id="mode">
+   <select id="mode" onchange="modeChanged()">
     <option value="stocks">Stock / crypto ticker</option>
     <option value="usage">Claude usage</option>
     <option value="radar">Plane radar</option>
+    <option value="carousel">Carousel (rotate modes)</option>
    </select>
-   <small class="hint">Pick the active feature, then configure it in its own tab.</small>
+   <div id="carouselRow">
+    <label>Switch mode every (s)</label><input id="carouselSec" type="number" min="5" max="3600">
+    <div class="chk"><input id="carouselTicker" type="checkbox"><label>Ticker</label></div>
+    <div class="chk"><input id="carouselUsage" type="checkbox"><label>Claude usage</label></div>
+    <div class="chk"><input id="carouselRadar" type="checkbox"><label>Plane radar</label></div>
+   </div>
+   <small class="hint">Pick the active feature, then configure it in its own tab. Carousel rotates through the ticked features.</small>
   </div>
   <div class="card"><h2>Screen</h2>
    <label>Brightness: <span id="brVal"></span>%</label>
@@ -149,6 +156,7 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <div class="chk"><input id="showRangeLabel" type="checkbox"><label>Timeframe label</label></div>
    <div class="chk"><input id="showUpdatedAgo" type="checkbox"><label>"Updated N s ago"</label></div>
    <div class="chk"><input id="showPageDots" type="checkbox"><label>Rotation dots</label></div>
+   <div class="chk"><input id="showPortfolio" type="checkbox"><label>Position P/L &amp; portfolio page</label></div>
   </div>
   <div class="card"><h2>Tickers (rotate on screen)</h2>
    <table id="symTable"></table>
@@ -238,6 +246,12 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <div id="upMsg" class="muted" style="margin-top:8px"></div>
    <small class="hint">Upload a firmware.bin from the <a href="https://github.com/giovi321/smalltv-mod/releases" target="_blank">releases page</a> or a local build. The device reboots when done.</small>
   </div>
+  <div class="card"><h2>Settings backup</h2>
+   <button class="btn sec" onclick="location.href='/api/export'">Export settings</button>
+   <input id="cfgFile" type="file" accept=".json,application/json" style="margin-top:10px">
+   <div style="margin-top:10px"><button class="btn" onclick="importCfg()">Import &amp; reboot</button></div>
+   <small class="hint">The export is the device's <code>config.json</code>, including WiFi passwords in clear text; treat the file accordingly. Import applies everything and reboots.</small>
+  </div>
   <div class="card"><h2>Maintenance</h2>
    <button class="btn sec" onclick="reboot()">Reboot</button>
    <button class="btn danger" style="margin-left:8px" onclick="factory()">Factory reset</button>
@@ -273,14 +287,18 @@ document.querySelectorAll('nav button').forEach(function(b){b.onclick=function()
 // field groups by their location in the nested config
 var T_TEXT=['webhookUrl','range'];                   // ticker strings
 var T_NUM=['rotateSec','pollSec','points'];          // ticker numbers
-var T_BOOL=['showName','showPrice','showChange','showChart','showRangeLabel','showUpdatedAgo','showPageDots'];
+var T_BOOL=['showName','showPrice','showChange','showChart','showRangeLabel','showUpdatedAgo','showPageDots','showPortfolio'];
 
 var MODEOPT={ticker:'stocks',usage:'usage',radar:'radar'};
+var CAROPT={ticker:'carouselTicker',usage:'carouselUsage',radar:'carouselRadar'};
 function hideFeat(name){
  var b=document.querySelector('nav button[data-t="'+name+'"]'); if(b)b.remove();
  var sec=$(name); if(sec)sec.remove();
  var o=document.querySelector('#mode option[value="'+MODEOPT[name]+'"]'); if(o)o.remove();
+ var c=$(CAROPT[name]); if(c)c.closest('.chk').remove();
 }
+function modeChanged(){if(!$('mode'))return;
+ $('carouselRow').style.display=$('mode').value==='carousel'?'block':'none';}
 function loadConfig(){return j('/api/config').then(function(c){C=c;
  var f=c.features||{}; ['ticker','usage','radar'].forEach(function(k){if(f[k]===false)hideFeat(k)});
  var t=c.ticker||{}, u=c.usage||{};
@@ -291,7 +309,9 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  $('rotation').value=c.rotation;
  $('autoBrightness').checked=!!c.autoBrightness;
  $('backlightInverted').checked=!!c.backlightInverted;
- $('mode').value=c.mode||'stocks';
+ $('mode').value=c.mode||'stocks'; modeChanged();
+ sv('carouselSec',c.carouselSec||30);
+ sc('carouselTicker',c.carouselTicker!==false); sc('carouselUsage',c.carouselUsage!==false); sc('carouselRadar',c.carouselRadar!==false);
  // ticker slice
  T_TEXT.forEach(function(k){sv(k,t[k])});
  T_NUM.forEach(function(k){sv(k,t[k])});
@@ -323,7 +343,7 @@ function symHintFor(v){var h=$('symHint');if(!h)return;
   :v==='webhook'
   ?'<b>Webhook</b>: the device asks the webhook URL above and passes the symbol through as-is, so use whatever your endpoint understands.'
   :'<b>Yahoo Finance</b>: fetched directly by the device. Use Yahoo symbols: <code>AAPL</code>, <code>NESN.SW</code> (Swiss stocks end in <code>.SW</code>), <code>BTC-USD</code>, <code>EURUSD=X</code>.')
-  +' Name is optional; if set it overrides the source\'s name.';}
+  +' Name is optional; if set it overrides the source\'s name. Qty and per-unit cost are optional too: set both and the ticker shows your P/L plus a portfolio summary page.';}
 
 // cash.ch symbol finder: runs in YOUR browser (cash.ch answers cross-origin),
 // the device itself is not involved in the search.
@@ -359,6 +379,8 @@ function radarSrcChanged(){if(!$('radarSource'))return;var d=$('radarSource').va
 
 function collect(){
  var o={mode:gv('mode'),
+  carouselSec:parseInt(gv('carouselSec'))||30,
+  carouselTicker:gc('carouselTicker'), carouselUsage:gc('carouselUsage'), carouselRadar:gc('carouselRadar'),
   brightness:parseInt(gv('brightness'))||0,
   rotation:parseInt(gv('rotation')),
   autoBrightness:gc('autoBrightness'),
@@ -374,7 +396,8 @@ function collect(){
   t.symbols=[];
   document.querySelectorAll('#symTable tr').forEach(function(tr){
    var s=tr.querySelector('.s').value.trim();
-   if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim(),source:tr.querySelector('.src').value});
+   if(s)t.symbols.push({symbol:s,name:tr.querySelector('.n').value.trim(),source:tr.querySelector('.src').value,
+    qty:parseFloat(tr.querySelector('.q').value)||0,cost:parseFloat(tr.querySelector('.c').value)||0});
   });
   o.ticker=t;
  }
@@ -426,10 +449,12 @@ function scanPick(ssid){var rows=document.querySelectorAll('#wifiTable tr');var 
 // symbols
 function renderSyms(arr){var t=$('symTable');if(!t)return;t.innerHTML='';arr.forEach(addRow);if(!arr.length)addRow({})}
 function addRow(o){var t=$('symTable');var tr=document.createElement('tr');tr.className='symrow';
- tr.innerHTML='<td style="width:30%"><input class="s" type="text" placeholder="AAPL" value="'+esc(o.symbol||'')+'"></td>'+
+ tr.innerHTML='<td style="width:24%"><input class="s" type="text" placeholder="AAPL" value="'+esc(o.symbol||'')+'"></td>'+
   '<td><input class="n" type="text" placeholder="name" value="'+esc(o.name||'')+'"></td>'+
-  '<td style="width:126px"><select class="src" onchange="symHintFor(this.value)">'+
+  '<td style="width:118px"><select class="src" onchange="symHintFor(this.value)">'+
    '<option value="yahoo">Yahoo Finance</option><option value="cash">cash.ch</option><option value="webhook">Webhook</option></select></td>'+
+  '<td style="width:58px"><input class="q" type="number" step="any" min="0" placeholder="qty" value="'+(o.qty>0?o.qty:'')+'"></td>'+
+  '<td style="width:70px"><input class="c" type="number" step="any" min="0" placeholder="cost" value="'+(o.cost>0?o.cost:'')+'"></td>'+
   '<td style="width:34px"><button class="btn sec" style="padding:6px 10px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
  tr.querySelector('.src').value=o.source||'yahoo';
  t.appendChild(tr);}
@@ -495,6 +520,18 @@ function selfUpdate(){if(!confirm('Download and flash the latest release from Gi
    if(n>60)clearInterval(t);
   },3000);
  }).catch(function(){$('ghMsg').textContent='Could not start update';$('chkBtn').disabled=false})}
+
+// settings backup
+function importCfg(){var f=$('cfgFile').files[0];if(!f){toast('Pick a config .json first');return}
+ var r=new FileReader();
+ r.onload=function(){var txt=r.result;
+  try{JSON.parse(txt)}catch(e){toast('Not valid JSON');return}
+  if(!confirm('Apply this configuration and reboot?'))return;
+  j('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:txt})
+   .then(function(){toast('Imported, rebooting...');setTimeout(function(){location.reload()},8000)})
+   .catch(function(){toast('Import failed')});
+ };
+ r.readAsText(f);}
 
 // maintenance
 function reboot(){if(confirm('Reboot device?'))j('/api/reboot',{method:'POST'}).then(function(){toast('Rebooting...')})}
