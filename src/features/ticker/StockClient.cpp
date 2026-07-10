@@ -423,6 +423,10 @@ static bool fetchUrl(const Settings& s, const String& url, ParseKind kind, Stock
   HTTPClient http;
   http.setTimeout(s.httpTimeout);
   http.setReuse(false);
+  // HTTP/1.0 so the server can't reply with chunked framing: the parsers read
+  // the raw stream via getStream(), which neither core de-chunks. Yahoo chunks
+  // its HTTP/1.1 responses, which broke Yahoo tickers on the ESP32 targets.
+  http.useHTTP10(true);
   if (!http.begin(*client, url)) return false;
   http.addHeader("Accept", "application/json");
   if (kind == PARSE_YAHOO) {
