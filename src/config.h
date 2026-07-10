@@ -1,7 +1,10 @@
 // config.h — compile-time constants for smalltv-mod
 //
-// Hardware: GeekMagic SmallTV, ESP-12F (ESP8266), 1.54" 240x240 ST7789 IPS.
-// Pin mapping confirmed from teardowns / ESPHome + Tasmota community configs.
+// Hardware: two board variants, both a 1.54" 240x240 ST7789 IPS panel:
+//   - Original GeekMagic SmallTV: ESP-12F (ESP8266)      [board_esp8266.h]
+//   - Knockoff SmallTV:           ESP32-C2 / ESP8684      [board_esp32c2.h]
+// The board-specific pin map + panel quirks live in the board headers, selected
+// below by the build-time target macro. Everything else here is shared.
 #pragma once
 
 // ---------------------------------------------------------------------------
@@ -19,28 +22,18 @@
 #define DAEMON_URL    "https://github.com/giovi321/clawdmeter-daemon"
 
 // ---------------------------------------------------------------------------
-// Display wiring (ST7789 240x240 over hardware SPI)
-//   ESP8266 HW-SPI fixed pins: SCLK=GPIO14, MOSI=GPIO13.
-//   The rest are board-specific GPIO assignments for the SmallTV.
+// Display wiring + panel quirks — board-specific, pulled from the right header.
+// Provides TFT_SCLK/MOSI/DC/RST/CS/BL, TFT_BGR, TFT_BL_DEFAULT_INVERTED,
+// HAS_LDR/LDR_PIN/ADC_MAX. Both panels are 1.54" 240x240 ST7789 IPS.
 // ---------------------------------------------------------------------------
-#define TFT_SCLK   14   // D5  (HW SPI clock, fixed)
-#define TFT_MOSI   13   // D7  (HW SPI data,  fixed)
-#define TFT_DC      0   // D3  (data/command) — also a boot-strap pin
-#define TFT_RST     2   // D4  (reset)        — also a boot-strap pin / onboard LED
-#define TFT_CS     15   // D8  (chip select)  — also a boot-strap pin
-#define TFT_BL      5   // D1  (backlight, PWM capable)
+#if defined(SMALLTV_ESP32C2)
+  #include "board_esp32c2.h"
+#else
+  #include "board_esp8266.h"
+#endif
 
 #define TFT_WIDTH  240
 #define TFT_HEIGHT 240
-
-// The SmallTV backlight is active-low (confirmed against the GeekMagic community
-// firmwares: ESPHome uses `inverted: true`, others drive the pin LOW to enable).
-// Still runtime-overridable via settings (backlightInverted) for odd revisions.
-#define TFT_BL_DEFAULT_INVERTED true
-
-// Optional ambient light sensor (LDR) on the ADC. Not all units populate it.
-// Disabled by default; can be enabled in settings for auto-brightness.
-#define LDR_PIN    A0
 
 // ---------------------------------------------------------------------------
 // Limits (bound RAM usage on the ESP8266)

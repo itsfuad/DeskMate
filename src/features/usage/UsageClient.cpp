@@ -1,7 +1,5 @@
 #include "UsageClient.h"
-#include <ESP8266WiFi.h>
-#include <WiFiClientSecure.h>
-#include <ESP8266HTTPClient.h>
+#include "Platform.h"
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -72,13 +70,10 @@ static bool fetchUsage(const Settings& s) {
   if (url.length() < 8) return false;
   bool https = url.startsWith("https://");
 
-  std::unique_ptr<WiFiClient> client;
+  std::unique_ptr<NetClient> client;
   if (https) {
     if (ESP.getFreeHeap() < 16000) return false;   // too little heap for TLS; skip, don't crash
-    BearSSL::WiFiClientSecure* sc = new BearSSL::WiFiClientSecure();
-    sc->setInsecure();                  // LAN / self-hosted endpoint
-    sc->setBufferSizes(2048, 512);
-    client.reset(sc);
+    client.reset(platformMakeSecureClient(2048));   // LAN / self-hosted endpoint
   } else {
     client.reset(new WiFiClient());
   }

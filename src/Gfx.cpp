@@ -1,12 +1,14 @@
 #include "Gfx.h"
+#include "Platform.h"
 #include <Arduino_GFX_Library.h>
 #include <SPI.h>
 
-// The GeekMagic SmallTV's ST7789 has its CS line tied to GND and only latches
-// SPI in **mode 3**. Arduino_GFX's stock Arduino_ST7789 forces SPI_MODE2 on the
-// ESP8266 (wrong clock edge for this panel), so the controller never initializes
-// and the screen stays black even with the backlight on. Subclass begin() to
-// force mode 3 — matching the known-good GeekMagic community firmwares.
+// The SmallTV's ST7789 has its CS line tied to GND and only latches SPI in
+// **mode 3**. Arduino_GFX's stock Arduino_ST7789 forces SPI_MODE2 on the ESP8266
+// (wrong clock edge for this panel), so the controller never initializes and the
+// screen stays black even with the backlight on. Subclass begin() to force mode 3
+// — matching the known-good GeekMagic community firmwares. (On ESP32 the base
+// class already selects mode 3, so the override is harmless there.)
 class Arduino_ST7789_SmallTV : public Arduino_ST7789 {
  public:
   using Arduino_ST7789::Arduino_ST7789;   // inherit constructors
@@ -14,6 +16,26 @@ class Arduino_ST7789_SmallTV : public Arduino_ST7789 {
     _override_datamode = SPI_MODE3;
     return Arduino_TFT::begin(speed);
   }
+
+#if TFT_BGR
+  // This board's panel is wired B-G-R. Arduino_ST7789 hardcodes the MADCTL RGB
+  // order, so re-issue MADCTL with the BGR bit (0x08) set on every rotation
+  // change. Only rotations 0-3 are used by the SmallTV (setRotation(r & 3)).
+  void setRotation(uint8_t r) override {
+    Arduino_TFT::setRotation(r);           // updates _rotation + width/height
+    uint8_t madctl;
+    switch (_rotation) {
+      case 1:  madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MV; break;
+      case 2:  madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MY; break;
+      case 3:  madctl = ST7789_MADCTL_MY | ST7789_MADCTL_MV; break;
+      default: madctl = 0; break;          // case 0
+    }
+    madctl |= 0x08;                         // BGR
+    _bus->beginWrite();
+    _bus->writeC8D8(ST7789_MADCTL, madctl);
+    _bus->endWrite();
+  }
+#endif
 };
 
 static Arduino_DataBus* bus = nullptr;
@@ -27,10 +49,19 @@ void gfxBegin(const Settings& s) {
   // if panel init has trouble. A dark backlight then means the sketch didn't get
   // this far (early crash / bad flash) — a useful boot indicator.
   pinMode(TFT_BL, OUTPUT);
-  analogWriteRange(255);
+  platformAnalogWriteInit(TFT_BL);
   gfxSetBrightness(s.brightness, s.backlightInverted);
 
-  bus = new Arduino_HWSPI(TFT_DC, TFT_CS);
+#if defined(SMALLTV_ESP32C2)
+  // Hardware SPI via the Arduino SPI library (IDF spi_master driver) on explicit
+  // GPIOs. The register-level Arduino_ESP32SPI hangs in begin() on the C2, and
+  // Arduino_SWSPI's fast-IO path doesn't cover the C2 — Arduino_HWSPI uses the
+  // stock driver (what the working ESPHome config used) and honors SPI mode 3
+  // (see the subclass). CS is tied to GND (TFT_CS == -1, never toggled).
+  bus = new Arduino_HWSPI(TFT_DC, TFT_CS, TFT_SCLK, TFT_MOSI, GFX_NOT_DEFINED, &SPI);
+#else
+  bus = new Arduino_HWSPI(TFT_DC, TFT_CS);   // ESP8266 HW-SPI (fixed SCLK/MOSI)
+#endif
   // IPS=true so the panel colors are not inverted; full 240x240, no offsets.
   // Use the SmallTV variant so the SPI bus comes up in mode 3 (see class above).
   gfx = new Arduino_ST7789_SmallTV(bus, TFT_RST, 0 /*rotation*/, true /*IPS*/,

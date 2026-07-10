@@ -1,6 +1,5 @@
 #include "Net.h"
-#include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
+#include "Platform.h"
 #include <DNSServer.h>
 
 static NetMode     g_mode = NET_AP;
@@ -29,7 +28,7 @@ void netBegin(const Settings& s, void (*onProgress)(const char*)) {
   g_hostname = s.hostname.length() ? s.hostname : String(DEFAULT_HOSTNAME);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
-  WiFi.hostname(g_hostname.c_str());
+  platformSetHostname(g_hostname.c_str());
 
   if (s.staSsid.length() == 0) {
     if (onProgress) onProgress("No WiFi saved");
@@ -65,7 +64,7 @@ void netLoop() {
     return;
   }
   // STA: keep mDNS alive, nudge reconnect if we dropped.
-  MDNS.update();
+  platformMdnsUpdate();
   if (WiFi.status() != WL_CONNECTED && millis() - g_lastReconnect > 10000) {
     g_lastReconnect = millis();
     WiFi.reconnect();

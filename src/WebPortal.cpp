@@ -1,7 +1,5 @@
 #include "WebPortal.h"
-#include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
-#include <ESP8266WebServer.h>
+#include "Platform.h"
 #include <ArduinoJson.h>
 #include "webui.h"
 #include "Net.h"
@@ -14,7 +12,7 @@
 extern void appInvalidate();
 extern const char* appResetReason();   // last reset reason (diagnostics)
 
-static ESP8266WebServer server(80);
+static WebServerClass server(80);
 static Settings*        S = nullptr;
 static bool             g_reboot = false;
 static uint32_t         g_rebootAt = 0;
@@ -121,7 +119,7 @@ static void handleScan() {
     JsonObject o = arr.add<JsonObject>();
     o["ssid"] = WiFi.SSID(i);
     o["rssi"] = WiFi.RSSI(i);
-    o["enc"] = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
+    o["enc"] = !platformScanIsOpen(i);
   }
   WiFi.scanDelete();
   sendJson(doc);
@@ -184,14 +182,16 @@ static void handleUsagePush() {
 static void handleUpdateDone() {
   bool ok = !Update.hasError();
   server.sendHeader("Connection", "close");
-  server.send(ok ? 200 : 500, "text/plain", ok ? "OK" : Update.getErrorString().c_str());
+  server.send(ok ? 200 : 500, "text/plain", ok ? "OK" : platformUpdateError().c_str());
   if (ok) scheduleReboot(1200);
 }
 
 static void handleUpdateUpload() {
   HTTPUpload& up = server.upload();
   if (up.status == UPLOAD_FILE_START) {
-    WiFiUDP::stopAll();
+#if defined(SMALLTV_ESP8266)
+    WiFiUDP::stopAll();   // free UDP sockets so the OTA has max contiguous flash/heap
+#endif
     uint32_t maxSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
     if (!Update.begin(maxSpace)) Update.printError(Serial);
   } else if (up.status == UPLOAD_FILE_WRITE) {

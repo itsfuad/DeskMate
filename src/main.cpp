@@ -9,9 +9,7 @@
 //
 // License: WTFPL
 #include <Arduino.h>
-extern "C" {
-#include <user_interface.h>   // struct rst_info + REASON_* (reset cause / crash PC)
-}
+#include "Platform.h"
 #include "config.h"
 #include "Settings.h"
 #include "Net.h"
@@ -56,7 +54,9 @@ static String   g_resetReason;        // why the chip last reset (diagnostics)
 static bool     g_safeMode = false;   // last reset was an exception -> don't re-enter the crash
 static char     g_epcStr[16] = "";
 static char     g_addrStr[16] = "";
+#if HAS_LDR
 static uint32_t g_lastAutoBr = 0;
+#endif
 
 // Exposed to the web portal (/api/status) so the last reset reason is visible.
 const char* appResetReason() { return g_resetReason.c_str(); }
@@ -77,24 +77,23 @@ void setup() {
   Serial.println(FW_NAME " " FW_VERSION);
 
   // Capture why we (re)booted. On a reboot loop this is the key clue, and the
-  // device's UART isn't exposed — so we also show it on screen below. For an
-  // exception we keep the crash PC (epc1) so it can be decoded with addr2line.
-  String resetShort = ESP.getResetReason();
-  struct rst_info* ri = ESP.getResetInfoPtr();
+  // device's UART isn't exposed — so we also show it on screen below. On the
+  // ESP8266 we also keep the crash PC (epc1) for addr2line decoding; the
+  // ESP32-C2 (RISC-V) doesn't expose it, so epc/addr come back empty there.
+  PlatformReset pr = platformResetInfo();
   Serial.print("[boot] reset reason: ");
-  Serial.println(resetShort);
-  Serial.println(ESP.getResetInfo());
+  Serial.println(pr.reason);
 
-  if (ri && ri->reason == REASON_EXCEPTION_RST) {
+  if (pr.wasCrash) {
     g_safeMode = true;                   // crashed last boot -> stay out of the crash path
-    snprintf(g_epcStr,  sizeof(g_epcStr),  "0x%08x", (unsigned)ri->epc1);
-    snprintf(g_addrStr, sizeof(g_addrStr), "0x%08x", (unsigned)ri->excvaddr);
-    char rich[60];
-    snprintf(rich, sizeof(rich), "%s epc %s addr %s",
-             resetShort.c_str(), g_epcStr, g_addrStr);
+    strlcpy(g_epcStr,  pr.epc,  sizeof(g_epcStr));
+    strlcpy(g_addrStr, pr.addr, sizeof(g_addrStr));
+    char rich[80];
+    snprintf(rich, sizeof(rich), "%s epc %s addr %s", pr.reason.c_str(),
+             g_epcStr[0] ? g_epcStr : "-", g_addrStr[0] ? g_addrStr : "-");
     g_resetReason = rich;
   } else {
-    g_resetReason = resetShort;
+    g_resetReason = pr.reason;
   }
 
   Serial.println("[boot] settings");
@@ -148,13 +147,15 @@ void loop() {
 
   // --- STA mode: the active feature fetches + renders itself ---
 
-  // Auto-brightness (optional LDR on A0) — applies to whichever mode is active.
+#if HAS_LDR
+  // Auto-brightness (optional LDR on the ADC) — applies to whichever mode is active.
   if (g_settings.autoBrightness && millis() - g_lastAutoBr > 2000) {
     g_lastAutoBr = millis();
-    int raw = analogRead(LDR_PIN);              // 0..1023
-    uint8_t pct = (uint8_t)constrain(raw * 100 / 1023, 5, 100);
+    int raw = analogRead(LDR_PIN);
+    uint8_t pct = (uint8_t)constrain(raw * 100 / ADC_MAX, 5, 100);
     gfxSetBrightness(pct, g_settings.backlightInverted);
   }
+#endif
 
   DisplayMode* m = activeMode(g_settings);
   if (m) m->service(g_settings);

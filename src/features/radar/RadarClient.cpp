@@ -1,7 +1,5 @@
 #include "RadarClient.h"
-#include <ESP8266WiFi.h>
-#include <WiFiClientSecure.h>
-#include <ESP8266HTTPClient.h>
+#include "Platform.h"
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -59,10 +57,12 @@ static void trimTail(char* s) {
 
 // ---- probe MFLN once so TLS can use the smallest safe buffer ---------------
 static void probeTls() {
+#if defined(SMALLTV_ESP8266)
   if (g_tlsRx) return;
   if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(ADSB_HOST, 443, 512))       g_tlsRx = 512;
   else if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(ADSB_HOST, 443, 1024)) g_tlsRx = 1024;
   else                                                                              g_tlsRx = 4096;
+#endif
 }
 
 // ---- URL builders ----------------------------------------------------------
@@ -146,15 +146,12 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
 static bool fetchUrl(const Settings& s, const String& url) {
   bool https = url.startsWith("https://");
 
-  std::unique_ptr<WiFiClient> client;
+  std::unique_ptr<NetClient> client;
   if (https) {
     // TLS needs a big contiguous chunk of heap; skip rather than reset-loop if low.
     if (ESP.getFreeHeap() < 18000) return false;
     probeTls();
-    BearSSL::WiFiClientSecure* sc = new BearSSL::WiFiClientSecure();
-    sc->setInsecure();                 // no cert validation (public read-only API)
-    sc->setBufferSizes(g_tlsRx, 512);
-    client.reset(sc);
+    client.reset(platformMakeSecureClient(g_tlsRx));   // no cert validation (public read-only API)
   } else {
     client.reset(new WiFiClient());
   }

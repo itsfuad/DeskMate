@@ -1,17 +1,16 @@
 #include "OtaUpdate.h"
-#include <ESP8266WiFi.h>
-#include <WiFiClientSecure.h>
-#include <ESP8266HTTPClient.h>
-#include <ESP8266httpUpdate.h>
+#include "Platform.h"
 #include <ArduinoJson.h>
 #include "config.h"
 
+#if defined(SMALLTV_ESP8266)
 // Prefer MFLN so BearSSL can run with a tiny buffer; fall back to 4 KB.
 static uint16_t probeMfln(const char* host) {
   if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 512))  return 512;
   if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 1024)) return 1024;
   return 4096;
 }
+#endif
 
 // "a.b.c" -> a*10000 + b*100 + c, for a simple newer-than comparison.
 static long verNum(const char* v) {
@@ -24,9 +23,11 @@ OtaLatest otaCheckLatest(const Settings& s) {
   OtaLatest r;
   if (ESP.getFreeHeap() < 16000) { r.error = F("low heap"); return r; }
 
-  BearSSL::WiFiClientSecure client;
+  SecureClient client;
   client.setInsecure();
+#if defined(SMALLTV_ESP8266)
   client.setBufferSizes(probeMfln(GH_API_HOST), 512);
+#endif
 
   HTTPClient http;
   http.setTimeout(s.httpTimeout);
@@ -78,6 +79,13 @@ OtaLatest otaCheckLatest(const Settings& s) {
 }
 
 String otaUpdateFromGitHub(const Settings& s) {
+#if defined(SMALLTV_ESP32C2)
+  // No C2 release asset is published (local builds only), and the ESP8266 asset
+  // is not a valid image for this chip. Use the manual firmware upload (Update
+  // tab) instead. otaCheckLatest() still reports the newest published version.
+  (void)s;
+  return F("GitHub self-update is off on the ESP32-C2 build - use manual firmware upload");
+#else
   OtaLatest r = otaCheckLatest(s);
   if (!r.ok) return "check failed: " + r.error;
   if (!r.newer) return "already up to date (" FW_VERSION ")";
@@ -103,4 +111,5 @@ String otaUpdateFromGitHub(const Settings& s) {
       return "";   // success — rebootOnUpdate restarts into the new image
   }
   return F("unknown result");
+#endif
 }

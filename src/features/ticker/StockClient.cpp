@@ -1,7 +1,5 @@
 #include "StockClient.h"
-#include <ESP8266WiFi.h>
-#include <WiFiClientSecure.h>
-#include <ESP8266HTTPClient.h>
+#include "Platform.h"
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -261,15 +259,13 @@ static bool parseYahoo(const Settings& s, StockData& d, Stream& stream) {
 static bool fetchUrl(const Settings& s, const String& url, bool yahoo, StockData& d) {
   bool https = url.startsWith("https://");
 
-  std::unique_ptr<WiFiClient> client;
+  std::unique_ptr<NetClient> client;
   if (https) {
     // TLS needs a big contiguous chunk of heap. If we're low, skip this fetch and
-    // flag an error instead of letting BearSSL's allocation fail and reset-loop.
+    // flag an error instead of letting the TLS allocation fail and reset-loop.
     if (ESP.getFreeHeap() < 16000) return false;
-    BearSSL::WiFiClientSecure* sc = new BearSSL::WiFiClientSecure();
-    sc->setInsecure();                  // no cert validation (LAN/self-host/Yahoo)
-    sc->setBufferSizes(2048, 512);      // Yahoo TLS records are <=~1.3KB; small buffer frees heap
-    client.reset(sc);
+    // Yahoo TLS records are <=~1.3KB; a 2 KB receive buffer frees heap on ESP8266.
+    client.reset(platformMakeSecureClient(2048));
   } else {
     client.reset(new WiFiClient());
   }
