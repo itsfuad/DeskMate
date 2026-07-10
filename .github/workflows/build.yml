@@ -33,22 +33,28 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Build firmware
-        run: pio run -e smalltv
+      - name: Build firmware (all targets)
+        run: pio run -e smalltv -e smalltv_c2 -e smalltv_esp32
 
-      - name: Stage artifact
+      # One app image per target (web-UI OTA + GitHub self-update), plus the
+      # merged factory images for first-time USB flashing of the ESP32 boards.
+      - name: Stage artifacts
         run: |
           mkdir -p dist
-          cp .pio/build/smalltv/firmware.bin dist/smalltv-mod-firmware.bin
+          cp .pio/build/smalltv/firmware.bin               dist/smalltv-mod-firmware.bin
+          cp .pio/build/smalltv_c2/firmware.bin            dist/smalltv-mod-firmware-c2.bin
+          cp .pio/build/smalltv_c2/firmware.factory.bin    dist/smalltv-mod-firmware-c2.factory.bin
+          cp .pio/build/smalltv_esp32/firmware.bin         dist/smalltv-mod-firmware-esp32.bin
+          cp .pio/build/smalltv_esp32/firmware.factory.bin dist/smalltv-mod-firmware-esp32.factory.bin
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: smalltv-mod-firmware
-          path: dist/smalltv-mod-firmware.bin
+          path: dist/
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/smalltv-mod-firmware.bin
+          files: dist/*
