@@ -43,9 +43,9 @@ The screens in the photos above are each unit's **stock firmware**, not this one
 ## What it does
 
 - **Stock and crypto ticker.** Price, absolute change, percent change with an up/down arrow, and a sparkline. Up to 8 symbols rotate on a timer. Data comes straight from Yahoo Finance over HTTPS with no backend, from cash.ch for Swiss instruments Yahoo doesn't carry (structured products, AMCs, tracker certificates), or from your own webhook if you want to own the source. Stocks, ETFs, Swiss equities (`NESN.SW`), crypto (`BTC-USD`), and FX (`EURUSD=X`) all work. Add a quantity and cost basis to any ticker and it shows your P/L, with a portfolio summary page in the rotation.
-- **Claude usage meter.** An animated pixel mascot plus your 5-hour and 7-day usage as big percentages with fill bars and reset countdowns. It is fed over WiFi by the [clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon) on your PC. When the data stops, the mascot plays an idle animation until it comes back.
+- **Claude usage meter.** An animated pixel mascot plus your 5-hour and 7-day usage as big percentages with fill bars and reset countdowns. It is fed over WiFi by the [clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon) on your PC. When the data stops, the mascot plays an idle animation until it comes back. Running several devices, the daemon discovers them over mDNS and pushes to all of them.
 - **Plane radar.** A scope centred on your location with nearby aircraft as heading triangles, speed vectors, and callsign or altitude labels, from the free [adsb.fi](https://adsb.fi) API or a LAN webhook. Marker size, an altitude filter, and label decluttering are configurable.
-- **Web UI for everything.** Join WiFi (up to 4 saved networks), pick the mode or a carousel that rotates through them, manage the symbol list, set brightness, orientation, and colours, and back up or restore the whole configuration as a file. First boot creates a `SmallTV-Setup` hotspot with a captive portal.
+- **Web UI for everything.** Join WiFi (up to 4 saved networks), pick the mode or a carousel that rotates through them, manage the symbol list, set brightness, orientation, and colours, set an NTP timezone and a nightly dimming schedule (night brightness, 0 = screen off), and back up or restore the whole configuration as a file. First boot creates a `SmallTV-Setup` hotspot with a captive portal.
 - **Updates over WiFi.** Every board pulls the newest release from GitHub itself from the web UI's Update tab, or takes a manual firmware upload from the browser. On the ESP8266 the download runs at boot (the device reboots twice). **Warning: ESP8266 devices on firmware 2.6.1 or older cannot self-update** (the updater itself was broken; it fails with "connection failed"). Update those once manually: upload `smalltv-mod-firmware.bin` from the [Releases page](https://github.com/giovi321/smalltv-mod/releases) in the Update tab. From 2.7.0 on, self-update works everywhere.
 
 ## Get the firmware
@@ -113,10 +113,6 @@ pio device monitor -e smalltv_c2   # serial logs @ 115200
 The three targets share one codebase. Chip differences live in `src/Platform.h` and the per-board pin headers (`src/board_esp8266.h`, `src/board_esp32c2.h`, `src/board_esp32.h`); the three feature modes and the web UI are identical across all of them. See [Building from source](https://giovi321.github.io/smalltv-mod/reference/building/) for the project layout and the ESP32 toolchain notes.
 
 The PC-side usage daemon lives in its own repo: [clawdmeter-daemon](https://github.com/giovi321/clawdmeter-daemon).
-
-## To do
-
-- Night mode: dim the screen on a schedule (needs an on-device clock over NTP)
 
 ## Credits and references
 
