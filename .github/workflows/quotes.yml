@@ -1,0 +1,49 @@
+name: quotes
+
+# Serverless proxy for devices that can't reach cash.ch's ECDHE-only CDN
+# (the ESP8266). Fetches the instruments in quotes-config.json and publishes
+# one static JSON file per listing key to the 'data' branch, served at
+# raw.githubusercontent.com/<owner>/<repo>/data/quotes/<key>.json — a host the
+# ESP8266 can reach over its older static-RSA HTTPS. Committing every run also
+# keeps the schedule alive (GitHub disables scheduled workflows after 60 days
+# of no repo activity).
+
+on:
+  schedule:
+    - cron: '2,17,32,47 * * * *'   # ~every 15 min, off the top of the hour (cron slips less)
+  workflow_dispatch:
+
+concurrency:
+  group: quotes
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # for quotes-config.json + the script
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch quotes
+        env:
+          RUN_STAMP: ${{ github.run_id }}
+        run: node .github/scripts/fetch-quotes.mjs
+
+      # Publish as a single-commit orphan 'data' branch (force-pushed each run),
+      # so the JSON never accumulates history in the main repo.
+      - name: Publish to data branch
+        run: |
+          cd out
+          git init -q
+          git checkout -q -b data
+          git add quotes
+          git -c user.name='quotes-bot' -c user.email='quotes-bot@users.noreply.github.com' \
+              commit -q -m "quotes ${GITHUB_RUN_ID}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
