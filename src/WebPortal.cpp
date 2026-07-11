@@ -8,10 +8,12 @@
 #include "OtaUpdate.h"
 #include "StockClient.h"
 #include "UsageClient.h"
+#include "Clock.h"
 
 // Defined in main.cpp — re-init every mode + force a repaint after a config change.
 extern void appInvalidate();
 extern const char* appResetReason();   // last reset reason (diagnostics)
+extern void appApplyBrightness();   // main.cpp: re-resolve effective brightness now
 
 static WebServerClass server(80);
 static Settings*        S = nullptr;
@@ -74,6 +76,10 @@ static void handleStatus() {
   o["contstk"] = platformFreeContStack();   // primary stack headroom (ESP8266)
   o["uptime"] = millis() / 1000;
   o["reset"] = appResetReason();
+  o["synced"] = clockSynced();
+  { String ts = clockTimeStr(); if (ts.length()) o["time"] = ts; }
+  o["tz"]     = S->clock.tz;
+  o["night"]  = clockNightActive(*S);
 
 #if WITH_TICKER
   JsonArray arr = o["tickers"].to<JsonArray>();
@@ -129,7 +135,8 @@ static void handlePostConfig() {
   saveSettings(*S);
 
   // Live apply (no reboot needed for these)
-  gfxSetBrightness(S->brightness, S->backlightInverted);
+  clockReapply(*S);         // re-arm SNTP iff the timezone changed
+  appApplyBrightness();     // apply effective brightness (respects night/auto/manual)
   if (S->rotation != oldRot) gfxSetRotation(S->rotation);
   appInvalidate();          // re-init every mode + repaint (covers mode/URL/symbol changes)
 
