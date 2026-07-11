@@ -172,7 +172,10 @@ void setup() {
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
-  clockBegin(g_settings);   // arm SNTP now that WiFi (STA) is up; harmless no-op in AP mode
+  // Arm SNTP now that WiFi (STA) is up (harmless no-op in AP mode). Skipped after
+  // a crash so a fault in here can't boot-loop before the web server starts — the
+  // device then comes up in safe mode, OTA-recoverable, instead of needing UART.
+  if (!g_safeMode) clockBegin(g_settings);
 
   // A GitHub update queued from the web UI runs now, before the features claim
   // the heap (the download needs a 16 KB TLS buffer that only fits at boot).
