@@ -52,9 +52,10 @@ td{padding:6px 4px}
 .bar{height:8px;background:#0b0e13;border-radius:6px;overflow:hidden;margin-top:8px}
 .bar>div{height:100%;width:0;background:var(--acc2);transition:.2s}
 small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
+.chip{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:.03em;background:var(--acc2);color:#fff;vertical-align:middle}
 </style></head>
 <body>
-<header><span id="dot" class="dot"></span><h1>SmallTV</h1><span id="hi" class="muted"></span></header>
+<header><span id="dot" class="dot"></span><h1>SmallTV</h1><span id="chip" class="chip" style="display:none"></span><span id="hi" class="muted"></span></header>
 <nav>
  <button data-t="status" class="active">Status</button>
  <button data-t="wifi">WiFi</button>
@@ -120,6 +121,19 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
    <select id="rotation"><option value="0">0&deg;</option><option value="1">90&deg;</option>
     <option value="2">180&deg;</option><option value="3">270&deg;</option></select>
    <div class="chk"><input id="backlightInverted" type="checkbox"><label>Backlight is active-low (try if screen stays dark)</label></div>
+  </div>
+  <div class="card"><h2>Clock &amp; night mode</h2>
+   <label>Timezone</label>
+   <select id="tz"></select>
+   <div class="muted" id="clockNow" style="margin:8px 0">Clock: -</div>
+   <div class="chk"><input id="nightEnabled" type="checkbox"><label>Dim or blank the screen on a nightly schedule</label></div>
+   <div class="row">
+    <div><label>From</label><input id="nightStart" type="time"></div>
+    <div><label>To</label><input id="nightEnd" type="time"></div>
+   </div>
+   <label>Night brightness: <span id="nlVal"></span>% <span class="muted">(0 = screen off)</span></label>
+   <input id="nightLevel" type="range" min="0" max="100" oninput="nlVal.textContent=this.value">
+   <small class="hint">Needs internet once to set the clock over NTP (no on-screen clock, this just drives the schedule). While the window is active it overrides the brightness and auto-brightness above. Times are local to the selected timezone; DST is handled automatically.</small>
   </div>
  </section>
 
@@ -297,6 +311,37 @@ var T_TEXT=['webhookUrl','range'];                   // ticker strings
 var T_NUM=['rotateSec','pollSec','points'];          // ticker numbers
 var T_BOOL=['showName','showPrice','showChange','showChart','showRangeLabel','showUpdatedAgo','showPageDots','showPortfolio'];
 
+// IANA -> POSIX TZ. The device stores/uses the POSIX rule; this map lives in the
+// browser so the firmware carries no tz database (same idea as the cash finder).
+var TZMAP={
+ '':'UTC0','UTC':'UTC0',
+ 'Europe/London':'GMT0BST,M3.5.0/1,M10.5.0','Europe/Dublin':'GMT0IST,M3.5.0/1,M10.5.0',
+ 'Europe/Lisbon':'WET0WEST,M3.5.0/1,M10.5.0',
+ 'Europe/Rome':'CET-1CEST,M3.5.0,M10.5.0/3','Europe/Paris':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Berlin':'CET-1CEST,M3.5.0,M10.5.0/3','Europe/Madrid':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Amsterdam':'CET-1CEST,M3.5.0,M10.5.0/3','Europe/Brussels':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Zurich':'CET-1CEST,M3.5.0,M10.5.0/3','Europe/Vienna':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Warsaw':'CET-1CEST,M3.5.0,M10.5.0/3','Europe/Prague':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Stockholm':'CET-1CEST,M3.5.0,M10.5.0/3','Europe/Oslo':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Copenhagen':'CET-1CEST,M3.5.0,M10.5.0/3',
+ 'Europe/Athens':'EET-2EEST,M3.5.0/3,M10.5.0/4','Europe/Helsinki':'EET-2EEST,M3.5.0/3,M10.5.0/4',
+ 'Europe/Bucharest':'EET-2EEST,M3.5.0/3,M10.5.0/4','Europe/Kyiv':'EET-2EEST,M3.5.0/3,M10.5.0/4',
+ 'Europe/Istanbul':'<+03>-3','Europe/Moscow':'MSK-3',
+ 'America/New_York':'EST5EDT,M3.2.0,M11.1.0','America/Toronto':'EST5EDT,M3.2.0,M11.1.0',
+ 'America/Chicago':'CST6CDT,M3.2.0,M11.1.0','America/Denver':'MST7MDT,M3.2.0,M11.1.0',
+ 'America/Phoenix':'MST7','America/Los_Angeles':'PST8PDT,M3.2.0,M11.1.0',
+ 'America/Anchorage':'AKST9AKDT,M3.2.0,M11.1.0','America/Sao_Paulo':'<-03>3',
+ 'America/Mexico_City':'CST6','America/Bogota':'<-05>5','America/Argentina/Buenos_Aires':'<-03>3',
+ 'Asia/Dubai':'<+04>-4','Asia/Karachi':'PKT-5','Asia/Kolkata':'IST-5:30',
+ 'Asia/Dhaka':'<+06>-6','Asia/Bangkok':'<+07>-7','Asia/Jakarta':'WIB-7',
+ 'Asia/Shanghai':'CST-8','Asia/Hong_Kong':'HKT-8','Asia/Singapore':'<+08>-8',
+ 'Asia/Taipei':'CST-8','Asia/Tokyo':'JST-9','Asia/Seoul':'KST-9',
+ 'Australia/Perth':'AWST-8','Australia/Sydney':'AEST-10AEDT,M10.1.0,M4.1.0/3',
+ 'Australia/Adelaide':'ACST-9:30ACDT,M10.1.0,M4.1.0/3','Australia/Brisbane':'AEST-10',
+ 'Pacific/Auckland':'NZST-12NZDT,M9.5.0,M4.1.0/3','Pacific/Honolulu':'HST10'};
+function fillTz(){var s=$('tz');if(!s)return;var keys=Object.keys(TZMAP).filter(function(k){return k!==''});
+ keys.sort();s.innerHTML='<option value="">UTC</option>'+keys.map(function(k){return '<option value="'+k+'">'+k+'</option>'}).join('');}
+
 var MODEOPT={ticker:'stocks',usage:'usage',radar:'radar'};
 var CAROPT={ticker:'carouselTicker',usage:'carouselUsage',radar:'carouselRadar'};
 function hideFeat(name){
@@ -317,6 +362,14 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  $('rotation').value=c.rotation;
  $('autoBrightness').checked=!!c.autoBrightness;
  $('backlightInverted').checked=!!c.backlightInverted;
+ // header chip = which chip this firmware was built for
+ var chipName={esp8266:'ESP8266',esp32c2:'ESP32-C2',esp32:'ESP32'}[c.chip]||(c.chip||'');
+ var chE=$('chip'); if(chE&&chipName){chE.textContent=chipName;chE.style.display='inline-block';}
+ // clock slice
+ fillTz(); var ck=c.clock||{};
+ sv('tz',ck.tz||''); sc('nightEnabled',!!ck.nightEnabled);
+ sv('nightStart',ck.nightStart||'22:00'); sv('nightEnd',ck.nightEnd||'07:00');
+ sv('nightLevel',ck.nightLevel!=null?ck.nightLevel:0); $('nlVal')&&($('nlVal').textContent=(ck.nightLevel!=null?ck.nightLevel:0));
  $('mode').value=c.mode||'stocks'; modeChanged();
  sv('carouselSec',c.carouselSec||30);
  sc('carouselTicker',c.carouselTicker!==false); sc('carouselUsage',c.carouselUsage!==false); sc('carouselRadar',c.carouselRadar!==false);
@@ -415,6 +468,10 @@ function collect(){
  }
  // usage slice
  if($('usage')) o.usage={usageUrl:gv('usageUrl'), pollSec:parseInt(gv('usagePollSec'))||0};
+ // clock slice
+ if($('tz')) o.clock={tz:gv('tz'),tzPosix:(TZMAP[gv('tz')]||'UTC0'),
+  nightEnabled:gc('nightEnabled'),nightStart:gv('nightStart')||'22:00',
+  nightEnd:gv('nightEnd')||'07:00',nightLevel:parseInt(gv('nightLevel'))||0};
  // radar slice
  if($('radar')){
   var r={lat:parseFloat(gv('radarLat'))||0, lon:parseFloat(gv('radarLon'))||0,
@@ -493,6 +550,7 @@ function scan(){$('scanList').innerHTML='<div class="muted">Scanning...</div>';
 function loadStatus(){j('/api/status').then(function(s){
  $('dot').className='dot'+(s.connected?' ok':'');
  $('hi').textContent=s.mode==='ap'?'setup mode':(s.ip||'');
+ var cn=$('clockNow'); if(cn){cn.textContent='Clock: '+(s.synced?(s.time||'synced')+(s.tz?' ('+s.tz+')':''):'waiting for NTP...')+(s.night?'  · night mode active':'');}
  var fw=$('fwVer'); if(fw)fw.textContent=s.fw+' '+s.version;
  // Surface the result of a boot-time GitHub update (ESP8266) once on first load,
  // so a failure that happened across the reboot is visible even if the original
