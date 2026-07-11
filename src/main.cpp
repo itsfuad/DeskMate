@@ -172,7 +172,7 @@ void setup() {
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
-  clockBegin(g_settings);   // arm SNTP now that WiFi (STA) is up; no-op harm in AP
+  clockBegin(g_settings);   // arm SNTP now that WiFi (STA) is up; harmless no-op in AP mode
 
   // A GitHub update queued from the web UI runs now, before the features claim
   // the heap (the download needs a 16 KB TLS buffer that only fits at boot).
