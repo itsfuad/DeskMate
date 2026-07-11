@@ -19,17 +19,54 @@ The stock GeekMagic firmware exposes an OTA updater at `/update` that accepts an
 
 Back up the stock firmware first if you want the option to return to it. The stock image is not redistributed here, so read it off your own device over the UART header before you overwrite it.
 
-### UART header, for recovery
+### UART header, for recovery or a direct install
 
-If OTA is not available or the device will not boot, flash over the serial header. You need a 3.3 V USB-UART adapter. Pull **GPIO0 to GND** while powering on to enter flash mode, then:
+The serial header is the guaranteed way in. Use it if OTA is not available, if the device will not boot, or if you would rather skip OTA and flash directly.
+
+Open the case first: remove the two screws on the underside and lift out the inner tray that holds the PCB. Six labelled pads sit on the board:
+
+| Pad | Wire it to |
+|-----|-----------|
+| `3V3` | 3.3 V on the adapter |
+| `GND` | GND on the adapter |
+| `TXD0` | the adapter's RX |
+| `RXD0` | the adapter's TX |
+| `GPIO0` | GND, to enter flash mode (only during power-on) |
+| `RST` | optional, tie to GND briefly to reset |
+
+Use a 3.3 V USB-UART adapter. Hold `GPIO0` to `GND` while powering on to enter flash mode, then release it. Pad map from [ViToni/esphome-geekmagic-smalltv](https://github.com/ViToni/esphome-geekmagic-smalltv).
+
+Back up the stock image first if you might want it back:
 
 ```bash
-# back up the original firmware first (4 MB)
 esptool.py --port COM5 read_flash 0x0 0x400000 stock-backup.bin
+```
 
-# write this firmware
+Then flash. On a SmallTV-ultra, erase first so the stock partition layout goes with it; on a plain SmallTV the erase is optional but harmless:
+
+```bash
+# clear the old layout (partition + data), then write the firmware
+esptool.py --port COM5 erase_flash
 esptool.py --port COM5 write_flash 0x0 smalltv-mod-firmware.bin
 ```
+
+That single image carries everything the ESP8266 needs, so there is no separate partition file to flash. On first boot it recreates its own filesystem and opens the `SmallTV-Setup` portal.
+
+## SmallTV-ultra (stock updater says "Not Enough Space")
+
+The SmallTV-ultra is the same ESP-12F (ESP8266) as the original SmallTV: same 4 MB flash, the same 1.54" 240×240 ST7789 panel, and the same pin map. Only its stock firmware differs. The "Ultra" firmware (for example Ultra-V9.0.50) reserves most of the flash for image and GIF storage, which leaves its OTA updater a small app slot. Uploading `smalltv-mod-firmware.bin` at `/update` fails with `Update error: ERROR[4]: Not Enough Space`, even though the flash has plenty of free user space, because the full image does not fit that small slot.
+
+The fix is a two-step install through a tiny loader, no soldering. The loader is a ~308 KB image that does fit the stock slot. Once running it uses this firmware's own 4m1m flash layout, whose app region is large, so the full image fits on the second hop.
+
+1. Get `smalltv-mod-loader.bin` from the [Releases page](https://github.com/giovi321/smalltv-mod/releases).
+2. Browse to `http://<device-ip>/update` and upload `smalltv-mod-loader.bin`. It fits the stock slot. The device reboots into the loader.
+3. The loader opens an open WiFi access point named `SmallTV-Loader`. Join it and browse to `http://192.168.4.1/update`.
+4. Upload `smalltv-mod-firmware.bin` there. It fits because the loader uses this firmware's flash layout, which leaves about 700 KB free for OTA against the roughly 651 KB image. The device reboots into the full smalltv-mod.
+5. It comes up in the usual `SmallTV-Setup` captive portal for WiFi. From here it is a normal ESP8266 smalltv-mod device.
+
+After this first install, normal OTA works from the Update tab, because this firmware's layout has room for two sketch copies. You only need the loader once.
+
+If the loader ever will not come back up, flash over the serial header instead. The board is a plain ESP-12F, so the [UART recovery](#uart-header-for-recovery) steps above apply directly: `esptool.py --port COM5 write_flash 0x0 smalltv-mod-firmware.bin`.
 
 ## SmallTV (ESP32-C2 / ESP8684)
 

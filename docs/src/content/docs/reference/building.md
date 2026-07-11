@@ -11,7 +11,24 @@ pio run -e smalltv_c2              # ESP32-C2
 pio run -e smalltv_esp32           # NM-TV-154 (classic ESP32)
 pio run -e smalltv_c2 -t upload    # build + flash the C2 over USB-C
 pio device monitor -e smalltv_c2   # serial logs @ 115200
+pio run -e smalltv_loader          # ESP8266 loader for the SmallTV-ultra
 ```
+
+## The smalltv_loader env
+
+`smalltv_loader` (source `src/loader.cpp`) builds a minimal ESP8266 image: WiFi plus a web OTA endpoint at `/update`, nothing else. Its only job is the two-step [SmallTV-ultra install](/smalltv-mod/getting-started/flashing/#smalltv-ultra-stock-updater-says-not-enough-space), where the stock Ultra layout rejects the full image. The loader is small enough to fit that stock slot, and it uses this firmware's own 4m1m flash layout (`eagle.flash.4m1m.ld`), so its own `/update` slot is large enough to then accept the full `smalltv-mod-firmware.bin`.
+
+```bash
+pio run -e smalltv_loader
+```
+
+By default the loader opens an open access point named `SmallTV-Loader` at `192.168.4.1`. To have it auto-join an existing network instead, bake the credentials in at build time by adding the two flags to the env's `build_flags` (or via `PLATFORMIO_BUILD_FLAGS`):
+
+```
+-DLOADER_SSID='"MyNet"' -DLOADER_PASS='"secret"'
+```
+
+Credentials are compile-time only and never live in the repo. The build output is published as the release asset `smalltv-mod-loader.bin`.
 
 ## How one codebase builds for all three
 

@@ -25,6 +25,10 @@ The two chips on the ESP32-C2 board are the giveaway. The main SoC is marked `ES
 
 ![The SmallTV (ESP8266)](/smalltv-mod/assets/product-8266.png)
 
+The "Ultra" units (branded Ultra-Vx.x.x) are this same ESP-12F board, just with different stock firmware and a different flash layout. They run this firmware fine, but the first install needs the loader step in [Flashing](/smalltv-mod/getting-started/flashing/#smalltv-ultra-stock-updater-says-not-enough-space).
+
+Product photos show each unit running its stock firmware, not this one, and the on-screen style varies by model and firmware version (a weather clock, a ticker, and so on). Match your device's screen and the tell-tale signs to identify the model before picking a binary.
+
 | | |
 |---|---|
 | MCU | ESP-12F (ESP8266), 4 MB flash |
