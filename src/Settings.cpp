@@ -25,6 +25,7 @@ void TickerSettings::setDefaults() {
   pollSec = DEFAULT_POLL_SEC;
   rotateSec = DEFAULT_ROTATE_SEC;
   colorInverted = false;
+  changeOnRange = true;
 
   showName = true;
   showPrice = true;
@@ -52,6 +53,7 @@ void TickerSettings::toJson(JsonObject o) const {
   o["pollSec"]        = pollSec;
   o["rotateSec"]      = rotateSec;
   o["colorInverted"]  = colorInverted;
+  o["changeOnRange"]  = changeOnRange;
   o["showName"]       = showName;
   o["showPrice"]      = showPrice;
   o["showChange"]     = showChange;
@@ -84,6 +86,7 @@ void TickerSettings::fromJson(JsonObjectConst o) {
   if (o["pollSec"].is<int>())            pollSec = max(10, (int)o["pollSec"]);
   if (o["rotateSec"].is<int>())          rotateSec = max(2, (int)o["rotateSec"]);
   if (o["colorInverted"].is<bool>())     colorInverted = o["colorInverted"];
+  if (o["changeOnRange"].is<bool>())     changeOnRange = o["changeOnRange"];
 
   if (o["showName"].is<bool>())       showName = o["showName"];
   if (o["showPrice"].is<bool>())      showPrice = o["showPrice"];

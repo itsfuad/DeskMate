@@ -85,7 +85,12 @@ static void handleStatus() {
     t["error"] = d.error;
     if (d.valid) {
       t["price"] = d.price;
-      if (d.hasChange) t["changePct"] = d.changePct;
+      float chg, pct;
+      bool onRange = false;
+      if (stockDisplayChange(d, S->ticker, chg, pct, &onRange)) {
+        t["changePct"] = pct;                       // as displayed on the device
+        t["basis"] = onRange ? "range" : "day";     // which basis that was
+      }
     }
   }
 #endif
@@ -270,6 +275,10 @@ static void handleNotFound() {
 void webPortalBegin(Settings& settings) {
   S = &settings;
 
+  // If the last boot ran a queued GitHub update and failed, surface why
+  // (success reboots into the new image before we ever get here).
+  g_updateMsg = otaTakeBootResult();
+
   server.on("/", HTTP_GET, handleRoot);
   server.on("/api/config", HTTP_GET, handleGetConfig);
   server.on("/api/config", HTTP_POST, handlePostConfig);
@@ -299,11 +308,28 @@ void webPortalLoop() {
   server.handleClient();
 
   // Run the GitHub self-update outside the request handler so the browser gets its
-  // response first. This blocks while it downloads; on success the device reboots.
+  // response first.
   if (g_selfUpdate) {
     g_selfUpdate = false;
+#if defined(SMALLTV_ESP8266)
+    // RAM-tight chip: verify there is something to install, then queue the
+    // download for the next boot (otaBootUpdate in setup(), ~45 KB free) and
+    // reboot. A failure there lands back in g_updateMsg via otaTakeBootResult.
+    OtaLatest r = otaCheckLatest(*S);
+    if (!r.ok)         g_updateMsg = "check failed: " + r.error;
+    else if (!r.newer) g_updateMsg = "already up to date (" FW_VERSION ")";
+    else if (otaRequestBootUpdate(r.tag.c_str())) {
+      g_updateMsg = "updating...";
+      scheduleReboot(400);
+    } else {
+      g_updateMsg = F("could not queue update (storage error)");
+    }
+#else
+    // ESP32 targets: mbedTLS has the RAM to download in place; blocks while it
+    // runs and reboots into the new image on success.
     String err = otaUpdateFromGitHub(*S);
     g_updateMsg = err.length() ? err : "updating...";
+#endif
   }
 }
 

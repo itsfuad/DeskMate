@@ -141,6 +141,14 @@ small.hint{display:block;color:var(--mut);margin-top:4px;font-size:12px}
      </select></div>
     <div><label>Chart points</label><input id="points" type="number" min="0" max="60"></div>
    </div>
+   <div class="row">
+    <div><label>Change &amp; % basis</label>
+     <select id="changeOnRange">
+      <option value="true">Chart timeframe</option>
+      <option value="false">1 day</option>
+     </select></div>
+   </div>
+   <small class="hint">Chart timeframe: the change, arrow, colors, and chart cover the same span, so they agree. Needs chart data (2+ points); without it the device falls back to the 1-day change. At 1 day it measures from the session's first data point, so overnight gaps are not counted. 1 day: the classic change vs the previous close, which can point the other way than a longer chart.</small>
    <label>Webhook URL <span class="muted">(only for tickers set to Webhook)</span></label>
    <input id="webhookUrl" type="url" placeholder="http://n8n.local:5678/webhook/stock">
   </div>
@@ -317,6 +325,7 @@ function loadConfig(){return j('/api/config').then(function(c){C=c;
  T_NUM.forEach(function(k){sv(k,t[k])});
  T_BOOL.forEach(function(k){sc(k,t[k])});
  sv('colorInverted',t.colorInverted?'true':'false');
+ sv('changeOnRange',t.changeOnRange===false?'false':'true');
  renderSyms(t.symbols||[]); symHintFor('yahoo');
  // usage slice
  sv('usageUrl',u.usageUrl);
@@ -392,7 +401,7 @@ function collect(){
   wifi:collectWifi()};
  // ticker slice (only if compiled in)
  if($('ticker')){
-  var t={colorInverted:gv('colorInverted')==='true'};
+  var t={colorInverted:gv('colorInverted')==='true',changeOnRange:gv('changeOnRange')==='true'};
   T_TEXT.forEach(function(k){t[k]=gv(k)});
   T_NUM.forEach(function(k){t[k]=parseInt(gv(k))||0});
   T_BOOL.forEach(function(k){t[k]=gc(k)});
@@ -485,6 +494,10 @@ function loadStatus(){j('/api/status').then(function(s){
  $('dot').className='dot'+(s.connected?' ok':'');
  $('hi').textContent=s.mode==='ap'?'setup mode':(s.ip||'');
  var fw=$('fwVer'); if(fw)fw.textContent=s.fw+' '+s.version;
+ // Surface the result of a boot-time GitHub update (ESP8266) once on first load,
+ // so a failure that happened across the reboot is visible even if the original
+ // Update tab was closed. Don't clobber an in-progress check/update message.
+ if(!window._otaShown){window._otaShown=1;var gm=$('ghMsg');if(gm&&!gm.textContent&&s.updateMsg&&s.updateMsg!=='updating...')gm.textContent='Last update: '+s.updateMsg}
  var fv=$('footVer'); if(fv)fv.textContent=' v'+s.version;
  if(s.repo){var rl=$('repoLink'); if(rl)rl.href=s.repo+'/releases'; var fr=$('footRepo'); if(fr)fr.href=s.repo;}
  $('statusBox').innerHTML=
@@ -513,14 +526,18 @@ function checkUpdate(){$('ghMsg').textContent='Checking GitHub...';$('chkBtn').d
  }).catch(function(){$('chkBtn').disabled=false;$('ghMsg').textContent='Check failed'})}
 function selfUpdate(){if(!confirm('Download and flash the latest release from GitHub? The device reboots if it succeeds.'))return;
  $('ghUpBtn').disabled=true;$('chkBtn').disabled=true;
- $('ghMsg').textContent='Downloading and flashing... this can take a minute; the device reboots when done.';
+ $('ghMsg').textContent='Downloading and flashing... this can take a couple of minutes and the device may reboot twice.';
+ // Installed version, read synchronously from the already-loaded status so the
+ // poller below can recognise success (new version) without racing a fetch.
+ var cur=(($('fwVer').textContent||'').trim().split(' ').pop())||'';
  j('/api/selfupdate',{method:'POST'}).then(function(){
   var n=0;var t=setInterval(function(){n++;
    j('/api/status').then(function(s){
+    if(cur&&s.version&&s.version!==cur){clearInterval(t);$('ghMsg').textContent='Updated to '+s.version+'.';$('chkBtn').disabled=false;return}
     var m=s.updateMsg||'';
     if(m&&m!=='starting...'&&m!=='updating...'){clearInterval(t);$('ghMsg').textContent='Update failed: '+m;$('chkBtn').disabled=false}
    }).catch(function(){});
-   if(n>60)clearInterval(t);
+   if(n>100)clearInterval(t);
   },3000);
  }).catch(function(){$('ghMsg').textContent='Could not start update';$('chkBtn').disabled=false})}
 

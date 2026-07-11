@@ -7,13 +7,21 @@
 TickerMode g_tickerMode;
 
 // ---- sparkline ------------------------------------------------------------
+// livePt (NAN = none) is appended as the newest point so the chart ends at the
+// live price rather than the last historical close.
 static void drawSparkline(Arduino_GFX* gfx, const StockData& d,
-                          int top, int bottom, uint16_t color) {
+                          int top, int bottom, uint16_t color, float livePt) {
   if (d.sparkCount < 2) return;
+  bool live = !isnan(livePt);
+  uint8_t n = d.sparkCount + (live ? 1 : 0);
   float mn = d.spark[0], mx = d.spark[0];
   for (uint8_t i = 1; i < d.sparkCount; i++) {
     if (d.spark[i] < mn) mn = d.spark[i];
     if (d.spark[i] > mx) mx = d.spark[i];
+  }
+  if (live) {
+    if (livePt < mn) mn = livePt;
+    if (livePt > mx) mx = livePt;
   }
   float span = mx - mn;
   if (span <= 0) span = 1;
@@ -23,9 +31,10 @@ static void drawSparkline(Arduino_GFX* gfx, const StockData& d,
   int plotH = bottom - top;
 
   int prevX = 0, prevY = 0;
-  for (uint8_t i = 0; i < d.sparkCount; i++) {
-    int x = padL + (int)((long)plotW * i / (d.sparkCount - 1));
-    int y = bottom - (int)((d.spark[i] - mn) / span * plotH);
+  for (uint8_t i = 0; i < n; i++) {
+    float v = (i < d.sparkCount) ? d.spark[i] : livePt;
+    int x = padL + (int)((long)plotW * i / (n - 1));
+    int y = bottom - (int)((v - mn) / span * plotH);
     if (i > 0) {
       gfx->drawLine(prevX, prevY, x, y, color);
       gfx->drawLine(prevX, prevY + 1, x, y + 1, color); // 2px thick
@@ -64,11 +73,14 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     return;
   }
 
-  // Trend color
-  bool up = d.hasChange ? (d.change >= 0) : true;
+  // Trend color — from the displayed change (chart-range or 1-day basis)
+  float chg = 0, pct = 0;
+  bool onRange = false;
+  bool hasChange = stockDisplayChange(d, s.ticker, chg, pct, &onRange);
+  bool up = hasChange ? (chg >= 0) : true;
   uint16_t upC   = s.ticker.colorInverted ? C_RED : C_GREEN;
   uint16_t downC = s.ticker.colorInverted ? C_GREEN : C_RED;
-  uint16_t trendC = !d.hasChange ? C_WHITE : (up ? upC : downC);
+  uint16_t trendC = !hasChange ? C_WHITE : (up ? upC : downC);
 
   int y = 6;
 
@@ -102,14 +114,14 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
   }
 
   // Change line: [arrow] +chg (+pct%)
-  if (s.ticker.showChange && d.hasChange) {
-    char chg[40];
-    if (d.changePct != 0 || d.change != 0)
-      snprintf(chg, sizeof(chg), "%+.2f (%+.2f%%)", d.change, d.changePct);
+  if (s.ticker.showChange && hasChange) {
+    char line[40];
+    if (pct != 0 || chg != 0)
+      snprintf(line, sizeof(line), "%+.2f (%+.2f%%)", chg, pct);
     else
-      snprintf(chg, sizeof(chg), "%+.2f", d.change);
-    uint8_t sz = gfxFitSize(chg, 210, 2);
-    int tw = gfxTextW(chg, sz);
+      snprintf(line, sizeof(line), "%+.2f", chg);
+    uint8_t sz = gfxFitSize(line, 210, 2);
+    int tw = gfxTextW(line, sz);
     int ah = 8 * sz;             // arrow box height
     int aw = ah;
     int totalW = aw + 4 + tw;
@@ -124,7 +136,7 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     gfx->setTextSize(sz);
     gfx->setTextColor(trendC);
     gfx->setCursor(x + aw + 4, ay);
-    gfx->print(chg);
+    gfx->print(line);
     y = ay + ah + 8;
   }
 
@@ -138,11 +150,13 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     y += 8 * sz + 6;
   }
 
-  // Chart
+  // Chart (with the live price as its newest point when the displayed change
+  // is actually on the range basis, so the drawn end matches the number)
   if (s.ticker.showChart && d.sparkCount >= 2) {
     int top = y < 150 ? 156 : y + 4;
     int bottom = 228;
-    if (top < bottom - 10) drawSparkline(gfx, d, top, bottom, trendC);
+    float livePt = onRange ? d.price : NAN;
+    if (top < bottom - 10) drawSparkline(gfx, d, top, bottom, trendC, livePt);
   }
 
   // Range label (top-right; the very bottom row is overscanned on this panel)

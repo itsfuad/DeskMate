@@ -42,6 +42,7 @@ struct TickerSettings {
   uint16_t pollSec;       // refresh period
   uint16_t rotateSec;     // per-symbol on-screen time
   bool     colorInverted; // false: up=green/down=red ; true: swapped
+  bool     changeOnRange; // true: change/% over the chart timeframe; false: provider's 1-day change
 
   // What to show
   bool showName;

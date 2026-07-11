@@ -43,6 +43,20 @@ bool stocksAnyValid() {
   return false;
 }
 
+bool stockDisplayChange(const StockData& d, const TickerSettings& t,
+                        float& chg, float& pct, bool* onRange) {
+  if (t.changeOnRange && d.sparkCount >= 1 && d.spark[0] > 0 && d.price > 0) {
+    chg = d.price - d.spark[0];
+    pct = chg / d.spark[0] * 100.0f;
+    if (onRange) *onRange = true;
+    return true;
+  }
+  if (onRange) *onRange = false;
+  chg = d.change;
+  pct = d.changePct;
+  return d.hasChange;
+}
+
 // ---- URL helpers ----------------------------------------------------------
 static String urlEncode(const char* src) {
   static const char* hex = "0123456789ABCDEF";
@@ -204,6 +218,7 @@ static bool parseWebhook(const Settings& s, StockData& d, Stream& stream) {
   d.sparkCount = 0;
   if (doc["spark"].is<JsonArrayConst>()) {
     for (JsonVariantConst v : doc["spark"].as<JsonArrayConst>()) {
+      if (!v.is<float>() && !v.is<int>()) continue;   // skip nulls, like the other parsers
       if (d.sparkCount >= MAX_SPARK_POINTS) break;
       d.spark[d.sparkCount++] = v.as<float>();
     }
@@ -514,8 +529,12 @@ static bool stepSymbol(const Settings& s, StockData& d) {
       g_fetchPhase = 2;
       return false;
     }
-    // phase 2: sparkline series; its failure is non-fatal (stale chart beats none)
-    if (s.ticker.showChart && s.ticker.points >= 2)
+    // phase 2: sparkline series; its failure is non-fatal (stale chart beats
+    // none). Also fetched with the chart hidden when the range-based change
+    // needs the series' first point — but not when nothing on the device
+    // would show it (cash TLS requests are expensive on the ESP8266).
+    if ((s.ticker.showChart || (s.ticker.changeOnRange && s.ticker.showChange)) &&
+        s.ticker.points >= 2)
       fetchUrl(s, buildCashChartUrl(s, d.symbol), PARSE_CASH_CHART, d);
     return true;
   }

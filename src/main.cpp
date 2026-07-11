@@ -15,6 +15,7 @@
 #include "Net.h"
 #include "Gfx.h"
 #include "WebPortal.h"
+#include "OtaUpdate.h"
 #include "Mode.h"
 
 #if WITH_TICKER
@@ -143,6 +144,18 @@ void setup() {
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
+
+  // A GitHub update queued from the web UI runs now, before the features claim
+  // the heap (the download needs a 16 KB TLS buffer that only fits at boot).
+  // On success it reboots into the new image; a no-op stub on the ESP32 targets.
+  if (otaBootRequested()) {
+    Serial.println("[boot] github update");
+    gfxBoot("SmallTV", "updating...");
+    otaBootUpdate(g_settings);
+    gfxBoot("SmallTV", "update failed");   // still here -> failed; details in the web UI
+    delay(1200);
+  }
+
   Serial.println("[boot] web");
   webPortalBegin(g_settings);
 

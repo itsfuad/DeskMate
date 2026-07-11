@@ -8,9 +8,11 @@ The ticker is the default mode. It shows one symbol at a time and rotates throug
 ## What it shows
 
 - The current price, in the symbol's currency.
-- Absolute change and percent change since the previous close, coloured green for up and red for down.
+- Absolute change and percent change with an arrow, coloured green for up and red for down.
 - A sparkline over the selected timeframe.
 - Optional extras you toggle in the Display tab: the name, the timeframe label, an "updated N s ago" line, and rotation dots.
+
+The **Change & % basis** setting in the Ticker tab picks what the change measures. The default, *Chart timeframe*, computes it over the same span the sparkline shows (live price versus the first charted point) and appends the live price as the chart's newest point, so the number, arrow, colours, and chart agree. Three caveats: it needs chart data, so with fewer than 2 chart points, a webhook that sends no `spark` series, or a failed chart fetch, the device falls back to the 1-day change until the data is there; at the 1-day timeframe the reference is the session's first data point, so an overnight gap is not part of the number; and GitHub-source tickers chart the span baked into `quotes-config.json`, so their change covers that span rather than the device timeframe. *1 day* shows the classic change since the previous close instead; a stock can be up on the day but down over a longer chart, so with this basis the number and the chart can legitimately point in opposite directions.
 
 Non-USD currencies show as their ISO code, for example `CHF 79.73`, because the built-in bitmap font has no glyph for symbols like the euro sign.
 
