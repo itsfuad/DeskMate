@@ -7,6 +7,7 @@
 // SmallTV, the default). Both ESP32 targets share the Arduino core 3.x branch.
 #pragma once
 #include <Arduino.h>
+#include <time.h>
 
 #if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
 // ================== ESP32 family (C2/ESP8684 + classic ESP32) ==================
@@ -26,6 +27,9 @@ using SecureClient   = WiFiClientSecure;
 using NetClient      = NetworkClient;
 
 static inline void platformSetHostname(const char* h) { WiFi.setHostname(h); }
+static inline void platformTimeBegin(const char* tz, const char* s1, const char* s2) {
+  configTzTime(tz, s1, s2);   // ESP32 core: sets TZ + starts SNTP
+}
 static inline void platformMdnsUpdate() { /* ESP32 mDNS answers from a background task */ }
 static inline void platformAnalogWriteInit(uint8_t pin) { (void)pin; /* analogWrite defaults to 8-bit (0..255) */ }
 static inline bool platformScanIsOpen(int i) { return WiFi.encryptionType(i) == WIFI_AUTH_OPEN; }
@@ -88,6 +92,9 @@ using SecureClient   = BearSSL::WiFiClientSecure;
 using NetClient      = WiFiClient;
 
 static inline void platformSetHostname(const char* h) { WiFi.hostname(h); }
+static inline void platformTimeBegin(const char* tz, const char* s1, const char* s2) {
+  configTime(tz, s1, s2);     // ESP8266 core: TZ-string overload, sets TZ + starts SNTP
+}
 static inline void platformMdnsUpdate() { MDNS.update(); }
 static inline void platformAnalogWriteInit(uint8_t pin) { (void)pin; analogWriteRange(255); }
 static inline bool platformScanIsOpen(int i) { return WiFi.encryptionType(i) == ENC_TYPE_NONE; }
@@ -138,3 +145,8 @@ static inline uint32_t platformMaxFreeBlock() { return ESP.getMaxFreeBlockSize()
 static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); }
 
 #endif
+
+// ---- common: wall-clock time (SNTP) ---------------------------------------
+// True once SNTP has set the clock (epoch past 2021-01-01). Until then the
+// caller must treat time as unknown (night mode stays off = fail-safe on).
+static inline bool platformTimeValid() { return time(nullptr) > 1609459200; }
