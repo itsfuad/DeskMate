@@ -17,6 +17,7 @@
 #include "WebPortal.h"
 #include "OtaUpdate.h"
 #include "Mode.h"
+#include "Clock.h"
 
 #if WITH_TICKER
 #include "TickerMode.h"
@@ -92,9 +93,36 @@ static String   g_resetReason;        // why the chip last reset (diagnostics)
 static bool     g_safeMode = false;   // last reset was an exception -> don't re-enter the crash
 static char     g_epcStr[16] = "";
 static char     g_addrStr[16] = "";
+static int g_lastBr = -1;        // last effective brightness written (-1 = none yet)
 #if HAS_LDR
 static uint32_t g_lastAutoBr = 0;
+static uint8_t  g_ldrCache   = DEFAULT_BRIGHTNESS;   // last LDR reading (2 s cadence)
 #endif
+
+// Single brightness resolver: night mode overrides auto-brightness overrides the
+// manual level. Only writes the PWM when the effective target changes.
+static uint8_t appEffectiveBrightness() {
+  if (clockNightActive(g_settings)) return g_settings.clock.nightLevel;
+#if HAS_LDR
+  if (g_settings.autoBrightness) {
+    if (millis() - g_lastAutoBr > 2000) {
+      g_lastAutoBr = millis();
+      int raw = analogRead(LDR_PIN);
+      g_ldrCache = (uint8_t)constrain(raw * 100 / ADC_MAX, 5, 100);
+    }
+    return g_ldrCache;
+  }
+#endif
+  return g_settings.brightness;
+}
+
+void appApplyBrightness() {
+  uint8_t t = appEffectiveBrightness();
+  if ((int)t != g_lastBr) {
+    g_lastBr = t;
+    gfxSetBrightness(t, g_settings.backlightInverted);
+  }
+}
 
 // Exposed to the web portal (/api/status) so the last reset reason is visible.
 const char* appResetReason() { return g_resetReason.c_str(); }
@@ -144,6 +172,7 @@ void setup() {
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
+  clockBegin(g_settings);   // arm SNTP now that WiFi (STA) is up; no-op harm in AP
 
   // A GitHub update queued from the web UI runs now, before the features claim
   // the heap (the download needs a 16 KB TLS buffer that only fits at boot).
@@ -197,15 +226,8 @@ void loop() {
 
   // --- STA mode: the active feature fetches + renders itself ---
 
-#if HAS_LDR
-  // Auto-brightness (optional LDR on the ADC) — applies to whichever mode is active.
-  if (g_settings.autoBrightness && millis() - g_lastAutoBr > 2000) {
-    g_lastAutoBr = millis();
-    int raw = analogRead(LDR_PIN);
-    uint8_t pct = (uint8_t)constrain(raw * 100 / ADC_MAX, 5, 100);
-    gfxSetBrightness(pct, g_settings.backlightInverted);
-  }
-#endif
+  // Effective brightness = night-mode override / auto-brightness / manual level.
+  appApplyBrightness();
 
   DisplayMode* m = activeMode(g_settings);
   if (m) m->service(g_settings);
