@@ -12,7 +12,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "smalltv-mod"
-#define FW_VERSION  "2.8.0"
+#define FW_VERSION  "2.8.1"
 
 // Project / update references (shown in the web UI; used by the GitHub self-update)
 #define REPO_URL      "https://github.com/giovi321/smalltv-mod"
@@ -191,3 +191,11 @@
 #define DEFAULT_NIGHT_START_MIN 1320      // 22:00
 #define DEFAULT_NIGHT_END_MIN   420       // 07:00
 #define DEFAULT_NIGHT_LEVEL     0         // 0..100, 0 = backlight fully off
+
+// Night-mode NTP trust: only ENTER night mode when the clock was confirmed by a
+// successful NTP sync within NIGHT_NTP_TRUST_MS (else we assume the clock may be
+// wrong and keep the screen on). While inside the window but unconfirmed, re-arm
+// SNTP every NIGHT_NTP_RESYNC_MS until a fresh sync lands or the window ends
+// (morning). Once night mode has switched on, it stays on until the window ends.
+#define NIGHT_NTP_TRUST_MS      300000UL  // 5 min: max age of the sync that unlocks night
+#define NIGHT_NTP_RESYNC_MS      30000UL  // re-sync attempt cadence while held off

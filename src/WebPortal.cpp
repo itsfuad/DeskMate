@@ -78,8 +78,10 @@ static void handleStatus() {
   o["reset"] = appResetReason();
   o["synced"] = clockSynced();
   { String ts = clockTimeStr(); if (ts.length()) o["time"] = ts; }
-  o["tz"]     = S->clock.tz;
-  o["night"]  = clockNightActive(*S);
+  o["tz"]        = S->clock.tz;
+  o["night"]     = clockNightActive();   // dimming now
+  o["nightHeld"] = clockNightHeld();      // in the window but waiting for a fresh NTP sync
+  o["clockFresh"] = clockTrusted();       // last NTP sync within the trust window
 
 #if WITH_TICKER
   JsonArray arr = o["tickers"].to<JsonArray>();

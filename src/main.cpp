@@ -102,7 +102,7 @@ static uint8_t  g_ldrCache   = DEFAULT_BRIGHTNESS;   // last LDR reading (2 s ca
 // Single brightness resolver: night mode overrides auto-brightness overrides the
 // manual level. Only writes the PWM when the effective target changes.
 static uint8_t appEffectiveBrightness() {
-  if (clockNightActive(g_settings)) return g_settings.clock.nightLevel;
+  if (clockNightActive()) return g_settings.clock.nightLevel;
 #if HAS_LDR
   if (g_settings.autoBrightness) {
     if (millis() - g_lastAutoBr > 2000) {
@@ -226,7 +226,9 @@ void loop() {
 
   // --- STA mode: the active feature fetches + renders itself ---
 
-  // Effective brightness = night-mode override / auto-brightness / manual level.
+  // Night-mode state machine (NTP-trust gate), then apply the effective brightness
+  // (night override / auto-brightness / manual level).
+  clockService(g_settings);
   appApplyBrightness();
 
   DisplayMode* m = activeMode(g_settings);

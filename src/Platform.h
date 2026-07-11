@@ -150,3 +150,8 @@ static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); 
 // True once SNTP has set the clock (epoch past 2021-01-01). Until then the
 // caller must treat time as unknown (night mode stays off = fail-safe on).
 static inline bool platformTimeValid() { return time(nullptr) > 1609459200; }
+
+// Register a callback fired on every successful SNTP sync (the "NTP was just
+// reachable and set the clock" signal used to trust the clock for night mode).
+// Defined per core in Platform.cpp. Call once, after platformTimeBegin.
+void platformOnTimeSync(void (*cb)());
