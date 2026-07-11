@@ -9,6 +9,7 @@ static uint8_t   g_count = 0;
 static bool     g_refreshing = false;
 static uint8_t  g_fetchIdx = 0;
 static uint32_t g_nextPollMs = 0;
+static uint8_t  g_retryBurst = 0;   // consecutive fast retries after a failed cycle
 
 // ---------------------------------------------------------------------------
 void stocksInit(const Settings& s) {
@@ -142,6 +143,15 @@ static String buildCashChartUrl(const Settings& s, const char* symbol) {
   q += String(cashRangeDays(s.ticker.range));
   q += F("\"){timeserie{prices{close}}}}}}");
   return buildCashUrl(q);
+}
+
+// ---- URL builder: GitHub static quotes ------------------------------------
+// The per-symbol file published by the quotes workflow. Same JSON as a webhook.
+static String buildGithubUrl(const char* symbol) {
+  String url = F(GH_QUOTES_BASE);
+  url += urlEncode(symbol);
+  url += F(".json");
+  return url;
 }
 
 // ---- parse: custom webhook contract ---------------------------------------
@@ -405,19 +415,35 @@ static bool parseCashChart(const Settings& s, StockData& d, Stream& stream) {
 }
 
 // ---- one HTTP(S) GET + parse ----------------------------------------------
-enum ParseKind : uint8_t { PARSE_WEBHOOK, PARSE_YAHOO, PARSE_CASH_QUOTE, PARSE_CASH_CHART };
+enum ParseKind : uint8_t { PARSE_WEBHOOK, PARSE_YAHOO, PARSE_CASH_QUOTE, PARSE_CASH_CHART, PARSE_GITHUB };
+
+// cash.ch is the only host we let negotiate ECDHE, and only the first handshake
+// pays for it: this session resumes the rest for ~23 h.
+static TlsSession g_cashSession;
 
 static bool fetchUrl(const Settings& s, const String& url, ParseKind kind, StockData& d) {
   bool https = url.startsWith("https://");
+  bool cash = (kind == PARSE_CASH_QUOTE || kind == PARSE_CASH_CHART);
 
   std::unique_ptr<NetClient> client;
   if (https) {
-    // TLS needs a big contiguous chunk of heap. If we're low, skip this fetch and
-    // flag an error instead of letting the TLS allocation fail and reset-loop.
-    if (ESP.getFreeHeap() < 16000) return false;
-    // Yahoo sends <=~1.3 KB TLS records and cash.ch negotiates 2 KB MFLN
-    // fragments, so a 2 KB receive buffer frees heap on the ESP8266.
-    client.reset(platformMakeSecureClient(2048));
+    // Per-source TLS shaping (ESP8266; the ESP32 ignores the hints):
+    //  - cash.ch: must do ECDHE. Keep it cheap — 512 B buffers (it honors MFLN)
+    //    and session resumption, and require a large CONTIGUOUS free block up
+    //    front so a fragmented heap skips the fetch instead of crashing inside
+    //    the handshake. The full cipher list (default) is left on for it.
+    //  - Yahoo / GitHub / webhook: forced to the cheap static-RSA suites, so
+    //    those handshakes stay as light as the old BASIC build.
+    if (cash) {
+      if (platformMaxFreeBlock() < 16000) return false;   // largest contiguous block, not total
+      client.reset(platformMakeSecureClient(512, &g_cashSession, 512, /*cheapCiphers=*/false));
+    } else {
+      // raw.githubusercontent.com sends a ~4 KB cert record and won't negotiate
+      // MFLN, so it needs a bigger receive buffer than Yahoo's small records.
+      uint16_t rx = (kind == PARSE_GITHUB) ? GH_QUOTES_RXBUF : 2048;
+      if (ESP.getFreeHeap() < (uint32_t)rx + 12000) return false;
+      client.reset(platformMakeSecureClient(rx, nullptr, 512, /*cheapCiphers=*/true));
+    }
   } else {
     client.reset(new WiFiClient());
   }
@@ -434,6 +460,8 @@ static bool fetchUrl(const Settings& s, const String& url, ParseKind kind, Stock
   if (kind == PARSE_YAHOO) {
     http.setUserAgent(F(YAHOO_USER_AGENT));   // empty UA => HTTP 429 from Yahoo
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  } else if (kind == PARSE_GITHUB) {
+    http.setUserAgent(F(FW_NAME));            // GitHub rejects an empty UA
   } else if (kind != PARSE_WEBHOOK) {
     http.setUserAgent(F(CASH_USER_AGENT));    // cash.ch requires none; sent to be identifiable
   }
@@ -449,40 +477,57 @@ static bool fetchUrl(const Settings& s, const String& url, ParseKind kind, Stock
     case PARSE_YAHOO:      ok = parseYahoo(s, d, http.getStream());     break;
     case PARSE_CASH_QUOTE: ok = parseCashQuote(s, d, http.getStream()); break;
     case PARSE_CASH_CHART: ok = parseCashChart(s, d, http.getStream()); break;
-    default:               ok = parseWebhook(s, d, http.getStream());   break;
+    default:               ok = parseWebhook(s, d, http.getStream());   break;  // webhook + github: same JSON
   }
   http.end();
   return ok;
 }
 
-// ---- fetch one symbol -----------------------------------------------------
-static bool fetchSymbol(const Settings& s, StockData& d) {
-  if (d.source == SRC_YAHOO) {
-    // A single back-to-back HTTPS fetch occasionally drops on the ESP8266, so
-    // retry once on the alternate mirror before giving up (this is what made one
-    // symbol intermittently fail while others in the same poll succeeded).
-    if (fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST1, d.symbol), PARSE_YAHOO, d)) return true;
-    delay(150);
-    return fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST2, d.symbol), PARSE_YAHOO, d);
-  }
+// ---- fetch one symbol, one network request per call -----------------------
+// A symbol may need several requests (Yahoo mirror retry; cash.ch quote, its
+// retry, then the chart). Each is a separate step so only ONE TLS handshake
+// runs per service() call: a full-BearSSL ECDHE handshake takes ~1 s on the
+// ESP8266, and chaining two or three in one loop() iteration starved the web
+// server and tripped the watchdog. g_fetchPhase tracks the step for g_fetchIdx.
+static uint8_t g_fetchPhase = 0;
 
-  if (d.source == SRC_CASH) {
-    // Quote first (price + day change, ~200 B); retry once for the same
-    // transient-TLS reason as Yahoo. The sparkline comes from a second slim
-    // request whose failure is non-fatal — a stale chart beats no data.
-    if (!fetchUrl(s, buildCashQuoteUrl(d.symbol), PARSE_CASH_QUOTE, d)) {
-      delay(150);
-      if (!fetchUrl(s, buildCashQuoteUrl(d.symbol), PARSE_CASH_QUOTE, d)) return false;
+// Returns true when this symbol is finished (caller advances to the next).
+static bool stepSymbol(const Settings& s, StockData& d) {
+  if (d.source == SRC_YAHOO) {
+    if (g_fetchPhase == 0) {
+      if (fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST1, d.symbol), PARSE_YAHOO, d)) return true;
+      g_fetchPhase = 1;                 // transient drop: retry the mirror next tick
+      return false;
     }
-    if (s.ticker.showChart && s.ticker.points >= 2) {
-      delay(150);
-      fetchUrl(s, buildCashChartUrl(s, d.symbol), PARSE_CASH_CHART, d);
-    }
+    if (!fetchUrl(s, buildYahooUrl(s, YAHOO_CHART_HOST2, d.symbol), PARSE_YAHOO, d)) d.error = true;
     return true;
   }
 
-  if (s.ticker.webhookUrl.length() < 8) return false;
-  return fetchUrl(s, buildWebhookUrl(s, d.symbol), PARSE_WEBHOOK, d);
+  if (d.source == SRC_CASH) {
+    if (g_fetchPhase == 0) {            // quote: price + day change (~200 B)
+      if (fetchUrl(s, buildCashQuoteUrl(d.symbol), PARSE_CASH_QUOTE, d)) { g_fetchPhase = 2; return false; }
+      g_fetchPhase = 1;                 // retry the quote next tick
+      return false;
+    }
+    if (g_fetchPhase == 1) {
+      if (!fetchUrl(s, buildCashQuoteUrl(d.symbol), PARSE_CASH_QUOTE, d)) { d.error = true; return true; }
+      g_fetchPhase = 2;
+      return false;
+    }
+    // phase 2: sparkline series; its failure is non-fatal (stale chart beats none)
+    if (s.ticker.showChart && s.ticker.points >= 2)
+      fetchUrl(s, buildCashChartUrl(s, d.symbol), PARSE_CASH_CHART, d);
+    return true;
+  }
+
+  if (d.source == SRC_GHUB) {           // static per-symbol JSON from the repo
+    if (!fetchUrl(s, buildGithubUrl(d.symbol), PARSE_GITHUB, d)) d.error = true;
+    return true;
+  }
+
+  if (s.ticker.webhookUrl.length() < 8) { d.error = true; return true; }
+  if (!fetchUrl(s, buildWebhookUrl(s, d.symbol), PARSE_WEBHOOK, d)) d.error = true;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -493,21 +538,38 @@ void stocksService(const Settings& s) {
     if ((int32_t)(millis() - g_nextPollMs) >= 0) {
       g_refreshing = true;
       g_fetchIdx = 0;
+      g_fetchPhase = 0;
     } else {
       return;
     }
   }
 
-  // One blocking fetch per call so net/web/display keep getting serviced.
+  // One network request per call so net/web/display keep getting serviced
+  // between the (slow, on the ESP8266) TLS handshakes.
   if (g_fetchIdx < g_count) {
     StockData& d = g_stocks[g_fetchIdx];
-    if (!fetchSymbol(s, d)) d.error = true;   // keep stale data, flag error
-    g_fetchIdx++;
+    if (stepSymbol(s, d)) {          // symbol finished -> move to the next
+      g_fetchIdx++;
+      g_fetchPhase = 0;
+    }
   }
 
   if (g_fetchIdx >= g_count) {
     g_refreshing = false;
+    // If any symbol failed this cycle (typically a cash fetch skipped because
+    // the heap was momentarily too fragmented for TLS), retry soon instead of
+    // waiting the full poll interval — the heap usually recovers within
+    // seconds. Cap the burst so a genuinely bad symbol doesn't hammer forever.
+    bool anyErr = false;
+    for (uint8_t i = 0; i < g_count; i++) if (g_stocks[i].error) { anyErr = true; break; }
     uint32_t period = (uint32_t)s.ticker.pollSec * 1000UL;
+    if (anyErr && g_retryBurst < TICKER_RETRY_MAX) {
+      g_retryBurst++;
+      uint32_t fast = (uint32_t)TICKER_RETRY_SEC * 1000UL;
+      if (fast < period) period = fast;
+    } else {
+      g_retryBurst = 0;   // all good, or burst spent -> back to normal cadence
+    }
     g_nextPollMs = millis() + period;
   }
 }

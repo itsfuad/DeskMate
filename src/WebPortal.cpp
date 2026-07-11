@@ -46,6 +46,14 @@ static void handleGetConfig() {
   feat["ticker"] = (bool)WITH_TICKER;
   feat["usage"]  = (bool)WITH_USAGE;
   feat["radar"]  = (bool)WITH_RADAR;
+  // Which chip this build runs on (the UI warns about per-chip limitations).
+#if defined(SMALLTV_ESP32C2)
+  root["chip"] = "esp32c2";
+#elif defined(SMALLTV_ESP32)
+  root["chip"] = "esp32";
+#else
+  root["chip"] = "esp8266";
+#endif
   sendJson(doc);
 }
 
@@ -62,6 +70,8 @@ static void handleStatus() {
   o["ip"] = netIP();
   o["rssi"] = netRSSI();
   o["heap"] = ESP.getFreeHeap();
+  o["maxblk"] = platformMaxFreeBlock();     // largest contiguous block (TLS handshake needs one)
+  o["contstk"] = platformFreeContStack();   // primary stack headroom (ESP8266)
   o["uptime"] = millis() / 1000;
   o["reset"] = appResetReason();
 

@@ -340,6 +340,9 @@ function esc(s){return (''+(s==null?'':s)).replace(/[<>&"]/g,function(c){return 
 function symHintFor(v){var h=$('symHint');if(!h)return;
  h.innerHTML=(v==='cash'
   ?'<b>cash.ch</b>: fetched directly by the device. The symbol is a listing key like <code>147478611-246-333</code>; the finder below turns a cash.ch link, ISIN, or name into one.'
+   +(C.chip==='esp8266'?' <b>On this ESP8266</b>, cash.ch\'s TLS is beyond this chip &mdash; use the <b>GitHub</b> source for the same listing key instead (a scheduled workflow publishes it). The ESP32 boards fetch cash.ch directly.':'')
+  :v==='github'
+  ?'<b>GitHub</b>: reads a listing key\'s quote from a small JSON file the repo\'s <code>quotes</code> workflow publishes (a proxy for cash.ch on chips that can\'t reach it directly). The symbol is the cash.ch listing key, and it must be listed in <code>quotes-config.json</code>.'
   :v==='webhook'
   ?'<b>Webhook</b>: the device asks the webhook URL above and passes the symbol through as-is, so use whatever your endpoint understands.'
   :'<b>Yahoo Finance</b>: fetched directly by the device. Use Yahoo symbols: <code>AAPL</code>, <code>NESN.SW</code> (Swiss stocks end in <code>.SW</code>), <code>BTC-USD</code>, <code>EURUSD=X</code>.')
@@ -452,7 +455,7 @@ function addRow(o){var t=$('symTable');var tr=document.createElement('tr');tr.cl
  tr.innerHTML='<td style="width:24%"><input class="s" type="text" placeholder="AAPL" value="'+esc(o.symbol||'')+'"></td>'+
   '<td><input class="n" type="text" placeholder="name" value="'+esc(o.name||'')+'"></td>'+
   '<td style="width:118px"><select class="src" onchange="symHintFor(this.value)">'+
-   '<option value="yahoo">Yahoo Finance</option><option value="cash">cash.ch</option><option value="webhook">Webhook</option></select></td>'+
+   '<option value="yahoo">Yahoo Finance</option><option value="cash">cash.ch</option><option value="github">GitHub</option><option value="webhook">Webhook</option></select></td>'+
   '<td style="width:58px"><input class="q" type="number" step="any" min="0" placeholder="qty" value="'+(o.qty>0?o.qty:'')+'"></td>'+
   '<td style="width:70px"><input class="c" type="number" step="any" min="0" placeholder="cost" value="'+(o.cost>0?o.cost:'')+'"></td>'+
   '<td style="width:34px"><button class="btn sec" style="padding:6px 10px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';

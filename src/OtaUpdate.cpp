@@ -25,7 +25,7 @@ static long verNum(const char* v) {
 
 OtaLatest otaCheckLatest(const Settings& s) {
   OtaLatest r;
-  if (ESP.getFreeHeap() < 16000) { r.error = F("low heap"); return r; }
+  if (ESP.getFreeHeap() < 20000) { r.error = F("low heap"); return r; }
 
   SecureClient client;
   client.setInsecure();

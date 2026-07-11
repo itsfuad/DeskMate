@@ -1,9 +1,9 @@
 ---
 title: Data sources
-description: "Where each ticker gets its prices: Yahoo Finance, cash.ch, or your own webhook."
+description: "Where each ticker gets its prices: Yahoo Finance, cash.ch, GitHub, or your own webhook."
 ---
 
-The ticker can pull prices three ways. Yahoo Finance works out of the box with no server. cash.ch covers Swiss instruments Yahoo does not carry, also with no server. A custom webhook lets you own the source. Every ticker picks its own source in the **Ticker** tab, so a rotation can mix all three freely.
+The ticker can pull prices four ways. Yahoo Finance works out of the box with no server. cash.ch covers Swiss instruments Yahoo does not carry, also with no server. GitHub is a serverless proxy for cash.ch that needs nothing of yours running. A custom webhook lets you own the source. Every ticker picks its own source in the **Ticker** tab, so a rotation can mix all of them freely.
 
 ## Yahoo Finance, the default
 
@@ -30,7 +30,13 @@ Worth knowing:
 - The change fields mean change versus the previous close, same as Yahoo.
 - The sparkline uses daily closes; cash.ch keeps roughly the last 6 months, so `6mo` is the longest timeframe with full data. Sub-daily timeframes add nothing for instruments that fix once a day.
 - Prices are what cash.ch shows: delayed or fixing prices depending on the venue.
-- The endpoint is unofficial and unauthenticated; it can change or disappear without notice. Keep the refresh interval polite: for instruments that fix once daily, a poll of 600 s or more is plenty. If it ever breaks, the custom webhook is the escape hatch.
+- The endpoint is unofficial and unauthenticated; it can change or disappear without notice. For instruments that fix once daily, a poll of a few minutes is already far more than enough.
+
+### cash.ch on the ESP8266
+
+cash.ch's CDN requires a modern TLS handshake (ECDHE). The ESP32 boards do this without effort. The ESP8266 can do it too, but its memory is tight for the handshake, so the firmware shapes the cash.ch path to fit: only cash.ch is offered ECDHE (Yahoo and the GitHub source stay on the older, cheaper handshake), the connection uses small buffers and resumes the TLS session so only the first fetch per session is expensive, and a fetch is skipped when the heap is momentarily too fragmented and retried a few seconds later. In practice all of this is invisible: the certificates show and update normally.
+
+If you want a device that never even attempts the handshake, the **GitHub** source below is a drop-in alternative for the same listing keys.
 
 ## Custom webhook
 
@@ -60,6 +66,14 @@ Only `price` is required. The full field table and two ready-to-import n8n workf
 
 The device pulls rather than receives a push, so your backend never needs to know the device's IP, and it keeps working if that IP changes. Since each ticker picks its own source, webhook tickers mix freely with Yahoo and cash.ch ones in the same rotation.
 
+## GitHub
+
+The **GitHub** source is a serverless proxy for cash.ch that needs nothing of yours running. A scheduled GitHub Action in this repo fetches cash.ch and publishes one small JSON file per listing key to the `data` branch; the device reads it from `raw.githubusercontent.com`, which every board can reach over plain static-RSA HTTPS (the same handshake GitHub self-update and Yahoo use). No ECDHE on the device, so it cannot hit the memory limits the direct cash.ch path pushes against.
+
+Use it the same way as the cash.ch source: set a ticker's source to **GitHub** and its symbol to the cash.ch listing key. The one difference is that a key only works once it is published, so add it to [`quotes-config.json`](https://github.com/giovi321/smalltv-mod/blob/main/quotes-config.json) and let the workflow run (or trigger it once by hand). The workflow is free: GitHub Actions has no minute limit on public repositories.
+
+This is the belt-and-suspenders option. On the ESP32 boards the direct cash.ch source is simpler and needs no published file. On the ESP8266 the direct source works too, but GitHub is there if you would rather the device never do the ECDHE handshake at all.
+
 ## TLS on the ESP8266
 
-HTTPS is RAM-tight on the ESP8266. It works, but for a webhook on your own LAN, plain HTTP is more reliable if you see instability. The ESP32 boards have more headroom and run HTTPS without the tuning the ESP8266 needs.
+HTTPS is RAM-tight on the ESP8266. It works, and the firmware tunes each source to fit (see the cash.ch note above), but the ESP32 boards have more headroom and need none of that tuning. For a webhook on your own LAN, plain HTTP sidesteps the TLS cost entirely and is the most reliable option if you see instability.

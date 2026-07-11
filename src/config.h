@@ -12,7 +12,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "smalltv-mod"
-#define FW_VERSION  "2.5.1"
+#define FW_VERSION  "2.6.0"
 
 // Project / update references (shown in the web UI; used by the GitHub self-update)
 #define REPO_URL      "https://github.com/giovi321/smalltv-mod"
@@ -100,6 +100,7 @@
 #define SRC_WEBHOOK  0
 #define SRC_YAHOO    1
 #define SRC_CASH     2
+#define SRC_GHUB     3   // static JSON published to the repo's data branch (see below)
 #define DEFAULT_SOURCE  SRC_YAHOO            // works out of the box, no server
 
 // Yahoo Finance public chart endpoint. A browser-like User-Agent is required —
@@ -115,9 +116,26 @@
 // cash.ch public GraphQL endpoint. The device sends two small hand-written
 // GraphQL queries per symbol as plain GETs (?query=...): a ~200 B quote and a
 // slim daily-close series for the sparkline. No API key, no cookies, no
-// required headers, and the server negotiates 2 KB TLS fragments (MFLN), so
-// the same bounded BearSSL buffer as Yahoo works. The symbol is the cash.ch
-// listing key `valor-marketId-currencyId` (see the docs for how to find it).
+// required headers. The symbol is the cash.ch listing key
+// `valor-marketId-currencyId` (see the docs for how to find it).
+// cash.ch's CDN requires ECDHE. The ESP32 targets (mbedTLS) do this easily. The
+// ESP8266 (BearSSL) can too, but the handshake is memory-tight, so the cash
+// path is shaped to fit: only cash.ch is offered ECDHE (Yahoo and the GitHub
+// source are pinned to the cheap static-RSA suites), the connection uses 512 B
+// buffers + TLS session resumption, and StockClient skips a fetch unless a
+// large enough contiguous heap block is free. The GitHub source below is a
+// zero-crash fallback if a device ever proves too tight for the direct path.
+
+// GitHub source (SRC_GHUB): a scheduled workflow (.github/workflows/quotes.yml)
+// fetches cash.ch server-side and publishes one JSON file per listing key to
+// the repo's `data` branch. The device reads it from raw.githubusercontent.com,
+// which — unlike cash.ch — still accepts the ESP8266's static-RSA handshake
+// (the same one GitHub self-update and Yahoo use). The file is the same JSON
+// the webhook parser accepts. The symbol is the cash.ch listing key; only keys
+// listed in quotes-config.json are published. raw sends a ~4 KB certificate
+// record and does not negotiate MFLN, so this path uses a larger TLS buffer.
+#define GH_QUOTES_BASE "https://raw.githubusercontent.com/" REPO_OWNER "/" REPO_NAME "/data/quotes/"
+#define GH_QUOTES_RXBUF 5120
 #define CASH_GQL_HOST   "www.cash.ch"
 #define CASH_GQL_PATH   "/_/api/graphql/prod"
 #define CASH_USER_AGENT "Mozilla/5.0 (SmallTV)"
@@ -156,6 +174,8 @@
 #define DEFAULT_AP_PASS      ""              // empty => open AP
 #define DEFAULT_HOSTNAME     "smalltv"
 #define DEFAULT_POLL_SEC      120            // how often to refresh data
+#define TICKER_RETRY_SEC       12            // fast retry after a failed/skipped fetch
+#define TICKER_RETRY_MAX        4            // consecutive fast retries before backing off
 #define DEFAULT_ROTATE_SEC    10             // how long each symbol is shown
 #define DEFAULT_RANGE        "1d"            // chart timeframe (e.g. 1d/5d/1mo/1y)
 #define DEFAULT_POINTS        48             // sparkline points requested

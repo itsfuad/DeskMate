@@ -1,0 +1,10 @@
+{
+  "_comment": "Symbols published as static JSON for devices that cannot reach cash.ch directly (the ESP8266). Edit this list to add/remove instruments; the scheduled workflow (.github/workflows/quotes.yml) writes one file per key to the 'data' branch, served at raw.githubusercontent.com/giovi321/smalltv-mod/data/quotes/<key>.json. On the device, set a ticker's source to 'GitHub' and its symbol to the listing key.",
+  "range": "6mo",
+  "points": 48,
+  "symbols": [
+    { "key": "147478611-246-333", "name": "AI Factor" },
+    { "key": "147478609-246-333", "name": "AI Factor LS" },
+    { "key": "152994768-246-333", "name": "AI LargeCaps" }
+  ]
+}

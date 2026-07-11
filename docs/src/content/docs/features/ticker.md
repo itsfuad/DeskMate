@@ -35,4 +35,4 @@ Give a ticker a `qty` and a per-unit `cost` and it becomes a position: its page 
 
 Two intervals control the display: how often each symbol is shown (rotation) and how often data is refreshed (poll). Both are set in the Display tab. The default poll of 120 seconds is fine for 8 symbols.
 
-Where the prices come from is chosen per ticker. By default a ticker fetches Yahoo Finance directly over HTTPS with no backend; cash.ch works the same way for Swiss instruments, and a webhook ticker calls your own endpoint. All three are covered in [Data sources](/smalltv-mod/reference/data-sources/).
+Where the prices come from is chosen per ticker. By default a ticker fetches Yahoo Finance directly over HTTPS with no backend; cash.ch works the same way for Swiss instruments, GitHub is a serverless cash.ch proxy that needs nothing of yours running, and a webhook ticker calls your own endpoint. All four are covered in [Data sources](/smalltv-mod/reference/data-sources/).

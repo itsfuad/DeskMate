@@ -8,11 +8,14 @@ static const char* CONFIG_PATH = "/config.json";
 // Ticker slice
 // ===========================================================================
 static const char* srcToStr(uint8_t s) {
-  return (s == SRC_YAHOO) ? "yahoo" : (s == SRC_CASH) ? "cash" : "webhook";
+  return (s == SRC_YAHOO) ? "yahoo"
+       : (s == SRC_CASH)  ? "cash"
+       : (s == SRC_GHUB)  ? "github" : "webhook";
 }
 static uint8_t srcFromStr(const String& s) {
-  return s.equalsIgnoreCase("yahoo") ? SRC_YAHOO
-       : s.equalsIgnoreCase("cash")  ? SRC_CASH : SRC_WEBHOOK;
+  return s.equalsIgnoreCase("yahoo")  ? SRC_YAHOO
+       : s.equalsIgnoreCase("cash")   ? SRC_CASH
+       : s.equalsIgnoreCase("github") ? SRC_GHUB : SRC_WEBHOOK;
 }
 
 void TickerSettings::setDefaults() {
