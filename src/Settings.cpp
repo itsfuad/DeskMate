@@ -137,6 +137,50 @@ void UsageSettings::fromJson(JsonObjectConst o) {
 }
 
 // ===========================================================================
+// Clock / night mode slice
+// ===========================================================================
+static uint16_t hhmmToMin(const char* s, uint16_t fallback) {
+  if (!s || !s[0]) return fallback;
+  int h = 0, m = 0;
+  if (sscanf(s, "%d:%d", &h, &m) != 2) return fallback;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return fallback;
+  return (uint16_t)(h * 60 + m);
+}
+static String minToHhmm(uint16_t v) {
+  if (v > 1439) v = 0;
+  char b[6];
+  snprintf(b, sizeof(b), "%02u:%02u", (unsigned)(v / 60), (unsigned)(v % 60));
+  return String(b);
+}
+
+void ClockSettings::setDefaults() {
+  tz            = DEFAULT_TZ_NAME;
+  tzPosix       = DEFAULT_TZ_POSIX;
+  nightEnabled  = DEFAULT_NIGHT_ENABLED;
+  nightStartMin = DEFAULT_NIGHT_START_MIN;
+  nightEndMin   = DEFAULT_NIGHT_END_MIN;
+  nightLevel    = DEFAULT_NIGHT_LEVEL;
+}
+
+void ClockSettings::toJson(JsonObject o) const {
+  o["tz"]           = tz;
+  o["tzPosix"]      = tzPosix;
+  o["nightEnabled"] = nightEnabled;
+  o["nightStart"]   = minToHhmm(nightStartMin);
+  o["nightEnd"]     = minToHhmm(nightEndMin);
+  o["nightLevel"]   = nightLevel;
+}
+
+void ClockSettings::fromJson(JsonObjectConst o) {
+  if (o["tz"].is<const char*>())          tz = o["tz"].as<String>();
+  if (o["tzPosix"].is<const char*>())     tzPosix = o["tzPosix"].as<String>();
+  if (o["nightEnabled"].is<bool>())       nightEnabled = o["nightEnabled"];
+  if (o["nightStart"].is<const char*>())  nightStartMin = hhmmToMin(o["nightStart"], nightStartMin);
+  if (o["nightEnd"].is<const char*>())    nightEndMin   = hhmmToMin(o["nightEnd"], nightEndMin);
+  if (o["nightLevel"].is<int>())          nightLevel = constrain((int)o["nightLevel"], 0, 100);
+}
+
+// ===========================================================================
 // Radar slice
 // ===========================================================================
 void RadarSettings::setDefaults() {
@@ -243,6 +287,7 @@ void Settings::setDefaults() {
   ticker.setDefaults();
   usage.setDefaults();
   radar.setDefaults();
+  clock.setDefaults();
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +370,7 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   s.ticker.toJson(root["ticker"].to<JsonObject>());
   s.usage.toJson(root["usage"].to<JsonObject>());
   s.radar.toJson(root["radar"].to<JsonObject>());
+  s.clock.toJson(root["clock"].to<JsonObject>());
 }
 
 // Apply only the keys that are present (partial update friendly). Accepts both
@@ -397,4 +443,5 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
   s.usage.fromJson(u);
   // Radar has no legacy flat layout; only apply when its nested object is present.
   if (root["radar"].is<JsonObjectConst>()) s.radar.fromJson(root["radar"].as<JsonObjectConst>());
+  if (root["clock"].is<JsonObjectConst>()) s.clock.fromJson(root["clock"].as<JsonObjectConst>());
 }

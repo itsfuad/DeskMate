@@ -181,3 +181,13 @@
 #define DEFAULT_POINTS        48             // sparkline points requested
 #define DEFAULT_BRIGHTNESS    90             // 0..100 %
 #define DEFAULT_HTTP_TIMEOUT  8000           // ms per request
+
+// --- Clock / night mode (device-wide) ---
+#define NTP_SERVER1             "pool.ntp.org"
+#define NTP_SERVER2             "time.nist.gov"
+#define DEFAULT_TZ_NAME         ""        // IANA display name; empty = UTC
+#define DEFAULT_TZ_POSIX        "UTC0"    // POSIX TZ rule the device feeds SNTP
+#define DEFAULT_NIGHT_ENABLED   false
+#define DEFAULT_NIGHT_START_MIN 1320      // 22:00
+#define DEFAULT_NIGHT_END_MIN   420       // 07:00
+#define DEFAULT_NIGHT_LEVEL     0         // 0..100, 0 = backlight fully off

@@ -72,6 +72,20 @@ struct UsageSettings {
   void fromJson(JsonObjectConst o);
 };
 
+// ---- Clock / night mode slice (device-wide) --------------------------------
+struct ClockSettings {
+  String   tz;            // IANA display name, e.g. "Europe/Rome" (UI round-trip)
+  String   tzPosix;       // POSIX TZ rule the device feeds SNTP
+  bool     nightEnabled;  // dim/blank on a nightly schedule
+  uint16_t nightStartMin; // minutes since local midnight (0..1439)
+  uint16_t nightEndMin;
+  uint8_t  nightLevel;    // 0..100, 0 = backlight off
+
+  void setDefaults();
+  void toJson(JsonObject o) const;
+  void fromJson(JsonObjectConst o);
+};
+
 // ---- Plane radar feature slice --------------------------------------------
 struct RadarSettings {
   float    lat;           // home latitude  (0,0 = not set yet)
@@ -125,6 +139,7 @@ struct Settings {
   TickerSettings ticker;
   UsageSettings  usage;
   RadarSettings  radar;
+  ClockSettings  clock;
 
   void setDefaults();
 };
