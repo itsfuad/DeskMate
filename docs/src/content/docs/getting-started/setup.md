@@ -20,7 +20,7 @@ Open the **Ticker** tab and add a few tickers, for example `AAPL`, `NESN.SW`, or
 
 ## Web UI reference
 
-The UI is a single page served from the device. Saving applies most changes live; changing the WiFi network reboots.
+The UI is a single page served from the device. Saving applies most changes live; changing the WiFi network reboots. The header shows a chip naming the board the firmware targets (ESP8266, ESP32-C2, or ESP32).
 
 ### Status
 
@@ -33,6 +33,12 @@ Scan and save up to 4 networks; the device joins the strongest visible one at bo
 ### Display
 
 The mode selector (Stock ticker, Claude usage, Plane radar, or Carousel, which rotates through the ticked features on a timer), plus brightness with optional auto-brightness, orientation, and backlight polarity.
+
+#### Clock and night mode
+
+The "Clock & night mode" card sets a timezone by IANA name (`Europe/Rome`, `Europe/Zurich`, `America/New_York`, and so on) from a dropdown; DST is handled automatically. Enabling the nightly window adds a From and To time (HH:MM) and a night brightness, where 0 turns the backlight fully off and any other value just dims it. Night mode is off by default. The device keeps rendering behind the dimmed or off backlight rather than sleeping, so WiFi, the web UI, and usage push stay up throughout.
+
+Night mode only switches on once NTP has confirmed the clock within the last few minutes. If NTP can't be reached, the screen stays on and the device keeps retrying until it syncs or the window ends in the morning, so a device that never reaches NTP is never left stuck dark. NTP itself only runs while night mode is enabled. On an ESP8266 this matters if you also use cash.ch tickers: their TLS handshake needs a large contiguous block of heap, and adding night mode's NTP client on top can leave too little. If a ticker stops fetching after enabling night mode, switch it to the GitHub source or leave night mode off on that device; ESP32 boards aren't affected.
 
 ### Ticker
 

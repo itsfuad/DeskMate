@@ -38,6 +38,8 @@ cash.ch's CDN requires a modern TLS handshake (ECDHE). The ESP32 boards do this 
 
 If you want a device that never even attempts the handshake, the **GitHub** source below is a drop-in alternative for the same listing keys.
 
+One more thing to watch on the ESP8266: the web UI's Display tab has a "Clock & night mode" card, and enabling it runs NTP to know when to dim. NTP only starts while night mode is enabled, but on an ESP8266 that already has cash.ch tickers, the heap NTP holds can be enough to starve the large contiguous block the cash.ch TLS handshake needs, and cash.ch tickers can stop fetching. If you run night mode on an ESP8266 with cash.ch tickers, switch those tickers to the **GitHub** source for the same listing keys, or leave night mode off on that device. ESP32 boards have enough headroom for both at once.
+
 ## Custom webhook
 
 To own the data (other providers, caching, secrets), set a ticker's source to **Webhook**. The device calls your URL, one request per symbol:

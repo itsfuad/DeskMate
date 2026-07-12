@@ -18,7 +18,7 @@ hero:
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-The GeekMagic SmallTV is a small cube with a 1.54" colour screen, an ESP inside, and a USB-C port. This firmware replaces the stock apps with three modes you switch between in a built-in web UI, and it updates over WiFi.
+The GeekMagic SmallTV is a small cube with a 1.54" colour screen, an ESP inside, and a USB-C port. This firmware replaces the stock apps with three modes you switch between in a built-in web UI, and it updates over WiFi. The web UI header shows a chip badge for the board it's running on, and an optional scheduled night mode dims or turns off the backlight on an NTP clock and timezone you pick, without taking the device offline.
 
 ![The SmallTV running its three modes](/smalltv-mod/assets/screen.svg)
 
@@ -29,7 +29,7 @@ The GeekMagic SmallTV is a small cube with a 1.54" colour screen, an ESP inside,
     Price, change, percent change, and a sparkline for up to 8 rotating symbols. Data from Yahoo Finance with no backend, or your own webhook.
   </Card>
   <Card title="Claude usage meter" icon="seti:crystal">
-    An animated mascot plus your 5-hour and 7-day usage bars with reset countdowns, fed over WiFi by the clawdmeter-daemon on your PC.
+    An animated mascot plus your 5-hour and 7-day usage bars with reset countdowns, fed over WiFi by the clawdmeter-daemon on your PC. The daemon can auto-discover several SmallTVs on the LAN and push usage to all of them at once.
   </Card>
   <Card title="Plane radar" icon="rocket">
     A scope centred on your location with nearby aircraft, headings, speed vectors, and callsigns, from the free adsb.fi feed or a LAN webhook.
