@@ -93,6 +93,7 @@ The [First-time setup guide](https://giovi321.github.io/smalltv-mod/getting-star
 
 Full docs live at **[giovi321.github.io/smalltv-mod](https://giovi321.github.io/smalltv-mod/)**:
 
+- Received one already set up (as a gift, say)? Start at the [user manual](https://giovi321.github.io/smalltv-mod/manual/quick-start/) instead, no technical background assumed
 - [Hardware and variants](https://giovi321.github.io/smalltv-mod/getting-started/hardware/) with pin maps for every board
 - [Flashing](https://giovi321.github.io/smalltv-mod/getting-started/flashing/) and [first-time setup](https://giovi321.github.io/smalltv-mod/getting-started/setup/)
 - The three modes: [ticker](https://giovi321.github.io/smalltv-mod/features/ticker/), [Claude usage](https://giovi321.github.io/smalltv-mod/features/usage/), [plane radar](https://giovi321.github.io/smalltv-mod/features/radar/)

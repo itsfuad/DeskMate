@@ -35,6 +35,15 @@ export default defineConfig({
           ],
         },
         {
+          label: 'User manual',
+          items: [
+            { label: 'Quick start', link: '/manual/quick-start/' },
+            { label: 'Everyday use', link: '/manual/everyday/' },
+            { label: 'Settings explained', link: '/manual/settings/' },
+            { label: 'Troubleshooting', link: '/manual/troubleshooting/' },
+          ],
+        },
+        {
           label: 'Features',
           items: [
             { label: 'Stock and crypto ticker', link: '/features/ticker/' },
