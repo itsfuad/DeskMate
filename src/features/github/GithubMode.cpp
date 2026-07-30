@@ -2,9 +2,10 @@
 #include "Platform.h"
 #include "Gfx.h"
 #include "TileRenderer.h"
-#include <ArduinoJson.h>
+#include "DisplayLayout.h"
 #include <Arduino_GFX_Library.h>
 #include <time.h>
+#include <ctype.h>
 
 GithubMode g_githubMode;
 
@@ -17,6 +18,7 @@ constexpr uint16_t PANEL   = rgb565(22, 27, 34);
 constexpr uint16_t TEXT    = rgb565(230, 237, 243);
 constexpr uint16_t MUTED   = rgb565(139, 148, 158);
 constexpr uint16_t BLUE    = rgb565(88, 166, 255);
+constexpr uint16_t PURPLE  = rgb565(174, 124, 255);
 constexpr uint16_t GREEN_1 = rgb565(14, 68, 41);
 constexpr uint16_t GREEN_2 = rgb565(0, 109, 50);
 constexpr uint16_t GREEN_3 = rgb565(38, 166, 65);
@@ -27,8 +29,8 @@ struct GithubData {
   bool valid = false;
   bool error = false;
   int httpCode = 0;
-  char errorText[48] = "";
-  char login[28] = "";
+  char errorText[72] = "";
+  char login[32] = "";
   uint32_t commits = 0;
   uint32_t openIssues = 0;
   uint32_t openPullRequests = 0;
@@ -55,57 +57,271 @@ void yearStartIso(time_t now, char* out, size_t outSize) {
 }
 
 void setError(const char* message, int httpCode = 0) {
-  G.valid = false;
+  // Keep the last good dashboard visible. A transient API/TLS failure is shown
+  // as a red status dot instead of discarding valid cached data.
   G.error = true;
   G.httpCode = httpCode;
-  strlcpy(G.errorText, message ? message : "GITHUB API ERROR", sizeof(G.errorText));
+  strlcpy(G.errorText, message ? message : "GITHUB API ERROR",
+          sizeof(G.errorText));
 }
 
-void calculateDerived(JsonArrayConst weeks) {
-  memset(G.graph, 0, sizeof(G.graph));
-  memset(G.graphLevel, 0, sizeof(G.graphLevel));
-  uint8_t linear[GITHUB_GRAPH_WEEKS * 7] = {0};
-  uint16_t linearCount = 0;
-  uint8_t maxCount = 0;
+class TimedStreamReader {
+ public:
+  TimedStreamReader(Stream& stream, NetClient& client, int remaining,
+                    uint32_t timeoutMs)
+      : stream_(stream), client_(client), remaining_(remaining),
+        timeoutMs_(timeoutMs) {}
 
-  const int weekCount = static_cast<int>(weeks.size());
-  const int first = max(0, weekCount - GITHUB_GRAPH_WEEKS);
-  int outWeek = 0;
-  for (int wi = first; wi < weekCount && outWeek < GITHUB_GRAPH_WEEKS; ++wi, ++outWeek) {
-    JsonArrayConst days = weeks[wi]["contributionDays"].as<JsonArrayConst>();
-    for (JsonObjectConst day : days) {
-      const int weekday = constrain(day["weekday"] | 0, 0, 6);
-      const int count = constrain(day["contributionCount"] | 0, 0, 255);
-      G.graph[outWeek][weekday] = static_cast<uint8_t>(count);
-      maxCount = max(maxCount, static_cast<uint8_t>(count));
-      if (linearCount < sizeof(linear)) linear[linearCount++] = static_cast<uint8_t>(count);
+  int read() {
+    if (pushed_ >= 0) {
+      const int value = pushed_;
+      pushed_ = -1;
+      return value;
+    }
+    const uint32_t started = millis();
+    for (;;) {
+      if (stream_.available()) {
+        const int value = stream_.read();
+        if (value >= 0 && remaining_ > 0) --remaining_;
+        return value;
+      }
+      if (remaining_ == 0) return -1;
+      if (!client_.connected() && !stream_.available()) return -1;
+      if (millis() - started >= timeoutMs_) {
+        timedOut_ = true;
+        return -1;
+      }
+      delay(1);
+      yield();
     }
   }
 
-  for (uint8_t w = 0; w < GITHUB_GRAPH_WEEKS; ++w) {
-    for (uint8_t d = 0; d < 7; ++d) {
-      const uint8_t value = G.graph[w][d];
-      if (!value) G.graphLevel[w][d] = 0;
-      else if (maxCount <= 4) G.graphLevel[w][d] = value > 4 ? 4 : value;
+  void unread(int value) { pushed_ = value; }
+  bool timedOut() const { return timedOut_; }
+
+  int nextNonSpace() {
+    int value;
+    do {
+      value = read();
+    } while (value >= 0 && isspace(value));
+    return value;
+  }
+
+  bool readString(char* output, size_t outputSize) {
+    size_t length = 0;
+    for (;;) {
+      int value = read();
+      if (value < 0) return false;
+      if (value == '"') {
+        if (outputSize) {
+          const size_t end = length < outputSize - 1 ? length : outputSize - 1;
+          output[end] = 0;
+        }
+        return true;
+      }
+      if (value == '\\') {
+        value = read();
+        if (value < 0) return false;
+        switch (value) {
+          case 'n': value = '\n'; break;
+          case 'r': value = '\r'; break;
+          case 't': value = '\t'; break;
+          case 'b': value = '\b'; break;
+          case 'f': value = '\f'; break;
+          case 'u':
+            // Error/login strings in this response are ASCII. Consume a JSON
+            // unicode escape without allocating a UTF-8 conversion buffer.
+            for (uint8_t i = 0; i < 4; ++i) if (read() < 0) return false;
+            value = '?';
+            break;
+          default: break;
+        }
+      }
+      if (outputSize && length + 1 < outputSize) output[length] = value;
+      ++length;
+    }
+  }
+
+  bool readUnsigned(int first, uint32_t& output) {
+    if (first < '0' || first > '9') return false;
+    uint32_t value = static_cast<uint32_t>(first - '0');
+    for (;;) {
+      const int next = read();
+      if (next < '0' || next > '9') {
+        if (next >= 0) unread(next);
+        output = value;
+        return true;
+      }
+      if (value <= 429496729UL) value = value * 10UL + (next - '0');
+    }
+  }
+
+  void skipPrimitive(int first) {
+    int value = first;
+    while (value >= 0 && value != ',' && value != '}' && value != ']') {
+      value = read();
+    }
+    if (value >= 0) unread(value);
+  }
+
+ private:
+  Stream& stream_;
+  NetClient& client_;
+  int remaining_;
+  uint32_t timeoutMs_;
+  int pushed_ = -1;
+  bool timedOut_ = false;
+};
+
+struct CalendarBuilder {
+  int lastWeekday = -1;
+  int pendingWeekday = -1;
+  int pendingCount = -1;
+  uint8_t week = 0;
+  bool sawDay = false;
+};
+
+void advanceCalendarWeek(GithubData& data, CalendarBuilder& builder) {
+  if (builder.week + 1 < GITHUB_GRAPH_WEEKS) {
+    ++builder.week;
+    return;
+  }
+  memmove(data.graph[0], data.graph[1],
+          (GITHUB_GRAPH_WEEKS - 1) * 7 * sizeof(uint8_t));
+  memset(data.graph[GITHUB_GRAPH_WEEKS - 1], 0, 7 * sizeof(uint8_t));
+  builder.week = GITHUB_GRAPH_WEEKS - 1;
+}
+
+void commitCalendarDay(GithubData& data, CalendarBuilder& builder) {
+  if (builder.pendingWeekday < 0 || builder.pendingCount < 0) return;
+  const int weekday = constrain(builder.pendingWeekday, 0, 6);
+  if (builder.lastWeekday >= 0 && weekday <= builder.lastWeekday) {
+    advanceCalendarWeek(data, builder);
+  }
+  data.graph[builder.week][weekday] = static_cast<uint8_t>(
+      constrain(builder.pendingCount, 0, 255));
+  builder.lastWeekday = weekday;
+  builder.pendingWeekday = -1;
+  builder.pendingCount = -1;
+  builder.sawDay = true;
+}
+
+void calculateDerived(GithubData& data, const CalendarBuilder& builder) {
+  uint8_t maximum = 0;
+  for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
+    for (uint8_t day = 0; day < 7; ++day) {
+      maximum = max(maximum, data.graph[week][day]);
+    }
+  }
+
+  for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
+    for (uint8_t day = 0; day < 7; ++day) {
+      const uint8_t value = data.graph[week][day];
+      if (!value) data.graphLevel[week][day] = 0;
+      else if (maximum <= 4) data.graphLevel[week][day] = value > 4 ? 4 : value;
       else {
-        const uint8_t level = static_cast<uint8_t>((value * 4UL + maxCount - 1) / maxCount);
-        G.graphLevel[w][d] = constrain(level, 1, 4);
+        const uint8_t level = static_cast<uint8_t>(
+            (value * 4UL + maximum - 1) / maximum);
+        data.graphLevel[week][day] = constrain(level, 1, 4);
       }
     }
   }
 
-  G.weekTotal = 0;
-  const uint16_t startWeek = linearCount > 7 ? linearCount - 7 : 0;
-  for (uint16_t i = startWeek; i < linearCount; ++i) G.weekTotal += linear[i];
-
-  G.streak = 0;
-  int i = static_cast<int>(linearCount) - 1;
-  // An empty current day does not end yesterday's active streak.
-  if (i >= 0 && linear[i] == 0) --i;
-  while (i >= 0 && linear[i] > 0) {
-    ++G.streak;
-    --i;
+  data.weekTotal = 0;
+  if (builder.sawDay) {
+    for (uint8_t day = 0; day < 7; ++day) {
+      data.weekTotal += data.graph[builder.week][day];
+    }
   }
+
+  data.streak = 0;
+  if (!builder.sawDay) return;
+  int week = builder.week;
+  int day = builder.lastWeekday;
+  if (day >= 0 && data.graph[week][day] == 0) {
+    if (--day < 0) {
+      day = 6;
+      --week;
+    }
+  }
+  while (week >= 0 && day >= 0) {
+    if (data.graph[week][day] == 0) break;
+    ++data.streak;
+    if (--day < 0) {
+      day = 6;
+      --week;
+    }
+  }
+}
+
+bool parseGithubResponse(Stream& stream, NetClient& client, int contentLength,
+                         uint32_t timeoutMs, GithubData& output,
+                         char* graphError, size_t graphErrorSize) {
+  TimedStreamReader reader(stream, client, contentLength, timeoutMs);
+  CalendarBuilder calendar;
+  bool sawLogin = false;
+  bool sawCommitCount = false;
+
+  for (;;) {
+    const int value = reader.read();
+    if (value < 0) break;
+    if (value != '"') continue;
+
+    char key[40];
+    if (!reader.readString(key, sizeof(key))) return false;
+    const int separator = reader.nextNonSpace();
+    if (separator != ':') {
+      if (separator >= 0) reader.unread(separator);
+      continue;  // this was a string value, not an object key
+    }
+    const int first = reader.nextNonSpace();
+    if (first < 0) return false;
+
+    if (!strcmp(key, "login") && first == '"') {
+      if (!reader.readString(output.login, sizeof(output.login))) return false;
+      sawLogin = output.login[0] != 0;
+    } else if (!strcmp(key, "yearCommitCount")) {
+      uint32_t number;
+      if (!reader.readUnsigned(first, number)) return false;
+      output.commits = number;
+      sawCommitCount = true;
+    } else if (!strcmp(key, "openIssueCount")) {
+      uint32_t number;
+      if (!reader.readUnsigned(first, number)) return false;
+      output.openIssues = number;
+    } else if (!strcmp(key, "openPullRequestCount")) {
+      uint32_t number;
+      if (!reader.readUnsigned(first, number)) return false;
+      output.openPullRequests = number;
+    } else if (!strcmp(key, "recentTotal")) {
+      uint32_t number;
+      if (!reader.readUnsigned(first, number)) return false;
+      output.totalContributions = number;
+    } else if (!strcmp(key, "weekday")) {
+      uint32_t number;
+      if (!reader.readUnsigned(first, number)) return false;
+      calendar.pendingWeekday = static_cast<int>(number);
+      commitCalendarDay(output, calendar);
+    } else if (!strcmp(key, "contributionCount")) {
+      uint32_t number;
+      if (!reader.readUnsigned(first, number)) return false;
+      calendar.pendingCount = static_cast<int>(number);
+      commitCalendarDay(output, calendar);
+    } else if (!strcmp(key, "message") && first == '"') {
+      if (!reader.readString(graphError, graphErrorSize)) return false;
+    } else if (first == '"') {
+      char ignored[2];
+      if (!reader.readString(ignored, sizeof(ignored))) return false;
+    } else if (first == '{' || first == '[') {
+      reader.unread(first);  // scan nested objects for the fields above
+    } else {
+      reader.skipPrimitive(first);
+    }
+  }
+
+  if (reader.timedOut()) return false;
+  calculateDerived(output, calendar);
+  return sawLogin && sawCommitCount && calendar.sawDay;
 }
 
 void drawBranchIcon(TileCanvas& g, int x, int y) {
@@ -118,17 +334,16 @@ void drawBranchIcon(TileCanvas& g, int x, int y) {
 
 void statRow(TileCanvas& g, int y, const char* label, uint32_t value,
              uint16_t accent) {
-  g.fillRoundRect(8, y, 224, 25, 7, PANEL);
+  g.fillRoundRect(8, y, 224, 24, 7, PANEL);
   g.setTextSize(1);
-  g.setTextColor(accent);
   g.fillCircle(20, y + 12, 3, accent);
   g.setTextColor(MUTED);
-  g.setCursor(31, y + 9);
+  g.setCursor(31, y + 8);
   g.print(label);
   char number[18];
   snprintf(number, sizeof(number), "%lu", static_cast<unsigned long>(value));
   g.setTextColor(TEXT);
-  g.setCursor(224 - gfxTextW(number, 1), y + 9);
+  g.setCursor(224 - gfxTextW(number, 1), y + 8);
   g.print(number);
 }
 
@@ -136,76 +351,75 @@ void drawGithub(TileCanvas& g, void*) {
   g.fillScreen(BG);
   g.setTextWrap(false);
 
-  drawBranchIcon(g, 14, 10);
+  drawBranchIcon(g, 14, 9);
   g.setTextSize(1);
   g.setTextColor(MUTED);
   g.setCursor(37, 9);
   g.print("GITHUB ACTIVITY");
+  g.fillCircle(228, 13, G.error ? 4 : 3, G.error ? ERROR_C : GREEN_4);
 
   if (!G.valid) {
-    g.fillRoundRect(10, 43, 220, 178, 14, PANEL);
+    g.fillRoundRect(10, 40, 220, 184, 14, PANEL);
     g.setTextSize(2);
     g.setTextColor(G.error ? ERROR_C : BLUE);
-    g.setCursor(28, 69);
+    g.setCursor(26, 64);
     g.print(G.error ? "API ERROR" : "LOADING");
     g.setTextSize(1);
     g.setTextColor(MUTED);
-    g.setCursor(28, 103);
+    g.setCursor(26, 99);
     g.print(G.errorText[0] ? G.errorText : "REQUESTING CONTRIBUTIONS");
     if (G.httpCode) {
-      g.setCursor(28, 120);
+      g.setCursor(26, 116);
       g.print("HTTP ");
       g.print(G.httpCode);
     }
-    g.setCursor(28, 172);
-    g.print("A user token is required.");
-    g.setCursor(28, 188);
-    g.print("Set it in the web UI.");
+    g.setCursor(26, 178);
+    g.print("Use a user access token.");
+    g.setCursor(26, 194);
+    g.print("Set it in the DeskMate UI.");
     return;
   }
 
   g.setTextSize(2);
   g.setTextColor(TEXT);
-  g.setCursor(10, 34);
+  g.setCursor(10, 32);
   g.print('@');
   g.print(G.login);
   g.setTextSize(1);
   g.setTextColor(MUTED);
   char pulse[28];
   snprintf(pulse, sizeof(pulse), "%u THIS WEEK", G.weekTotal);
-  g.setCursor(TFT_WIDTH - gfxTextW(pulse, 1) - 10, 42);
+  g.setCursor(DisplayLayout::Right - gfxTextW(pulse, 1), 40);
   g.print(pulse);
 
-  statRow(g, 62, "COMMITS THIS YEAR", G.commits, GREEN_4);
-  statRow(g, 91, "OPEN PULL REQUESTS", G.openPullRequests, BLUE);
-  statRow(g, 120, "OPEN ISSUES", G.openIssues, rgb565(174, 124, 255));
+  statRow(g, 55, "COMMITS THIS YEAR", G.commits, GREEN_4);
+  statRow(g, 83, "OPEN PULL REQUESTS", G.openPullRequests, BLUE);
+  statRow(g, 111, "OPEN ISSUES", G.openIssues, PURPLE);
 
-  char streak[30];
+  char streak[28];
   snprintf(streak, sizeof(streak), "STREAK %u DAYS", G.streak);
   g.setTextColor(MUTED);
-  g.setCursor(10, 153);
+  g.setCursor(10, 143);
   g.print(streak);
   char total[24];
   snprintf(total, sizeof(total), "%lu TOTAL",
            static_cast<unsigned long>(G.totalContributions));
-  g.setCursor(TFT_WIDTH - gfxTextW(total, 1) - 10, 153);
+  g.setCursor(DisplayLayout::Right - gfxTextW(total, 1), 143);
   g.print(total);
 
-  g.setTextColor(MUTED);
-  g.setCursor(10, 181);
+  g.setCursor(10, 171);
   g.print("52 WEEK CONTRIBUTIONS");
 
-  // A complete rolling-year contribution graph fits the 240 px panel as
-  // 52 narrow columns. Three-pixel cells leave a one-pixel gutter, preserving
-  // the familiar GitHub heat-map rhythm without consuming network/heap on art.
   const uint16_t levelColors[5] = {PANEL, GREEN_1, GREEN_2, GREEN_3, GREEN_4};
-  const int startX = 16;
-  const int startY = 197;
-  for (uint8_t w = 0; w < GITHUB_GRAPH_WEEKS; ++w) {
-    for (uint8_t d = 0; d < 7; ++d) {
-      const int x = startX + w * 4;
-      const int y = startY + d * 5;
-      g.fillRect(x, y, 3, 4, levelColors[G.graphLevel[w][d]]);
+  constexpr int startX = 12;
+  constexpr int startY = 188;
+  static_assert(DisplayLayout::fitsSafe(startX, startY, 208, 34),
+                "GitHub contribution graph must fit the safe display area");
+  for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
+    for (uint8_t day = 0; day < 7; ++day) {
+      const int x = startX + week * 4;
+      const int y = startY + day * 5;
+      g.fillRect(x, y, 3, 4, levelColors[G.graphLevel[week][day]]);
     }
   }
 }
@@ -221,56 +435,69 @@ bool fetchGraphql(const Settings& settings) {
     return false;
   }
 
-  char yearStart[24], recentStart[24], nowIso[24];
+#if defined(DESKMATE_ESP8266)
+  // A failed large allocation during BearSSL setup can reset the ESP8266. Skip
+  // safely and retry later rather than entering a reboot loop on this screen.
+  if (ESP.getFreeHeap() < 19000 || platformMaxFreeBlock() < 11000) {
+    setError("LOW HEAP - RETRY LATER");
+    return false;
+  }
+#endif
+
+  char yearStart[24];
+  char recentStart[24];
+  char nowIso[24];
   yearStartIso(now, yearStart, sizeof(yearStart));
   isoUtc(now - static_cast<time_t>(GITHUB_GRAPH_WEEKS * 7 - 1) * 86400,
          recentStart, sizeof(recentStart));
   isoUtc(now, nowIso, sizeof(nowIso));
 
+  // The former query omitted first/last on the user issue/PR connections,
+  // which GitHub rejects as a pagination error. first:1 keeps the response
+  // tiny while totalCount still represents the complete connection.
   static const char QUERY[] PROGMEM =
       "query($yearStart:DateTime!,$recentStart:DateTime!,$to:DateTime!){"
       "viewer{login "
-      "openIssues:issues(states:OPEN){totalCount} "
-      "openPullRequests:pullRequests(states:OPEN){totalCount} "
+      "openIssues:issues(first:1,states:[OPEN]){openIssueCount:totalCount} "
+      "openPullRequests:pullRequests(first:1,states:[OPEN]){"
+      "openPullRequestCount:totalCount} "
       "year:contributionsCollection(from:$yearStart,to:$to){"
-      "totalCommitContributions "
-      "contributionCalendar{totalContributions}} "
+      "yearCommitCount:totalCommitContributions} "
       "recent:contributionsCollection(from:$recentStart,to:$to){"
-      "contributionCalendar{weeks{contributionDays{contributionCount weekday}}}}}}";
+      "contributionCalendar{recentTotal:totalContributions "
+      "weeks{contributionDays{weekday contributionCount}}}}}}";
 
-  JsonDocument request;
-  request["query"] = FPSTR(QUERY);
-  JsonObject variables = request["variables"].to<JsonObject>();
-  variables["yearStart"] = yearStart;
-  variables["recentStart"] = recentStart;
-  variables["to"] = nowIso;
   String body;
-  serializeJson(request, body);
+  body.reserve(900);
+  body += F("{\"query\":\"");
+  body += FPSTR(QUERY);
+  body += F("\",\"variables\":{\"yearStart\":\"");
+  body += yearStart;
+  body += F("\",\"recentStart\":\"");
+  body += recentStart;
+  body += F("\",\"to\":\"");
+  body += nowIso;
+  body += F("\"}}");
 
-  JsonDocument filter;
-  filter["errors"][0]["message"] = true;
-  filter["data"]["viewer"]["login"] = true;
-  filter["data"]["viewer"]["openIssues"]["totalCount"] = true;
-  filter["data"]["viewer"]["openPullRequests"]["totalCount"] = true;
-  filter["data"]["viewer"]["year"]["totalCommitContributions"] = true;
-  filter["data"]["viewer"]["year"]["contributionCalendar"]["totalContributions"] = true;
-  filter["data"]["viewer"]["recent"]["contributionCalendar"]["weeks"][0]
-        ["contributionDays"][0]["contributionCount"] = true;
-  filter["data"]["viewer"]["recent"]["contributionCalendar"]["weeks"][0]
-        ["contributionDays"][0]["weekday"] = true;
-
-  // One retry handles the occasional ESP8266 TLS/stream truncation without
-  // turning an invalid token or GraphQL permission error into API hammering.
   for (uint8_t attempt = 0; attempt < 2; ++attempt) {
     std::unique_ptr<SecureClient> client(
         platformMakeSecureClient(4096, nullptr, 512, false));
+    if (!client) {
+      setError("TLS ALLOCATION FAILED");
+      return false;
+    }
+
     HTTPClient http;
-    http.setTimeout(settings.httpTimeout);
+    const uint16_t timeoutMs = settings.httpTimeout > 8000
+        ? 8000 : settings.httpTimeout;
+    http.setTimeout(timeoutMs);
     http.setReuse(false);
-    // Force a non-chunked response before handing the stream to ArduinoJson.
     http.useHTTP10(true);
     if (!http.begin(*client, F("https://api.github.com/graphql"))) {
-      if (attempt == 0) { delay(120); continue; }
+      if (attempt == 0) {
+        delay(100);
+        continue;
+      }
       setError("CONNECTION FAILED");
       return false;
     }
@@ -278,10 +505,10 @@ bool fetchGraphql(const Settings& settings) {
     http.addHeader("Authorization", "Bearer " + settings.github.token);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+    http.addHeader("Connection", "close");
     http.setUserAgent(FW_NAME);
 
     const int code = http.POST(body);
-    G.httpCode = code;
     if (code != HTTP_CODE_OK) {
       http.end();
       if (code == 401 || code == 403) {
@@ -289,47 +516,40 @@ bool fetchGraphql(const Settings& settings) {
         return false;
       }
       if (attempt == 0 && (code < 0 || code >= 500)) {
-        delay(120);
+        delay(100);
         continue;
       }
       setError("GITHUB HTTP ERROR", code);
       return false;
     }
 
-    JsonDocument response;
-    const DeserializationError err = deserializeJson(
-        response, http.getStream(), DeserializationOption::Filter(filter));
+    GithubData next;
+    char graphError[72] = "";
+    Stream& stream = http.getStream();
+    const bool parsed = parseGithubResponse(
+        stream, *client, http.getSize(), timeoutMs, next,
+        graphError, sizeof(graphError));
     http.end();
-    if (err) {
-      if (attempt == 0) { delay(120); continue; }
-      setError("BAD GRAPHQL DATA");
-      return false;
-    }
 
-    const char* graphError = response["errors"][0]["message"] | "";
     if (graphError[0]) {
-      setError(graphError);
+      setError(graphError, code);
+      return false;
+    }
+    if (!parsed) {
+      if (attempt == 0) {
+        delay(100);
+        continue;
+      }
+      setError("BAD GRAPHQL DATA", code);
       return false;
     }
 
-    JsonObjectConst viewer = response["data"]["viewer"];
-    if (viewer.isNull()) {
-      setError("NO VIEWER DATA");
-      return false;
-    }
-    strlcpy(G.login, viewer["login"] | "", sizeof(G.login));
-    JsonObjectConst year = viewer["year"];
-    G.commits = year["totalCommitContributions"] | 0UL;
-    G.openIssues = viewer["openIssues"]["totalCount"] | 0UL;
-    G.openPullRequests = viewer["openPullRequests"]["totalCount"] | 0UL;
-    G.totalContributions =
-        year["contributionCalendar"]["totalContributions"] | 0UL;
-    calculateDerived(
-        viewer["recent"]["contributionCalendar"]["weeks"].as<JsonArrayConst>());
-    G.valid = true;
-    G.error = false;
-    G.errorText[0] = 0;
-    G.updatedMs = millis();
+    next.valid = true;
+    next.error = false;
+    next.httpCode = code;
+    next.errorText[0] = 0;
+    next.updatedMs = millis();
+    G = next;
     return true;
   }
 
@@ -344,12 +564,15 @@ void GithubMode::fetch(const Settings& settings) {
 }
 
 void GithubMode::begin(const Settings&) {
-  nextPoll_ = 0;
+  // Let Wi-Fi, NTP, the web portal, and the first screen settle before the
+  // memory-heavy TLS request. This also prevents an immediate boot-loop if a
+  // broken token/configuration had GitHub selected at startup.
+  nextPoll_ = millis() + 5000UL;
   dirty_ = true;
 }
 
 void GithubMode::invalidate(const Settings&) {
-  nextPoll_ = 0;
+  nextPoll_ = millis() + 1000UL;
   dirty_ = true;
 }
 

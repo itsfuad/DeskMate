@@ -2,6 +2,7 @@
 #include "Platform.h"
 #include "Gfx.h"
 #include "TileRenderer.h"
+#include "DisplayLayout.h"
 #include "Net.h"
 #include <Arduino_GFX_Library.h>
 
@@ -29,6 +30,12 @@ struct Sample {
   bool dnsOk = false;
 };
 
+struct NetworkRenderContext {
+  const Settings* settings = nullptr;
+  char host[20] = "";
+  char ip[20] = "";
+};
+
 Sample samples[SAMPLE_COUNT];
 uint8_t head = 0;
 uint8_t count = 0;
@@ -39,7 +46,8 @@ uint32_t lastOutageSec = 0;
 uint16_t outageCount = 0;
 
 uint8_t ringIndex(uint8_t chronological) {
-  return static_cast<uint8_t>((head + SAMPLE_COUNT - count + chronological) % SAMPLE_COUNT);
+  return static_cast<uint8_t>((head + SAMPLE_COUNT - count + chronological) %
+                              SAMPLE_COUNT);
 }
 
 void stats(uint16_t& latest, uint16_t& average, uint16_t& best,
@@ -50,13 +58,13 @@ void stats(uint16_t& latest, uint16_t& average, uint16_t& best,
   uint16_t good = 0;
   uint16_t tcpCount = 0;
   for (uint8_t i = 0; i < count; ++i) {
-    const Sample& s = samples[ringIndex(i)];
-    if (s.tcpOk && s.dnsOk) ++good;
-    if (s.tcpOk) {
-      sum += s.tcpMs;
+    const Sample& sample = samples[ringIndex(i)];
+    if (sample.tcpOk && sample.dnsOk) ++good;
+    if (sample.tcpOk) {
+      sum += sample.tcpMs;
       ++tcpCount;
-      best = min(best, s.tcpMs);
-      worst = max(worst, s.tcpMs);
+      best = min(best, sample.tcpMs);
+      worst = max(worst, sample.tcpMs);
     }
   }
   if (count) {
@@ -87,19 +95,20 @@ void drawPill(TileCanvas& g, int x, int y, int w, const char* label,
 
 void drawCardValue(TileCanvas& g, int x, int y, int w, const char* label,
                    const char* value, uint16_t accent) {
-  g.fillRoundRect(x, y, w, 42, 9, PANEL);
+  g.fillRoundRect(x, y, w, 40, 9, PANEL);
   g.setTextSize(1);
   g.setTextColor(MUTED);
-  g.setCursor(x + 8, y + 7);
+  g.setCursor(x + 8, y + 6);
   g.print(label);
   g.setTextSize(2);
   g.setTextColor(accent);
-  g.setCursor(x + 8, y + 21);
+  g.setCursor(x + 8, y + 20);
   g.print(value);
 }
 
 void drawNetwork(TileCanvas& g, void* opaque) {
-  const Settings& settings = *static_cast<const Settings*>(opaque);
+  const NetworkRenderContext& context =
+      *static_cast<const NetworkRenderContext*>(opaque);
   g.fillScreen(BG);
   g.setTextWrap(false);
 
@@ -107,99 +116,117 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   uint8_t availability;
   stats(latest, average, best, worst, availability, dnsLatest);
 
+  // All vertical positions are authored against an 8 px safe inset. The last
+  // baseline is y=223, so an 8 px font ends at y=230 rather than disappearing
+  // under the physical bottom edge.
   g.setTextSize(1);
   g.setTextColor(MUTED);
-  g.setCursor(10, 10);
-  g.print("NETWORK");
-  drawPill(g, 174, 7, 56, online ? "ONLINE" : "OFFLINE",
+  g.setCursor(10, 9);
+  g.print("NETWORK GUARDIAN");
+  drawPill(g, 174, 6, 56, online ? "ONLINE" : "OFFLINE",
            online ? CYAN : CORAL);
 
   g.setTextColor(TEXT);
   g.setTextSize(5);
-  char value[32];
+  char value[40];
   if (online) snprintf(value, sizeof(value), "%u", latest);
   else strlcpy(value, "--", sizeof(value));
-  g.setCursor(10, 35);
+  g.setCursor(10, 30);
   g.print(value);
   g.setTextSize(2);
   g.setTextColor(MUTED);
-  g.setCursor(141, 63);
+  g.setCursor(141, 58);
   g.print("ms");
 
   char subtitle[48];
-  snprintf(subtitle, sizeof(subtitle), "AVG %u  BEST %u  PEAK %u", average, best, worst);
+  snprintf(subtitle, sizeof(subtitle), "AVG %u   BEST %u   PEAK %u",
+           average, best, worst);
   g.setTextSize(1);
   g.setTextColor(MUTED);
-  g.setCursor(12, 84);
+  g.setCursor(10, 78);
   g.print(subtitle);
 
-  // Availability rail.
-  g.fillRoundRect(10, 101, 220, 9, 4, LINE);
-  g.fillRoundRect(10, 101, static_cast<int>(220UL * availability / 100UL), 9, 4,
-                  availability >= 98 ? CYAN : availability >= 90 ? AMBER : CORAL);
-  g.setCursor(10, 114);
+  g.fillRoundRect(10, 94, 220, 8, 4, LINE);
+  g.fillRoundRect(10, 94,
+                  static_cast<int>(220UL * availability / 100UL), 8, 4,
+                  availability >= 98 ? CYAN
+                  : availability >= 90 ? AMBER : CORAL);
+  g.setCursor(10, 106);
   g.print("LAST 60 PROBES");
-  g.setCursor(185, 114);
+  char availabilityText[10];
+  snprintf(availabilityText, sizeof(availabilityText), "%u%%", availability);
   g.setTextColor(TEXT);
-  g.print(availability);
-  g.print('%');
+  g.setCursor(230 - gfxTextW(availabilityText, 1), 106);
+  g.print(availabilityText);
 
-  // Latency history. A continuous line is easier to read than primitive bars;
-  // failed samples are marked as coral outage columns.
-  const int gx = 10, gy = 130, gw = 220, gh = 48;
-  g.fillRoundRect(gx, gy, gw, gh, 10, PANEL);
-  g.drawFastHLine(gx + 8, gy + gh / 2, gw - 16, LINE);
-  uint16_t scaleMax = worst > 100 ? worst : 100;
-  bool havePrev = false;
-  int px = 0, py = 0;
+  constexpr int graphX = 8;
+  constexpr int graphY = 121;
+  constexpr int graphW = 224;
+  constexpr int graphH = 48;
+  static_assert(DisplayLayout::fitsSafe(graphX, graphY, graphW, graphH),
+                "Network graph must fit the safe display area");
+  g.fillRoundRect(graphX, graphY, graphW, graphH, 10, PANEL);
+  g.drawFastHLine(graphX + 8, graphY + graphH / 2, graphW - 16, LINE);
+
+  const uint16_t scaleMax = worst > 100 ? worst : 100;
+  bool havePrevious = false;
+  int previousX = 0;
+  int previousY = 0;
   for (uint8_t i = 0; i < count; ++i) {
-    const Sample& s = samples[ringIndex(i)];
-    const int x = gx + 7 + static_cast<int>(i * (gw - 14) / (SAMPLE_COUNT - 1));
-    if (!s.tcpOk || !s.dnsOk) {
-      g.drawFastVLine(x, gy + 6, gh - 12, CORAL);
-      havePrev = false;
+    const Sample& sample = samples[ringIndex(i)];
+    const int x = graphX + 7 +
+                  static_cast<int>(i * (graphW - 14) / (SAMPLE_COUNT - 1));
+    if (!sample.tcpOk || !sample.dnsOk) {
+      g.drawFastVLine(x, graphY + 6, graphH - 12, CORAL);
+      havePrevious = false;
       continue;
     }
-    const int y = gy + gh - 7 - constrain(static_cast<int>(s.tcpMs * (gh - 14) / scaleMax), 1, gh - 14);
-    if (havePrev) g.drawLine(px, py, x, y, CYAN);
+    const int y = graphY + graphH - 7 -
+        constrain(static_cast<int>(sample.tcpMs * (graphH - 14) / scaleMax),
+                  1, graphH - 14);
+    if (havePrevious) g.drawLine(previousX, previousY, x, y, CYAN);
     g.fillCircle(x, y, 1, CYAN);
-    px = x;
-    py = y;
-    havePrev = true;
+    previousX = x;
+    previousY = y;
+    havePrevious = true;
   }
 
-  char availText[10], dnsText[12], wifiText[12];
-  snprintf(availText, sizeof(availText), "%u%%", availability);
-  if (count && samples[(head + SAMPLE_COUNT - 1) % SAMPLE_COUNT].dnsOk)
+  char dnsText[12];
+  char wifiText[12];
+  if (count && samples[(head + SAMPLE_COUNT - 1) % SAMPLE_COUNT].dnsOk) {
     snprintf(dnsText, sizeof(dnsText), "%ums", dnsLatest);
-  else
+  } else {
     strlcpy(dnsText, "FAIL", sizeof(dnsText));
-  snprintf(wifiText, sizeof(wifiText), "%u%%", wifiQuality());
-  drawCardValue(g, 10, 187, 68, "UPTIME", availText, CYAN);
-  drawCardValue(g, 86, 187, 68, "DNS", dnsText,
+  }
+  const uint8_t quality = wifiQuality();
+  snprintf(wifiText, sizeof(wifiText), "%u%%", quality);
+
+  constexpr int cardsY = 178;
+  static_assert(DisplayLayout::fitsSafe(10, cardsY, 68, 40),
+                "Network cards must fit the safe display area");
+  drawCardValue(g, 10, cardsY, 68, "UPTIME", availabilityText, CYAN);
+  drawCardValue(g, 86, cardsY, 68, "DNS", dnsText,
                 dnsText[0] == 'F' ? CORAL : BLUE);
-  drawCardValue(g, 162, 187, 68, "WI-FI", wifiText,
-                wifiQuality() > 55 ? CYAN : AMBER);
+  drawCardValue(g, 162, cardsY, 68, "WI-FI", wifiText,
+                quality > 55 ? CYAN : AMBER);
 
   g.setTextSize(1);
   g.setTextColor(MUTED);
-  g.setCursor(10, 233);
+  g.setCursor(10, 223);
   if (!online && outageStart) {
     snprintf(value, sizeof(value), "OUTAGE %lus  #%u",
              static_cast<unsigned long>((millis() - outageStart) / 1000UL),
              outageCount);
     g.print(value);
   } else if (lastOutageSec) {
-    snprintf(value, sizeof(value), "LAST OUTAGE %lus", static_cast<unsigned long>(lastOutageSec));
+    snprintf(value, sizeof(value), "LAST OUTAGE %lus",
+             static_cast<unsigned long>(lastOutageSec));
     g.print(value);
   } else {
-    String host = settings.network.probeHost;
-    if (host.length() > 18) host.remove(18);
-    g.print(host);
+    g.print(context.host);
   }
-  const String ip = netIP();
-  g.setCursor(TFT_WIDTH - gfxTextW(ip.c_str(), 1) - 8, 233);
-  g.print(ip);
+  g.setCursor(230 - gfxTextW(context.ip, 1), 223);
+  g.print(context.ip);
 }
 }  // namespace
 
@@ -261,7 +288,12 @@ void NetworkMode::invalidate(const Settings&) {
 void NetworkMode::wake(const Settings&) { dirty_ = true; }
 
 void NetworkMode::render(const Settings& settings) {
-  gfxRenderTiled(drawNetwork, const_cast<Settings*>(&settings), BG);
+  NetworkRenderContext context;
+  context.settings = &settings;
+  strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
+  const String ip = netIP();
+  strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
+  gfxRenderTiled(drawNetwork, &context, BG);
 }
 
 void NetworkMode::service(const Settings& settings) {

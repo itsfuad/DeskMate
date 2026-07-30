@@ -161,7 +161,8 @@ static bool fetchUrl(const Settings& s, const String& url) {
   }
 
   HTTPClient http;
-  http.setTimeout(s.httpTimeout);
+  const uint16_t timeoutMs = s.httpTimeout > 6000 ? 6000 : s.httpTimeout;
+  http.setTimeout(timeoutMs);
   http.setReuse(false);
   http.useHTTP10(true);  // make the streaming JSON body non-chunked
   if (!http.begin(*client, url)) return false;
@@ -175,7 +176,9 @@ static bool fetchUrl(const Settings& s, const String& url) {
     return false;
   }
 
+  yield();
   bool ok = parseAdsb(s, http.getStream());
+  yield();
   http.end();
   return ok;
 }

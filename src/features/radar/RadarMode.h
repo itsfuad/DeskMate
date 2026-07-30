@@ -14,8 +14,6 @@ class RadarMode : public DisplayMode {
  private:
   void render(const Settings&);
   uint32_t renderedOk_ = 0xFFFFFFFF;
-  uint32_t lastFrame_ = 0;
-  float sweepAngle_ = 0.0f;
   bool renderedError_ = false;
   bool needRender_ = true;
 };
