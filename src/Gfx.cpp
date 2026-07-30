@@ -3,13 +3,13 @@
 #include <Arduino_GFX_Library.h>
 #include <SPI.h>
 
-// The SmallTV's ST7789 has its CS line tied to GND and only latches SPI in
+// The DeskMate's ST7789 has its CS line tied to GND and only latches SPI in
 // **mode 3**. Arduino_GFX's stock Arduino_ST7789 forces SPI_MODE2 on the ESP8266
 // (wrong clock edge for this panel), so the controller never initializes and the
 // screen stays black even with the backlight on. Subclass begin() to force mode 3
 // — matching the known-good GeekMagic community firmwares. (On ESP32 the base
 // class already selects mode 3, so the override is harmless there.)
-class Arduino_ST7789_SmallTV : public Arduino_ST7789 {
+class Arduino_ST7789_DeskMate : public Arduino_ST7789 {
  public:
   using Arduino_ST7789::Arduino_ST7789;   // inherit constructors
   bool begin(int32_t speed = GFX_NOT_DEFINED) override {
@@ -20,7 +20,7 @@ class Arduino_ST7789_SmallTV : public Arduino_ST7789 {
 #if TFT_BGR
   // This board's panel is wired B-G-R. Arduino_ST7789 hardcodes the MADCTL RGB
   // order, so re-issue MADCTL with the BGR bit (0x08) set on every rotation
-  // change. Only rotations 0-3 are used by the SmallTV (setRotation(r & 3)).
+  // change. Only rotations 0-3 are used by the DeskMate (setRotation(r & 3)).
   void setRotation(uint8_t r) override {
     Arduino_TFT::setRotation(r);           // updates _rotation + width/height
     uint8_t madctl;
@@ -58,7 +58,7 @@ void gfxBegin(const Settings& s) {
   platformAnalogWriteInit(TFT_BL);
   gfxSetBrightness(s.brightness, s.backlightInverted);
 
-#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
+#if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
   // Hardware SPI via the Arduino SPI library (IDF spi_master driver) on explicit
   // GPIOs. The register-level Arduino_ESP32SPI hangs in begin() on the C2, and
   // Arduino_SWSPI's fast-IO path doesn't cover the C2 — Arduino_HWSPI uses the
@@ -70,8 +70,8 @@ void gfxBegin(const Settings& s) {
   bus = new Arduino_HWSPI(TFT_DC, TFT_CS);   // ESP8266 HW-SPI (fixed SCLK/MOSI)
 #endif
   // IPS=true so the panel colors are not inverted; full 240x240, no offsets.
-  // Use the SmallTV variant so the SPI bus comes up in mode 3 (see class above).
-  gfx = new Arduino_ST7789_SmallTV(bus, TFT_RST, 0 /*rotation*/, true /*IPS*/,
+  // Use the DeskMate variant so the SPI bus comes up in mode 3 (see class above).
+  gfx = new Arduino_ST7789_DeskMate(bus, TFT_RST, 0 /*rotation*/, true /*IPS*/,
                                    TFT_WIDTH, TFT_HEIGHT, 0, 0, 0, 0);
   gfx->begin();
   gfx->setRotation(s.rotation & 3);

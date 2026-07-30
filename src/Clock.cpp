@@ -3,7 +3,7 @@
 #include "config.h"
 
 static String            s_armedTz;          // last tzPosix armed (clockReapply re-arms only on change)
-static bool              s_ntpStarted = false; // SNTP has been started (only when night mode needs it)
+static bool              s_ntpStarted = false; // SNTP has been started
 static volatile uint32_t s_lastSyncMs = 0;   // millis() of the last successful SNTP sync
 static volatile bool     s_haveSync   = false;
 
@@ -39,11 +39,8 @@ void clockBegin(const Settings& s) {
 }
 
 void clockReapply(const Settings& s) {
-  // SNTP only runs when night mode needs it. Starting the lwIP SNTP client is a
-  // permanent mid-arena heap allocation, and on the memory-tight ESP8266 that can
-  // fragment the largest contiguous block needed by HTTPS requests. Arm on the
-  // first enable, re-arm on a
-  // timezone change, and never start it while night mode is off.
+  // Weather and GitHub both need a valid wall clock, so SNTP is always armed
+  // after Wi-Fi connects. Re-arm only when the POSIX timezone rule changes.
   if (!s_ntpStarted || s.clock.tzPosix != s_armedTz) clockBegin(s);
 }
 

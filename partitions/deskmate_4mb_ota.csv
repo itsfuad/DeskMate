@@ -1,4 +1,4 @@
-# smalltv-mod ESP32-C2 (ESP8684) 4 MB flash layout.
+# DeskMate ESP32-C2 (ESP8684) 4 MB flash layout.
 # Two OTA app slots (manual web-UI OTA needs room for a second copy) + ~0.9 MB
 # LittleFS for /config.json. FS partition is subtype 'spiffs' so the Arduino
 # LittleFS.begin() default label lookup finds it with no code change.

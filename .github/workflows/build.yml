@@ -8,8 +8,8 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.x'}
       - run: pip install platformio
-      - run: pio run -e smalltv
+      - run: pio run -e deskmate
       - uses: actions/upload-artifact@v4
         with:
-          name: desktv-esp8266-firmware
-          path: .pio/build/smalltv/firmware.bin
+          name: deskmate-esp8266-firmware
+          path: .pio/build/deskmate/firmware.bin

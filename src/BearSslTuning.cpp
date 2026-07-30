@@ -1,16 +1,13 @@
 // BearSslTuning.cpp — pin the ESP8266's BearSSL elliptic-curve support to P-256.
 //
-// The firmware builds with full BearSSL so cash.ch's ECDHE-only CDN is
-// reachable. Full BearSSL by default advertises x25519 + P-256/384/521 and lets
-// the server choose; x25519 in particular is heavy on this chip. Defining
-// br_ec_get_default() here overrides the library's version at link time (our
-// object satisfies the reference before ec_default.o is pulled from the
-// archive), forcing P-256 only (the prebuilt lib ships br_ec_p256_m15). This
-// avoids the much heavier x25519 the server could otherwise pick and drops the
-// unused curve code from flash. This keeps HTTPS requests more predictable on
-// the memory-constrained ESP8266.
-// (Under BEARSSL_SSL_BASIC there is no EC engine to pin, so this is skipped —
-// used only by builds that do not need elliptic-curve TLS.)
+// DeskMate talks to modern HTTPS APIs that may negotiate ECDHE. Full BearSSL
+// advertises several curves, including x25519, which is expensive on this chip.
+// Defining br_ec_get_default() here overrides the library default at link time
+// and pins negotiation to the prebuilt P-256 implementation. That avoids pulling
+// unused curve code and makes OpenWeather, GitHub, ADS-B, and OTA handshakes more
+// predictable on the memory-constrained ESP8266.
+//
+// Under BEARSSL_SSL_BASIC there is no EC engine to pin, so this is skipped.
 #if defined(ESP8266) && !defined(BEARSSL_SSL_BASIC)
 #include <bearssl/bearssl_ec.h>
 

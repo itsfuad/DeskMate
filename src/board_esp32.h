@@ -1,5 +1,5 @@
 // board_esp32.h — pin map + panel quirks for the NMMiner NM-TV-154 ("NM-TV-Miner"
-// PCB), a SmallTV-style BTC lottery miner: classic ESP32 (ESP32-D0WD-V3 in a
+// PCB), a DeskMate-style BTC lottery miner: classic ESP32 (ESP32-D0WD-V3 in a
 // WROOM-32E module, 40 MHz crystal), 1.54" 240x240 ST7789 IPS over SPI.
 //
 // Pin map taken from the vendor's own custom-firmware guide (TFT_eSPI User_Setup

@@ -4,11 +4,11 @@
 #include <LittleFS.h>
 #include "config.h"
 
-#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
+#if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 #include <HTTPUpdate.h>
 #endif
 
-#if defined(SMALLTV_ESP8266)
+#if defined(DESKMATE_ESP8266)
 // Prefer MFLN so BearSSL can run with a tiny buffer; fall back to 4 KB.
 static uint16_t probeMfln(const char* host) {
   if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 512))  return 512;
@@ -48,7 +48,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
 
     SecureClient client;
     client.setInsecure();
-#if defined(SMALLTV_ESP8266)
+#if defined(DESKMATE_ESP8266)
     client.setBufferSizes(probeMfln(GH_API_HOST), 512);
 #endif
 
@@ -61,7 +61,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
     http.setUserAgent(F(FW_NAME));                 // GitHub rejects requests with no UA
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     // HTTP/1.0 forbids chunked responses. The body is parsed straight off
-    // getStream(), which neither core de-chunks (same fix as StockClient v2.4.1).
+    // getStream(), which neither core reliably de-chunks in this streaming path.
     http.useHTTP10(true);
     const char* hdrKeys[] = { "x-ratelimit-remaining" };
     http.collectHeaders(hdrKeys, 1);
@@ -118,7 +118,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
 }
 
 String otaUpdateFromGitHub(const Settings& s) {
-#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
+#if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
   OtaLatest r = otaCheckLatest(s);
   if (!r.ok) return "check failed: " + r.error;
   if (!r.newer) return "already up to date (" FW_VERSION ")";
@@ -158,7 +158,7 @@ String otaUpdateFromGitHub(const Settings& s) {
 // to the running features. The web UI queues the request in LittleFS and
 // reboots; this runs early in setup() with the heap still free. The request is
 // consumed BEFORE the attempt, so a crash or failure can never boot-loop.
-#if defined(SMALLTV_ESP8266)
+#if defined(DESKMATE_ESP8266)
 static const char* OTA_REQ_PATH = "/ota.req";
 static const char* OTA_MSG_PATH = "/ota.msg";
 

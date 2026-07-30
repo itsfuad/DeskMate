@@ -1,4 +1,4 @@
-// smalltv-mod — custom firmware for the GeekMagic SmallTV (ESP-12F / ESP8266)
+// deskmate — custom firmware for the GeekMagic DeskMate (ESP-12F / ESP8266)
 //
 // Four desk-dashboard features, each a self-contained DisplayMode (see Mode.h):
 // ambient weather, network guardian, live ADS-B radar, and GitHub status.
@@ -132,13 +132,13 @@ void appApplyBrightness() {
 const char* appResetReason() { return g_resetReason.c_str(); }
 
 // Called by the web portal after settings are applied: re-init every mode and
-// force a fresh repaint so a mode/URL/symbol change takes effect immediately.
+// force a fresh repaint so a mode/API/location change takes effect immediately.
 void appInvalidate() {
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->invalidate(g_settings);
 }
 
 static void bootProgress(const char* msg) {
-  gfxBoot("SmallTV", msg);
+  gfxBoot("DeskMate", msg);
 }
 
 void setup() {
@@ -172,13 +172,12 @@ void setup() {
 
   Serial.println("[boot] display");
   gfxBegin(g_settings);
-  gfxBoot(g_safeMode ? "Crashed" : "SmallTV", FW_VERSION);
+  gfxBoot(g_safeMode ? "Crashed" : "DeskMate", FW_VERSION);
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
-  // Arm SNTP now that WiFi (STA) is up — but only if night mode is enabled, so a
-  // avoid paying the SNTP heap cost when night mode is disabled. clockReapply
-  // arms it only when needed. Skipped after a
+  // Arm SNTP now that Wi-Fi is up. Weather timestamps, GitHub contribution
+  // ranges, and optional night mode all depend on a valid wall clock. Skipped after a
   // crash so a fault in here can't boot-loop before the web server starts (the
   // device then comes up in safe mode, OTA-recoverable, instead of needing UART).
   if (!g_safeMode) clockReapply(g_settings);
@@ -188,9 +187,9 @@ void setup() {
   // On success it reboots into the new image; a no-op stub on the ESP32 targets.
   if (otaBootRequested()) {
     Serial.println("[boot] github update");
-    gfxBoot("SmallTV", "updating...");
+    gfxBoot("DeskMate", "updating...");
     otaBootUpdate(g_settings);
-    gfxBoot("SmallTV", "update failed");   // still here -> failed; details in the web UI
+    gfxBoot("DeskMate", "update failed");   // still here -> failed; details in the web UI
     delay(1200);
   }
 

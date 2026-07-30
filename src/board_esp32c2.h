@@ -1,4 +1,4 @@
-// board_esp32c2.h — pin map + panel quirks for the ESP32-C2 (ESP8684) SmallTV
+// board_esp32c2.h — pin map + panel quirks for the ESP32-C2 (ESP8684) DeskMate
 // knockoff. 1.54" 240x240 ST7789V IPS over SPI (routed through the GPIO matrix).
 //
 // Pin map taken from a community ESPHome config for this exact device and

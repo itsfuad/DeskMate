@@ -1,239 +1,368 @@
 #include "RadarMode.h"
-#include <Arduino_GFX_Library.h>
-#include <math.h>
 #include "Gfx.h"
 #include "RadarClient.h"
 #include "TileRenderer.h"
+#include <Arduino_GFX_Library.h>
+#include <math.h>
 
 RadarMode g_radarMode;
 
-#define C_MAGENTA 0xF81F   // speed vector (not in the shared palette)
+namespace {
+constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+constexpr uint16_t BG       = rgb565(4, 12, 17);
+constexpr uint16_t GRID     = rgb565(23, 55, 62);
+constexpr uint16_t GRID_HI  = rgb565(36, 82, 88);
+constexpr uint16_t TEXT     = rgb565(189, 207, 211);
+constexpr uint16_t MUTED    = rgb565(93, 119, 125);
+constexpr uint16_t SWEEP_1  = rgb565(20, 75, 70);
+constexpr uint16_t SWEEP_2  = rgb565(29, 112, 100);
+constexpr uint16_t SWEEP_3  = rgb565(52, 178, 150);
+constexpr uint16_t CORAL    = rgb565(255, 91, 102);
+constexpr uint16_t CYAN     = rgb565(66, 211, 205);
+constexpr uint16_t BLUE     = rgb565(69, 145, 210);
+constexpr uint16_t AMBER    = rgb565(246, 186, 78);
 
-// Radar geometry (square 240x240 panel; the circle leaves the corners empty).
-static const int CX = TFT_WIDTH / 2;
-static const int CY = 122;
-static const int RR = 105;                 // outer ring radius, px
+constexpr int CX = 120;
+constexpr int CY = 120;
+constexpr int RR = 112;
 
-// dist/bearing polar -> screen xy (bearing 0 = N = up, cw).
-static void polar(float distPx, float brgDeg, int& x, int& y) {
-  float a = brgDeg * (float)PI / 180.0f;
-  x = CX + (int)lroundf(distPx * sinf(a));
-  y = CY - (int)lroundf(distPx * cosf(a));
+void polar(float radius, float bearing, int& x, int& y) {
+  const float a = bearing * static_cast<float>(PI) / 180.0f;
+  x = CX + static_cast<int>(lroundf(radius * sinf(a)));
+  y = CY - static_cast<int>(lroundf(radius * cosf(a)));
 }
 
-// Flat-earth home-relative dist/bearing (mirrors RadarClient, for airports).
-static void geo(float homeLat, float homeLon, float lat, float lon,
-                float& distKm, float& brg) {
-  float dLat = (lat - homeLat) * 111.0f;
-  float dLon = (lon - homeLon) * 111.0f * cosf(homeLat * (float)PI / 180.0f);
-  distKm = sqrtf(dLat * dLat + dLon * dLon);
-  brg = atan2f(dLon, dLat) * 180.0f / (float)PI;
-  if (brg < 0) brg += 360.0f;
+void geo(float homeLat, float homeLon, float lat, float lon,
+         float& distanceKm, float& bearing) {
+  const float north = (lat - homeLat) * 111.0f;
+  const float east = (lon - homeLon) * 111.0f *
+                     cosf(homeLat * static_cast<float>(PI) / 180.0f);
+  distanceKm = sqrtf(north * north + east * east);
+  bearing = atan2f(east, north) * 180.0f / static_cast<float>(PI);
+  if (bearing < 0) bearing += 360.0f;
 }
 
-// Marker radius scaled by the UI-size factor (min 2 px so it stays visible).
-static int scaleR(float base, float k) {
-  int v = (int)lroundf(base * k);
-  return v < 2 ? 2 : v;
+void rotatedPoint(int x, int y, float heading, float localX, float localForward,
+                  int& outX, int& outY) {
+  const float a = heading * static_cast<float>(PI) / 180.0f;
+  const float c = cosf(a);
+  const float s = sinf(a);
+  outX = x + static_cast<int>(lroundf(localX * c + localForward * s));
+  outY = y + static_cast<int>(lroundf(localX * s - localForward * c));
 }
 
-// Filled heading triangle centred at (x,y), nose pointing along track (deg, cw N).
-// `k` scales the triangle with the UI-size setting.
-static void planeTri(TileCanvas* gfx, int x, int y, float trackDeg, float k, uint16_t color) {
-  const float L = 12.0f * k, W = 8.0f * k, B = 7.0f * k;  // nose, half-width, tail setback
-  float th = trackDeg * (float)PI / 180.0f;
-  float ct = cosf(th), st = sinf(th);
-  // local (lx=right, ly=nose) -> screen: sx = x + lx*ct + ly*st; sy = y + lx*st - ly*ct
-  int nx = x + (int)lroundf(0 * ct + L * st);
-  int ny = y + (int)lroundf(0 * st - L * ct);
-  int lx = x + (int)lroundf(-W * ct + (-B) * st);
-  int ly = y + (int)lroundf(-W * st - (-B) * ct);
-  int rx = x + (int)lroundf(W * ct + (-B) * st);
-  int ry = y + (int)lroundf(W * st - (-B) * ct);
-  gfx->fillTriangle(nx, ny, lx, ly, rx, ry, color);
+float categoryScale(const Aircraft& a) {
+  if (a.category[0] == 'A') {
+    switch (a.category[1]) {
+      case '1': return 0.66f; // light
+      case '2': return 0.82f; // small
+      case '3': return 1.00f; // large
+      case '4': return 1.14f; // high-vortex large
+      case '5': return 1.34f; // heavy
+      case '6': return 0.92f; // high performance
+      case '7': return 0.80f; // rotorcraft
+      default: break;
+    }
+  }
+  if (!strncmp(a.type, "A38", 3) || !strncmp(a.type, "B74", 3) ||
+      !strncmp(a.type, "B77", 3)) return 1.30f;
+  return 0.92f;
 }
 
-// Label bounding box + AABB overlap test, used to declutter callsigns: labels
-// are placed nearest-first and any that would collide with one already drawn are
-// dropped (the plane's triangle still shows).
-struct LblBox { int16_t x, y, w, h; };
-static bool boxHit(const LblBox& a, const LblBox& b) {
+bool isRotorcraft(const Aircraft& a) {
+  return a.category[0] == 'A' && a.category[1] == '7';
+}
+
+void drawAircraft(TileCanvas& g, const Aircraft& a, int x, int y,
+                  float uiScale, uint16_t color) {
+  const float k = uiScale * categoryScale(a);
+  const float heading = isnan(a.track) ? a.bearingDeg : a.track;
+
+  if (isRotorcraft(a)) {
+    const int arm = max(3, static_cast<int>(5 * k));
+    g.drawLine(x - arm, y, x + arm, y, color);
+    g.drawLine(x, y - arm, x, y + arm, color);
+    g.fillCircle(x, y, max(1, static_cast<int>(2 * k)), color);
+    return;
+  }
+
+  const float nose = 9.0f * k;
+  const float tail = -7.0f * k;
+  const float wing = 7.0f * k;
+  const float tailWing = 3.4f * k;
+  int nx, ny, tx, ty, lwx, lwy, rwx, rwy, ltx, lty, rtx, rty;
+  rotatedPoint(x, y, heading, 0, nose, nx, ny);
+  rotatedPoint(x, y, heading, 0, tail, tx, ty);
+  rotatedPoint(x, y, heading, -wing, 0.5f * k, lwx, lwy);
+  rotatedPoint(x, y, heading, wing, 0.5f * k, rwx, rwy);
+  rotatedPoint(x, y, heading, -tailWing, -5.0f * k, ltx, lty);
+  rotatedPoint(x, y, heading, tailWing, -5.0f * k, rtx, rty);
+
+  g.drawLine(tx, ty, nx, ny, color);
+  g.drawLine(lwx, lwy, rwx, rwy, color);
+  g.drawLine(ltx, lty, rtx, rty, color);
+  g.fillTriangle(nx, ny, x - 1, y + 1, x + 1, y + 1, color);
+  if (k >= 1.05f) {
+    g.drawLine(tx + 1, ty, nx + 1, ny, color);
+    g.fillCircle(x, y, 1, color);
+  }
+}
+
+struct LabelBox { int16_t x, y, w, h; };
+bool intersects(const LabelBox& a, const LabelBox& b) {
   return !(a.x + a.w <= b.x || b.x + b.w <= a.x ||
            a.y + a.h <= b.y || b.y + b.h <= a.y);
 }
 
-// ---- the radar view --------------------------------------------------------
-static void drawRadarFrame(TileCanvas* gfx, const Settings& s) {
-  const float range = (float)s.radar.rangeKm;
-  const uint8_t sc = s.radar.uiScale;                             // 0=small,1=med,2=large
-  const uint8_t txt = (sc == 0) ? 1 : 2;                          // built-in font scale
-  const float   k = (sc == 0) ? 0.65f : (sc == 2 ? 1.5f : 1.0f);  // marker geometry scale
-  const int lblDX = scaleR(9, k);
-  gfx->fillScreen(C_BLACK);
+void drawSweep(TileCanvas& g, float angle) {
+  const uint16_t colors[5] = {SWEEP_1, SWEEP_1, SWEEP_2, SWEEP_2, SWEEP_3};
+  for (int i = 0; i < 5; ++i) {
+    int ex, ey;
+    polar(RR - 2, angle - (4 - i) * 3.5f, ex, ey);
+    g.drawLine(CX, CY, ex, ey, colors[i]);
+  }
+}
 
-  // Dense but restrained ATC-style scope.
-  gfx->drawCircle(CX, CY, RR, C_DGRAY);
-  gfx->drawCircle(CX, CY, RR * 2 / 3, C_DGRAY);
-  gfx->drawCircle(CX, CY, RR / 3, C_DGRAY);
-  gfx->drawFastVLine(CX, CY - RR, 2 * RR, C_DGRAY);
-  gfx->drawFastHLine(CX - RR, CY, 2 * RR, C_DGRAY);
-  for (int a=0;a<360;a+=45){ float r=a*(float)PI/180.0f; int x=CX+(int)(sinf(r)*RR), y=CY-(int)(cosf(r)*RR); int x2=CX+(int)(sinf(r)*(RR-5)), y2=CY-(int)(cosf(r)*(RR-5)); gfx->drawLine(x,y,x2,y2,C_GRAY); }
-  {
-    const char* north = "N";
-    int x = (TFT_WIDTH - gfxTextW(north, txt)) / 2;
-    gfx->setTextSize(txt);
-    gfx->setTextColor(C_GRAY);
-    gfx->setCursor(x, CY - RR + 2);
-    gfx->print(north);
-  }   // just inside the top of the ring
+struct RadarRenderContext { const Settings* settings; float sweepAngle; };
 
-  // Home-area airports (projected like aircraft).
-  int ad = scaleR(5, k);
-  for (uint8_t i = 0; i < s.radar.airportCount; i++) {
-    float d, b;
-    geo(s.radar.lat, s.radar.lon, s.radar.airports[i].lat, s.radar.airports[i].lon, d, b);
-    if (d > range) continue;
+void drawRadar(TileCanvas& g, void* opaque) {
+  const RadarRenderContext& context = *static_cast<const RadarRenderContext*>(opaque);
+  const Settings& s = *context.settings;
+  g.fillScreen(BG);
+  g.setTextWrap(false);
+
+  // Full-screen PPI scope. There is deliberately no header bar: corner labels
+  // sit in the unused square corners while the radar circle owns the display.
+  g.drawCircle(CX, CY, RR, GRID_HI);
+  g.drawCircle(CX, CY, RR * 3 / 4, GRID);
+  g.drawCircle(CX, CY, RR / 2, GRID);
+  g.drawCircle(CX, CY, RR / 4, GRID);
+  for (int a = 0; a < 360; a += 30) {
     int x, y;
-    polar(d / range * RR, b, x, y);
-    // diamond marker
-    gfx->drawLine(x, y - ad, x + ad, y, C_BLUE);
-    gfx->drawLine(x + ad, y, x, y + ad, C_BLUE);
-    gfx->drawLine(x, y + ad, x - ad, y, C_BLUE);
-    gfx->drawLine(x - ad, y, x, y - ad, C_BLUE);
+    polar(RR, static_cast<float>(a), x, y);
+    g.drawLine(CX, CY, x, y, (a % 90 == 0) ? GRID_HI : GRID);
+  }
+  for (int a = 0; a < 360; a += 10) {
+    int x1, y1, x2, y2;
+    polar(RR, static_cast<float>(a), x1, y1);
+    polar(RR - (a % 30 == 0 ? 5 : 2), static_cast<float>(a), x2, y2);
+    g.drawLine(x1, y1, x2, y2, GRID_HI);
+  }
+
+  drawSweep(g, context.sweepAngle);
+
+  g.setTextSize(1);
+  g.setTextColor(MUTED);
+  g.setCursor(116, 10); g.print('N');
+  g.setCursor(224, 117); g.print('E');
+  g.setCursor(116, 224); g.print('S');
+  g.setCursor(9, 117); g.print('W');
+
+  const float configuredRange = static_cast<float>(s.radar.rangeKm);
+  const float range = configuredRange < 1.0f ? 1.0f : configuredRange;
+  const float ui = s.radar.uiScale == 0 ? 0.82f
+                   : s.radar.uiScale == 2 ? 1.25f : 1.0f;
+
+  // Airport reference points.
+  for (uint8_t i = 0; i < s.radar.airportCount; ++i) {
+    float distance, bearing;
+    geo(s.radar.lat, s.radar.lon, s.radar.airports[i].lat,
+        s.radar.airports[i].lon, distance, bearing);
+    if (distance > range) continue;
+    int x, y;
+    polar(distance / range * RR, bearing, x, y);
+    g.drawLine(x, y - 4, x + 4, y, BLUE);
+    g.drawLine(x + 4, y, x, y + 4, BLUE);
+    g.drawLine(x, y + 4, x - 4, y, BLUE);
+    g.drawLine(x - 4, y, x, y - 4, BLUE);
     if (s.radar.airports[i].icao[0]) {
-      gfx->setTextSize(txt);
-      gfx->setTextColor(C_BLUE);
-      gfx->setCursor(x + ad + 3, y - ad - 1);
-      gfx->print(s.radar.airports[i].icao);
+      g.setTextColor(BLUE);
+      g.setCursor(x + 6, y - 3);
+      g.print(s.radar.airports[i].icao);
     }
   }
 
-  // Aircraft, nearest first.
-  uint8_t n = radarCount();
-  LblBox  lbl[MAX_AIRCRAFT];    // labels already placed (for declutter)
-  uint8_t nLbl = 0;
-  for (uint8_t i = 0; i < n; i++) {
+  LabelBox labels[10];
+  uint8_t labelCount = 0;
+  const uint8_t aircraftCount = radarCount();
+  for (uint8_t i = 0; i < aircraftCount; ++i) {
     const Aircraft& a = aircraftAt(i);
-
-    if (a.distKm > range) {                 // beyond the ring -> bearing dot on rim
+    if (a.distKm > range) {
       if (!s.radar.showRimDots) continue;
       int x, y;
-      polar(RR, a.bearingDeg, x, y);
-      gfx->fillCircle(x, y, scaleR(3, k), C_RED);
+      polar(RR - 1, a.bearingDeg, x, y);
+      g.fillCircle(x, y, i == 0 ? 3 : 2, i == 0 ? CYAN : CORAL);
       continue;
     }
 
     int x, y;
     polar(a.distKm / range * RR, a.bearingDeg, x, y);
+    const uint16_t color = i == 0 ? CYAN : CORAL;
 
-    if (s.radar.showVectors && !isnan(a.gs) && !isnan(a.track)) {
-      float th = a.track * (float)PI / 180.0f;
-      float len = constrain(a.gs * 0.08f, 6.0f, 24.0f) * k;
-      int ex = x + (int)lroundf(sinf(th) * len);
-      int ey = y - (int)lroundf(cosf(th) * len);
-      gfx->drawLine(x, y, ex, ey, C_MAGENTA);
+    if (s.radar.showVectors && !isnan(a.track) && !isnan(a.gs)) {
+      const float length = constrain(a.gs * 0.045f, 5.0f, 18.0f);
+      int vx, vy;
+      polar(length, a.track, vx, vy);
+      // polar() is centered on the scope; translate the vector to the aircraft.
+      vx = x + (vx - CX);
+      vy = y + (vy - CY);
+      g.drawLine(x, y, vx, vy, i == 0 ? CYAN : AMBER);
     }
 
-    uint16_t targetColor = (i == 0) ? 0x07FF : C_RED;
-    if (!isnan(a.track)) planeTri(gfx, x, y, a.track, k, targetColor);
-    else                 gfx->fillCircle(x, y, scaleR(4, k), targetColor);
+    drawAircraft(g, a, x, y, ui, color);
 
-    if (s.radar.showLabels && a.callsign[0]) {
-      int lw = (int)strlen(a.callsign) * 6 * txt;
-      int lh = 8 * txt + (a.altFt > 0 ? 8 : 0);
-      // Right of the marker by default; flip to its left when the label would
-      // run off the panel, and clamp as a last resort so it never clips.
-      int lx = x + lblDX;
-      if (lx + lw > TFT_WIDTH - 2) lx = x - lblDX - lw;
-      if (lx < 2) lx = 2;
-      if (lx + lw > TFT_WIDTH - 2) lx = TFT_WIDTH - 2 - lw;
-      LblBox box = {(int16_t)lx, (int16_t)(y - (txt == 1 ? 4 : 8)),
-                    (int16_t)lw, (int16_t)lh};
-      bool clash = false;
-      for (uint8_t j = 0; j < nLbl; j++) if (boxHit(box, lbl[j])) { clash = true; break; }
-      if (!clash) {                          // skip labels that would collide
-        if (nLbl < MAX_AIRCRAFT) lbl[nLbl++] = box;
-        gfx->setTextSize(txt);
-        gfx->setTextColor(i == 0 ? 0x07FF : C_GRAY);
-        gfx->setCursor(box.x, box.y);
-        gfx->print(a.callsign);
-        if (a.altFt > 0) {
-          const int flightLevel = constrain(
-              static_cast<int>(a.altFt / 100.0f), 0, 999);
-          char fl[16];
-          snprintf(fl, sizeof(fl), "FL%03d", flightLevel);
-          gfx->setTextSize(1);
-          gfx->setCursor(box.x, y + (txt == 1 ? 6 : 10));
-          gfx->print(fl);
-        }
-      }
+    if (!s.radar.showLabels || !a.callsign[0] || labelCount >= 10) continue;
+    const int textW = min(48, static_cast<int>(strlen(a.callsign)) * 6);
+    int lx = x + 8;
+    if (lx + textW > TFT_WIDTH - 3) lx = x - textW - 8;
+    lx = constrain(lx, 2, TFT_WIDTH - textW - 2);
+    int ly = constrain(y - 9, 2, TFT_HEIGHT - 19);
+    LabelBox box = {static_cast<int16_t>(lx), static_cast<int16_t>(ly),
+                    static_cast<int16_t>(textW), 17};
+    bool clash = false;
+    for (uint8_t j = 0; j < labelCount; ++j) {
+      if (intersects(box, labels[j])) { clash = true; break; }
+    }
+    if (clash) continue;
+    labels[labelCount++] = box;
+
+    g.setTextSize(1);
+    g.setTextColor(i == 0 ? CYAN : TEXT);
+    g.setCursor(lx, ly);
+    g.print(a.callsign);
+    if (a.altFt > 0) {
+      char flightLevel[12];
+      snprintf(flightLevel, sizeof(flightLevel), "FL%03d",
+               constrain(static_cast<int>(a.altFt / 100), 0, 999));
+      g.setTextColor(MUTED);
+      g.setCursor(lx, ly + 9);
+      g.print(flightLevel);
     }
   }
 
-  // Home marker on top.
-  gfx->fillCircle(CX, CY, scaleR(4, k), C_GREEN);
+  // Home marker and corner telemetry.
+  g.drawCircle(CX, CY, 4, CYAN);
+  g.fillCircle(CX, CY, 1, CYAN);
 
-  // Overlays: range (top-left), aircraft count (top-right), error dot.
-  char hdr[16];
-  if (s.radar.unitsMi) snprintf(hdr, sizeof(hdr), "%d mi", (int)lroundf(s.radar.rangeKm * 0.621371f));
-  else                 snprintf(hdr, sizeof(hdr), "%d km", s.radar.rangeKm);
-  gfx->setTextSize(txt);
-  gfx->setTextColor(C_GRAY);
-  gfx->setCursor(3, 3);
-  gfx->print(hdr);
+  char rangeText[14];
+  if (s.radar.unitsMi)
+    snprintf(rangeText, sizeof(rangeText), "%d MI",
+             static_cast<int>(lroundf(s.radar.rangeKm * 0.621371f)));
+  else
+    snprintf(rangeText, sizeof(rangeText), "%d KM", s.radar.rangeKm);
+  g.setTextColor(TEXT);
+  g.setCursor(4, 4);
+  g.print(rangeText);
 
-  char cnt[10];
-  snprintf(cnt, sizeof(cnt), "%d ac", n);
-  gfx->setTextSize(txt);
-  gfx->setTextColor(C_GRAY);
-  gfx->setCursor(TFT_WIDTH - gfxTextW(cnt, txt) - 3, 3);
-  gfx->print(cnt);
+  char countText[12];
+  snprintf(countText, sizeof(countText), "%u AC", aircraftCount);
+  g.setCursor(TFT_WIDTH - gfxTextW(countText, 1) - 4, 4);
+  g.print(countText);
 
-  gfx->drawFastHLine(0, 22, TFT_WIDTH, C_DGRAY);
-  gfx->setTextSize(1); gfx->setTextColor(C_GRAY); gfx->setCursor(82, 228); gfx->print("LIVE ADS-B");
-  if (radarError()) gfx->fillCircle(6, TFT_HEIGHT - 7, 4, C_RED);
+  if (aircraftCount) {
+    const Aircraft& nearest = aircraftAt(0);
+    char nearestText[28];
+    snprintf(nearestText, sizeof(nearestText), "%s %.1f%s",
+             nearest.callsign[0] ? nearest.callsign : "NEAREST",
+             s.radar.unitsMi ? nearest.distKm * 0.621371f : nearest.distKm,
+             s.radar.unitsMi ? "mi" : "km");
+    g.setTextColor(CYAN);
+    g.setCursor(4, 229);
+    g.print(nearestText);
+  } else {
+    g.setTextColor(MUTED);
+    g.setCursor(4, 229);
+    g.print("ADSB.FI  NO TARGETS");
+  }
+
+  if (radarError()) {
+    g.fillCircle(233, 233, 4, CORAL);
+  } else {
+    g.fillCircle(233, 233, 3, CYAN);
+  }
 }
 
-static void renderRadarTile(TileCanvas& canvas, void* opaque) {
-  drawRadarFrame(&canvas, *static_cast<const Settings*>(opaque));
+void markSweepTiles(TileMask& mask, float angle) {
+  // Include the full visible trail. Marking both the old and new trail before a
+  // partial render erases every stale ray while drawing the new one.
+  for (int i = 0; i < 5; ++i) {
+    int ex, ey;
+    polar(RR - 1, angle - (4 - i) * 3.5f, ex, ey);
+    gfxMarkLineTiles(mask, CX, CY, ex, ey, 2);
+  }
 }
 
-// ---- DisplayMode ----------------------------------------------------------
-void RadarMode::begin(const Settings& s) {
-  radarInit(s);
+void renderTile(TileCanvas& canvas, void* opaque) { drawRadar(canvas, opaque); }
+}  // namespace
+
+void RadarMode::begin(const Settings& settings) {
+  radarInit(settings);
   renderedOk_ = 0xFFFFFFFF;
   renderedError_ = false;
+  lastFrame_ = 0;
+  sweepAngle_ = 0.0f;
   needRender_ = true;
 }
 
-void RadarMode::invalidate(const Settings& s) {
-  radarInit(s);
+void RadarMode::invalidate(const Settings& settings) {
+  radarInit(settings);
   radarForceRefresh();
   renderedOk_ = 0xFFFFFFFF;
+  lastFrame_ = 0;
+  sweepAngle_ = 0.0f;
   needRender_ = true;
 }
 
-void RadarMode::render(const Settings& s) {
-  if (s.radar.lat == 0.0f && s.radar.lon == 0.0f) {
-    gfxMessage("Plane radar", "Set home location", C_YELLOW);
+void RadarMode::render(const Settings& settings) {
+  if (settings.radar.lat == 0.0f && settings.radar.lon == 0.0f) {
+    gfxMessage("AIRCRAFT RADAR", "SET HOME LOCATION", AMBER);
     return;
   }
-  gfxRenderTiled(renderRadarTile, const_cast<Settings*>(&s), C_BLACK);
+  RadarRenderContext context{&settings, sweepAngle_};
+  gfxRenderTiled(renderTile, &context, BG);
 }
 
-void RadarMode::service(const Settings& s) {
-  radarService(s);
+void RadarMode::service(const Settings& settings) {
+  radarService(settings);
 
-  uint32_t ok = radarLastOkMs();
-  bool err = radarError();
-  if (ok != renderedOk_ || err != renderedError_) {
+  if (settings.radar.lat == 0.0f && settings.radar.lon == 0.0f) {
+    if (needRender_) {
+      render(settings);
+      needRender_ = false;
+    }
+    return;
+  }
+
+  const uint32_t ok = radarLastOkMs();
+  const bool error = radarError();
+  if (ok != renderedOk_ || error != renderedError_) {
     renderedOk_ = ok;
-    renderedError_ = err;
-    needRender_ = true;
+    renderedError_ = error;
+    needRender_ = true;  // target set changed: every tile may be affected
   }
 
+  const uint32_t now = millis();
   if (needRender_) {
-    render(s);
+    sweepAngle_ = fmodf((now / static_cast<float>(RADAR_FRAME_MS)) * 7.5f,
+                        360.0f);
+    lastFrame_ = now;
+    render(settings);
     needRender_ = false;
+    return;
   }
+
+  if (now - lastFrame_ < RADAR_FRAME_MS) return;
+  lastFrame_ = now;
+
+  const float nextAngle = fmodf(
+      (now / static_cast<float>(RADAR_FRAME_MS)) * 7.5f, 360.0f);
+  TileMask dirty = 0;
+  markSweepTiles(dirty, sweepAngle_);
+  markSweepTiles(dirty, nextAngle);
+  sweepAngle_ = nextAngle;
+
+  RadarRenderContext context{&settings, sweepAngle_};
+  gfxRenderTileMask(renderTile, &context, BG, dirty);
 }

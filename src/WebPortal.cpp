@@ -45,9 +45,9 @@ static void handleGetConfig() {
   JsonObject feat = root["features"].to<JsonObject>();
   feat["weather"]=(bool)WITH_WEATHER; feat["network"]=(bool)WITH_NETWORK; feat["radar"]=(bool)WITH_RADAR; feat["github"]=(bool)WITH_GITHUB;
   // Which chip this build runs on (the UI warns about per-chip limitations).
-#if defined(SMALLTV_ESP32C2)
+#if defined(DESKMATE_ESP32C2)
   root["chip"] = "esp32c2";
-#elif defined(SMALLTV_ESP32)
+#elif defined(DESKMATE_ESP32)
   root["chip"] = "esp32";
 #else
   root["chip"] = "esp8266";
@@ -117,7 +117,7 @@ static void handlePostConfig() {
   clockReapply(*S);         // re-arm SNTP iff the timezone changed
   appApplyBrightness();     // apply effective brightness (respects night/auto/manual)
   if (S->rotation != oldRot) gfxSetRotation(S->rotation);
-  appInvalidate();          // re-init every mode + repaint (covers mode/URL/symbol changes)
+  appInvalidate();          // re-init every mode + repaint (covers mode/API/location changes)
 
   bool wifiChanged = netFingerprint(*S) != oldNet;
 
@@ -160,7 +160,7 @@ static void handleFactory() {
 static void handleExport() {
   File f = LittleFS.open("/config.json", "r");
   if (!f) { server.send(404, "text/plain", "no config saved yet"); return; }
-  server.sendHeader("Content-Disposition", "attachment; filename=smalltv-config.json");
+  server.sendHeader("Content-Disposition", "attachment; filename=deskmate-config.json");
   server.streamFile(f, "application/json");
   f.close();
 }
@@ -214,7 +214,7 @@ static void handleUpdateDone() {
 static void handleUpdateUpload() {
   HTTPUpload& up = server.upload();
   if (up.status == UPLOAD_FILE_START) {
-#if defined(SMALLTV_ESP8266)
+#if defined(DESKMATE_ESP8266)
     WiFiUDP::stopAll();   // free UDP sockets so the OTA has max contiguous flash/heap
 #endif
     uint32_t maxSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
@@ -279,7 +279,7 @@ void webPortalLoop() {
   // response first.
   if (g_selfUpdate) {
     g_selfUpdate = false;
-#if defined(SMALLTV_ESP8266)
+#if defined(DESKMATE_ESP8266)
     // RAM-tight chip: verify there is something to install, then queue the
     // download for the next boot (otaBootUpdate in setup(), ~45 KB free) and
     // reboot. A failure there lands back in g_updateMsg via otaTakeBootResult.

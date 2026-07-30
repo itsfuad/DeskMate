@@ -57,7 +57,7 @@ static void trimTail(char* s) {
 
 // ---- probe MFLN once so TLS can use the smallest safe buffer ---------------
 static void probeTls() {
-#if defined(SMALLTV_ESP8266)
+#if defined(DESKMATE_ESP8266)
   if (g_tlsRx) return;
   if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(ADSB_HOST, 443, 512))       g_tlsRx = 512;
   else if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(ADSB_HOST, 443, 1024)) g_tlsRx = 1024;
@@ -105,6 +105,8 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
   fe["flight"] = true;
   fe["hex"] = true;
   fe["alt_baro"] = true;
+  fe["category"] = true;
+  fe["t"] = true;
 
   JsonDocument doc;
   DeserializationError err =
@@ -119,7 +121,7 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     if (!a["lat"].is<float>() && !a["lat"].is<int>()) continue;
     if (!a["lon"].is<float>() && !a["lon"].is<int>()) continue;
 
-    Aircraft t;
+    Aircraft t{};
     t.lat = a["lat"].as<float>();
     t.lon = a["lon"].as<float>();
     t.track = (a["track"].is<float>() || a["track"].is<int>()) ? a["track"].as<float>() : NAN;
@@ -132,6 +134,8 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     const char* fl = a["flight"] | (a["hex"] | "");
     strlcpy(t.callsign, fl, sizeof(t.callsign));
     trimTail(t.callsign);
+    strlcpy(t.category, a["category"] | "", sizeof(t.category));
+    strlcpy(t.type, a["t"] | "", sizeof(t.type));
 
     geo(s.radar.lat, s.radar.lon, t.lat, t.lon, t.distKm, t.bearingDeg);
     insertNearest(t);
@@ -159,6 +163,7 @@ static bool fetchUrl(const Settings& s, const String& url) {
   HTTPClient http;
   http.setTimeout(s.httpTimeout);
   http.setReuse(false);
+  http.useHTTP10(true);  // make the streaming JSON body non-chunked
   if (!http.begin(*client, url)) return false;
   http.addHeader("Accept", "application/json");
   http.setUserAgent(F(ADSB_USER_AGENT));

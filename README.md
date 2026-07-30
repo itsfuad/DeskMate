@@ -1,37 +1,57 @@
-# DeskTV for ESP8266 SmallTV / SD Pro
+# DeskMate
 
-A compact 240x240 desk dashboard firmware based on `smalltv-mod`.
+DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible GeekMagic-style hardware.
 
-## Modes
+## Views
 
-- Ambient weather: Open-Meteo current conditions, animated scene, hourly temperature curve
-- Network guardian: TCP reachability, latency and ten-minute history
-- Aircraft radar: nearby ADS-B targets, heading triangles, vectors, altitude labels, airports and nearest-target highlighting
-- GitHub status: latest commit, open issues, open pull requests and five-week commit activity tiles
-- Carousel: rotates through any selected modes
+- **Weather** — OpenWeather current conditions plus four forecast days, rendered as a static modern scene. Configure the OpenWeather API key, coordinates, label, units and refresh interval from the web UI.
+- **Network guardian** — Internet TCP latency, DNS timing, availability, outage history, Wi-Fi quality and local IP.
+- **Aircraft radar** — Full-screen PPI radar with a rotating sweep, range rings, airports, vectors, callsign/flight-level labels and aircraft silhouettes scaled from ADS-B emitter category when supplied by the feed.
+- **GitHub activity** — Authenticated-user current-year commits, open issues and open pull requests, streak, weekly activity and a 52-week contribution graph using GitHub GraphQL.
+- **Carousel** — Rotates through any selected views.
 
-All active screens use a static 40x40 RGB565 tile backbuffer. Each completed tile replaces the corresponding LCD area without first clearing the visible screen.
+All active views use a static 40 × 40 RGB565 tile backbuffer. The visible LCD is never cleared before a replacement tile is fully composed.
 
 ## Configure
 
-Open the device IP or `http://<hostname>.local`. The minimal web UI controls all mode settings, Wi-Fi, display, carousel, refresh, reboot and OTA upload.
+Open the device IP address or `http://deskmate-xxxx.local`.
+
+Secrets are entered in the web UI and stored only in LittleFS configuration:
+
+- OpenWeather API key
+- GitHub personal access token
+- Wi-Fi password
+
+Leaving a secret field blank keeps the stored value.
 
 ## Build
 
 ```bash
-pio run -e smalltv
+pio run -e deskmate
 ```
 
 Firmware output:
 
 ```text
-.pio/build/smalltv/firmware.bin
+.pio/build/deskmate/firmware.bin
 ```
 
-Upload the binary from the System tab in the web UI.
+Upload the binary from the DeskMate System tab, or over UART with:
+
+```bash
+pio run -e deskmate -t upload --upload-port /dev/ttyUSB0
+```
+
+## Other targets
+
+```bash
+pio run -e deskmate_c2
+pio run -e deskmate_esp32
+pio run -e deskmate_loader
+```
 
 ## Data sources
 
-- Weather: Open-Meteo
-- Radar: adsb.fi direct endpoint or a configurable webhook/proxy
-- GitHub: GitHub REST API; an optional token raises rate limits
+- Weather: OpenWeather Current Weather and 5 Day / 3 Hour Forecast APIs
+- Radar: adsb.fi open-data API or a configurable webhook/proxy
+- GitHub: GitHub GraphQL API using the configured user token

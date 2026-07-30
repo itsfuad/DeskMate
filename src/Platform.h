@@ -2,14 +2,14 @@
 //
 // It pulls in the arch-specific SDK headers and exposes a small, uniform surface
 // (class aliases + inline shims) so the rest of the firmware stays chip-agnostic.
-// Target is chosen by a build-time macro: -D SMALLTV_ESP32C2 (ESP8684 knockoff),
-// -D SMALLTV_ESP32 (classic ESP32, NM-TV-154), or -D SMALLTV_ESP8266 (original
-// SmallTV, the default). Both ESP32 targets share the Arduino core 3.x branch.
+// Target is chosen by a build-time macro: -D DESKMATE_ESP32C2 (ESP8684 knockoff),
+// -D DESKMATE_ESP32 (classic ESP32, NM-TV-154), or -D DESKMATE_ESP8266 (original
+// DeskMate, the default). Both ESP32 targets share the Arduino core 3.x branch.
 #pragma once
 #include <Arduino.h>
 #include <time.h>
 
-#if defined(SMALLTV_ESP32C2) || defined(SMALLTV_ESP32)
+#if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 // ================== ESP32 family (C2/ESP8684 + classic ESP32) ==================
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -118,15 +118,10 @@ static inline PlatformReset platformResetInfo() {
 using TlsSession = BearSSL::Session;
 
 // TLS client factory. On the ESP8266 the BearSSL receive buffer is a real heap
-// win, so size it for the small JSON payloads we fetch. Options:
-//  - session: TLS session resumption. Pass a persistent BearSSL::Session and
-//    the first handshake stores its params; later connects to the same server
-//    resume without the costly ECDHE/RSA math (cash.ch resumes for ~23 h).
-//  - cheapCiphers: offer ONLY the old static-RSA suites. Hosts that accept them
-//    (Yahoo, raw.githubusercontent.com) then skip ECDHE entirely, keeping those
-//    handshakes as light as the old BASIC build. Only cash.ch, which needs
-//    ECDHE, is left on the full (heavy) suite list.
-// cash.ch honors MFLN so 512/512 keeps the whole TLS footprint small.
+// cost, so callers size it for each API payload. A persistent session may be
+// supplied for resumption, and cheapCiphers can be enabled for endpoints that
+// still accept static-RSA suites. Modern API endpoints remain on the full suite
+// list and use the P-256 tuning in BearSslTuning.cpp.
 static inline SecureClient* platformMakeSecureClient(uint16_t rxBuf,
                                                      TlsSession* session = nullptr,
                                                      uint16_t txBuf = 512,
