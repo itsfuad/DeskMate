@@ -3,6 +3,7 @@
 #include <math.h>
 #include "Gfx.h"
 #include "RadarClient.h"
+#include "TileRenderer.h"
 
 RadarMode g_radarMode;
 
@@ -38,7 +39,7 @@ static int scaleR(float base, float k) {
 
 // Filled heading triangle centred at (x,y), nose pointing along track (deg, cw N).
 // `k` scales the triangle with the UI-size setting.
-static void planeTri(Arduino_GFX* gfx, int x, int y, float trackDeg, float k, uint16_t color) {
+static void planeTri(TileCanvas* gfx, int x, int y, float trackDeg, float k, uint16_t color) {
   const float L = 12.0f * k, W = 8.0f * k, B = 7.0f * k;  // nose, half-width, tail setback
   float th = trackDeg * (float)PI / 180.0f;
   float ct = cosf(th), st = sinf(th);
@@ -62,9 +63,7 @@ static bool boxHit(const LblBox& a, const LblBox& b) {
 }
 
 // ---- the radar view --------------------------------------------------------
-static void drawRadar(const Settings& s) {
-  Arduino_GFX* gfx = gfxDev();
-  if (!gfx) return;
+static void drawRadarFrame(TileCanvas* gfx, const Settings& s) {
   const float range = (float)s.radar.rangeKm;
   const uint8_t sc = s.radar.uiScale;                             // 0=small,1=med,2=large
   const uint8_t txt = (sc == 0) ? 1 : 2;                          // built-in font scale
@@ -77,7 +76,14 @@ static void drawRadar(const Settings& s) {
   gfx->drawCircle(CX, CY, RR / 2, C_DGRAY);
   gfx->drawFastVLine(CX, CY - RR, 2 * RR, C_DGRAY);
   gfx->drawFastHLine(CX - RR, CY, 2 * RR, C_DGRAY);
-  gfxDrawCentered("N", CY - RR + 2, txt, C_GRAY);   // just inside the top of the ring
+  {
+    const char* north = "N";
+    int x = (TFT_WIDTH - gfxTextW(north, txt)) / 2;
+    gfx->setTextSize(txt);
+    gfx->setTextColor(C_GRAY);
+    gfx->setCursor(x, CY - RR + 2);
+    gfx->print(north);
+  }   // just inside the top of the ring
 
   // Home-area airports (projected like aircraft).
   int ad = scaleR(5, k);
@@ -181,6 +187,10 @@ static void drawRadar(const Settings& s) {
   if (radarError()) gfx->fillCircle(6, TFT_HEIGHT - 7, 4, C_RED);
 }
 
+static void renderRadarTile(TileCanvas& canvas, void* opaque) {
+  drawRadarFrame(&canvas, *static_cast<const Settings*>(opaque));
+}
+
 // ---- DisplayMode ----------------------------------------------------------
 void RadarMode::begin(const Settings& s) {
   radarInit(s);
@@ -201,7 +211,7 @@ void RadarMode::render(const Settings& s) {
     gfxMessage("Plane radar", "Set home location", C_YELLOW);
     return;
   }
-  drawRadar(s);
+  gfxRenderTiled(renderRadarTile, const_cast<Settings*>(&s), C_BLACK);
 }
 
 void RadarMode::service(const Settings& s) {

@@ -3,13 +3,24 @@
 #include "Gfx.h"
 #include "Net.h"
 #include "StockClient.h"
+#include "TileRenderer.h"
 
 TickerMode g_tickerMode;
+
+static void tileDrawCentered(TileCanvas* gfx, const char* text, int y,
+                             uint8_t size, uint16_t color) {
+  int x = (TFT_WIDTH - gfxTextW(text, size)) / 2;
+  if (x < 0) x = 0;
+  gfx->setTextSize(size);
+  gfx->setTextColor(color);
+  gfx->setCursor(x, y);
+  gfx->print(text);
+}
 
 // ---- sparkline ------------------------------------------------------------
 // livePt (NAN = none) is appended as the newest point so the chart ends at the
 // live price rather than the last historical close.
-static void drawSparkline(Arduino_GFX* gfx, const StockData& d,
+static void drawSparkline(TileCanvas* gfx, const StockData& d,
                           int top, int bottom, uint16_t color, float livePt) {
   if (d.sparkCount < 2) return;
   bool live = !isnan(livePt);
@@ -54,16 +65,14 @@ static void fmtPrice(float v, char* out, size_t n) {
 }
 
 // ---- one ticker page ------------------------------------------------------
-static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
-                      const Settings& s) {
-  Arduino_GFX* gfx = gfxDev();
-  if (!gfx) return;
+static void drawStockFrame(TileCanvas* gfx, const StockData& d, uint8_t pageIndex, uint8_t pageCount,
+                           const Settings& s) {
   gfx->fillScreen(C_BLACK);
 
   // No data yet for this symbol.
   if (!d.valid) {
-    gfxDrawCentered(d.symbol[0] ? d.symbol : "----", 80, 3, C_WHITE);
-    gfxDrawCentered(d.error ? "fetch error" : "loading...", 120, 2, C_GRAY);
+    tileDrawCentered(gfx, d.symbol[0] ? d.symbol : "----", 80, 3, C_WHITE);
+    tileDrawCentered(gfx, d.error ? "fetch error" : "loading...", 120, 2, C_GRAY);
     if (s.ticker.showPageDots) {
       int total = pageCount * 10 - 4;
       int x0 = (TFT_WIDTH - total) / 2;
@@ -96,7 +105,7 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
   // Name / symbol
   if (s.ticker.showName) {
     const char* label = d.name[0] ? d.name : d.symbol;
-    gfxDrawCentered(label, y, gfxFitSize(label, 232, 3), C_WHITE);
+    tileDrawCentered(gfx, label, y, gfxFitSize(label, 232, 3), C_WHITE);
     y += 28;
   }
 
@@ -109,7 +118,7 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     uint8_t sz = gfxFitSize(line, 236, 6);
     int ph = 8 * sz;
     int py = s.ticker.showName ? 74 : 64;
-    gfxDrawCentered(line, py, sz, C_WHITE);   // price stays neutral (not trend-colored)
+    tileDrawCentered(gfx, line, py, sz, C_WHITE);   // price stays neutral (not trend-colored)
     y = py + ph + 8;
   }
 
@@ -146,7 +155,7 @@ static void drawStock(const StockData& d, uint8_t pageIndex, uint8_t pageCount,
     char pl[40];
     snprintf(pl, sizeof(pl), "P/L %+.0f (%+.1f%%)", (d.price - d.cost) * d.qty, plPct);
     uint8_t sz = gfxFitSize(pl, 220, 2);
-    gfxDrawCentered(pl, y, sz, plPct >= 0 ? upC : downC);
+    tileDrawCentered(gfx, pl, y, sz, plPct >= 0 ? upC : downC);
     y += 8 * sz + 6;
   }
 
@@ -205,9 +214,7 @@ static bool hasPortfolioPage(const Settings& s) {
 }
 
 // One row per position (name / P/L% / value), then a total per currency.
-static void drawPortfolio(uint8_t pageIndex, uint8_t pageCount, const Settings& s) {
-  Arduino_GFX* gfx = gfxDev();
-  if (!gfx) return;
+static void drawPortfolioFrame(TileCanvas* gfx, uint8_t pageIndex, uint8_t pageCount, const Settings& s) {
   gfx->fillScreen(C_BLACK);
 
   int y = 6;
@@ -219,7 +226,7 @@ static void drawPortfolio(uint8_t pageIndex, uint8_t pageCount, const Settings& 
     y += 20;
   }
 
-  gfxDrawCentered("Portfolio", y, 3, C_WHITE);
+  tileDrawCentered(gfx, "Portfolio", y, 3, C_WHITE);
   y += 32;
 
   uint16_t upC   = s.ticker.colorInverted ? C_RED : C_GREEN;
@@ -302,6 +309,29 @@ static void drawPortfolio(uint8_t pageIndex, uint8_t pageCount, const Settings& 
   }
 }
 
+struct StockTileContext {
+  const StockData* data;
+  uint8_t pageIndex;
+  uint8_t pageCount;
+  const Settings* settings;
+};
+
+static void renderStockTile(TileCanvas& canvas, void* opaque) {
+  StockTileContext& c = *static_cast<StockTileContext*>(opaque);
+  drawStockFrame(&canvas, *c.data, c.pageIndex, c.pageCount, *c.settings);
+}
+
+struct PortfolioTileContext {
+  uint8_t pageIndex;
+  uint8_t pageCount;
+  const Settings* settings;
+};
+
+static void renderPortfolioTile(TileCanvas& canvas, void* opaque) {
+  PortfolioTileContext& c = *static_cast<PortfolioTileContext*>(opaque);
+  drawPortfolioFrame(&canvas, c.pageIndex, c.pageCount, *c.settings);
+}
+
 // ---- DisplayMode ----------------------------------------------------------
 void TickerMode::begin(const Settings& s) {
   stocksInit(s);
@@ -335,8 +365,13 @@ void TickerMode::render(const Settings& s) {
   }
   uint8_t pages = n + (hasPortfolioPage(s) ? 1 : 0);
   if (curPage_ >= pages) curPage_ = 0;
-  if (curPage_ >= n) drawPortfolio(curPage_, pages, s);
-  else               drawStock(stockAt(curPage_), curPage_, pages, s);
+  if (curPage_ >= n) {
+    PortfolioTileContext ctx{curPage_, pages, &s};
+    gfxRenderTiled(renderPortfolioTile, &ctx, C_BLACK);
+  } else {
+    StockTileContext ctx{&stockAt(curPage_), curPage_, pages, &s};
+    gfxRenderTiled(renderStockTile, &ctx, C_BLACK);
+  }
 }
 
 void TickerMode::service(const Settings& s) {

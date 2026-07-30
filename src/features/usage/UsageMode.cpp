@@ -3,6 +3,7 @@
 #include "Gfx.h"
 #include "UsageClient.h"
 #include "Mascot.h"
+#include "TileRenderer.h"
 
 UsageMode g_usageMode;
 
@@ -28,7 +29,8 @@ static void loadPalette(const uint16_t* palette, uint16_t* out) {
 }
 
 // Draw a 20x20 mascot frame at (x0,y0), cellPx per cell. Reads PROGMEM frame data.
-static void blitMascot(Arduino_GFX* gfx, const uint8_t* cells, const uint16_t* palette,
+template <typename GfxT>
+static void blitMascot(GfxT* gfx, const uint8_t* cells, const uint16_t* palette,
                        int x0, int y0, int cellPx) {
   uint16_t pal[MASCOT_PALETTE_SIZE];
   loadPalette(palette, pal);
@@ -56,7 +58,8 @@ static uint16_t barColor(float pct) {
 
 // One usage card: big %, a 5h/7d label, a fill bar coloured by load, and the
 // reset countdown. `top` is the card's top y; the card is 82px tall.
-static void drawMeter(Arduino_GFX* gfx, int top, const char* label,
+template <typename GfxT>
+static void drawMeter(GfxT* gfx, int top, const char* label,
                       float pct, int resetMins) {
   const int x = 8, w = 224, h = 82;
   gfx->fillRoundRect(x, top, w, h, 8, C_PANEL);
@@ -91,10 +94,7 @@ static void drawMeter(Arduino_GFX* gfx, int top, const char* label,
 }
 
 // Stats screen: mascot header + 5h/7d meters.
-static void drawUsage(const UsageData& u) {
-  Arduino_GFX* gfx = gfxDev();
-  if (!gfx) return;
-  s_mascotPrimed = false;   // force a full redraw next time the idle animation shows
+static void drawUsageFrame(TileCanvas* gfx, const UsageData& u) {
   gfx->fillScreen(C_BLACK);
 
   // Header: a small calm mascot pose + title.
@@ -105,7 +105,14 @@ static void drawUsage(const UsageData& u) {
   gfx->print("CLAUDE");
 
   if (!u.valid) {
-    gfxDrawCentered(u.error ? "daemon error" : "waiting...", 120, 2, C_DIM);
+    {
+      const char* msg = u.error ? "daemon error" : "waiting...";
+      int x = (TFT_WIDTH - gfxTextW(msg, 2)) / 2;
+      gfx->setTextSize(2);
+      gfx->setTextColor(C_DIM);
+      gfx->setCursor(max(0, x), 120);
+      gfx->print(msg);
+    }
     return;
   }
 
@@ -116,6 +123,24 @@ static void drawUsage(const UsageData& u) {
 
   drawMeter(gfx, 50,  "5h", u.sessionPct, u.sessionResetMin);
   drawMeter(gfx, 138, "7d", u.weeklyPct,  u.weeklyResetMin);
+}
+
+static void renderUsageTile(TileCanvas& canvas, void* opaque) {
+  drawUsageFrame(&canvas, *static_cast<const UsageData*>(opaque));
+}
+
+struct MascotTileContext {
+  const uint8_t* cells;
+  const uint16_t* palette;
+};
+
+static void renderMascotTile(TileCanvas& canvas, void* opaque) {
+  MascotTileContext& c = *static_cast<MascotTileContext*>(opaque);
+  canvas.fillScreen(C_BLACK);
+  const int cp = TFT_WIDTH / MASCOT_GRID;
+  const int x0 = (TFT_WIDTH - MASCOT_GRID * cp) / 2;
+  const int y0 = (TFT_HEIGHT - MASCOT_GRID * cp) / 2;
+  blitMascot(&canvas, c.cells, c.palette, x0, y0, cp);
 }
 
 // Idle animation: full-screen mascot, diffed cell-by-cell for a flicker-free draw.
@@ -131,15 +156,20 @@ static void drawMascot(const uint8_t* cells, const uint16_t* palette, bool resta
   // Full redraw on (re)entry or whenever the palette changes (animation switch);
   // otherwise only repaint the cells that changed since the last frame.
   bool full = restart || !s_mascotPrimed || palette != s_mascotPalette;
-  if (full) gfx->fillScreen(C_BLACK);
-
-  for (int i = 0; i < MASCOT_GRID * MASCOT_GRID; i++) {
-    uint8_t code = pgm_read_byte(&cells[i]);
-    if (!full && code == s_prevCells[i]) continue;
-    s_prevCells[i] = code;
-    uint16_t color = (code < MASCOT_PALETTE_SIZE) ? pal[code] : 0;
-    int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
-    gfx->fillRect(x0 + gx * CP, y0 + gy * CP, CP, CP, color);
+  if (full) {
+    MascotTileContext ctx{cells, palette};
+    gfxRenderTiled(renderMascotTile, &ctx, C_BLACK);
+    for (int i = 0; i < MASCOT_GRID * MASCOT_GRID; i++)
+      s_prevCells[i] = pgm_read_byte(&cells[i]);
+  } else {
+    for (int i = 0; i < MASCOT_GRID * MASCOT_GRID; i++) {
+      uint8_t code = pgm_read_byte(&cells[i]);
+      if (code == s_prevCells[i]) continue;
+      s_prevCells[i] = code;
+      uint16_t color = (code < MASCOT_PALETTE_SIZE) ? pal[code] : 0;
+      int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
+      gfx->fillRect(x0 + gx * CP, y0 + gy * CP, CP, CP, color);
+    }
   }
   s_mascotPrimed  = true;
   s_mascotPalette = palette;
@@ -183,7 +213,11 @@ void UsageMode::service(const Settings& s) {
   if (usageFresh(staleMs)) {
     if (showingMascot_) { showingMascot_ = false; needRender_ = true; }
     if (u.lastOkMs != usageRenderedOk_) { usageRenderedOk_ = u.lastOkMs; needRender_ = true; }
-    if (needRender_) { drawUsage(u); needRender_ = false; }
+    if (needRender_) {
+      s_mascotPrimed = false;
+      gfxRenderTiled(renderUsageTile, const_cast<UsageData*>(&u), C_BLACK);
+      needRender_ = false;
+    }
   } else {
     if (!showingMascot_) {
       showingMascot_ = true;
