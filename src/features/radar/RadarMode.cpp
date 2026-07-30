@@ -11,8 +11,8 @@ RadarMode g_radarMode;
 
 // Radar geometry (square 240x240 panel; the circle leaves the corners empty).
 static const int CX = TFT_WIDTH / 2;
-static const int CY = TFT_HEIGHT / 2;
-static const int RR = 112;                 // outer ring radius, px
+static const int CY = 122;
+static const int RR = 105;                 // outer ring radius, px
 
 // dist/bearing polar -> screen xy (bearing 0 = N = up, cw).
 static void polar(float distPx, float brgDeg, int& x, int& y) {
@@ -71,11 +71,13 @@ static void drawRadarFrame(TileCanvas* gfx, const Settings& s) {
   const int lblDX = scaleR(9, k);
   gfx->fillScreen(C_BLACK);
 
-  // Range rings + crosshair + N marker.
+  // Dense but restrained ATC-style scope.
   gfx->drawCircle(CX, CY, RR, C_DGRAY);
-  gfx->drawCircle(CX, CY, RR / 2, C_DGRAY);
+  gfx->drawCircle(CX, CY, RR * 2 / 3, C_DGRAY);
+  gfx->drawCircle(CX, CY, RR / 3, C_DGRAY);
   gfx->drawFastVLine(CX, CY - RR, 2 * RR, C_DGRAY);
   gfx->drawFastHLine(CX - RR, CY, 2 * RR, C_DGRAY);
+  for (int a=0;a<360;a+=45){ float r=a*(float)PI/180.0f; int x=CX+(int)(sinf(r)*RR), y=CY-(int)(cosf(r)*RR); int x2=CX+(int)(sinf(r)*(RR-5)), y2=CY-(int)(cosf(r)*(RR-5)); gfx->drawLine(x,y,x2,y2,C_GRAY); }
   {
     const char* north = "N";
     int x = (TFT_WIDTH - gfxTextW(north, txt)) / 2;
@@ -132,8 +134,9 @@ static void drawRadarFrame(TileCanvas* gfx, const Settings& s) {
       gfx->drawLine(x, y, ex, ey, C_MAGENTA);
     }
 
-    if (!isnan(a.track)) planeTri(gfx, x, y, a.track, k, C_RED);
-    else                 gfx->fillCircle(x, y, scaleR(4, k), C_RED);
+    uint16_t targetColor = (i == 0) ? 0x07FF : C_RED;
+    if (!isnan(a.track)) planeTri(gfx, x, y, a.track, k, targetColor);
+    else                 gfx->fillCircle(x, y, scaleR(4, k), targetColor);
 
     if (s.radar.showLabels && a.callsign[0]) {
       int lw = (int)strlen(a.callsign) * 6 * txt;
@@ -151,12 +154,14 @@ static void drawRadarFrame(TileCanvas* gfx, const Settings& s) {
       if (!clash) {                          // skip labels that would collide
         if (nLbl < MAX_AIRCRAFT) lbl[nLbl++] = box;
         gfx->setTextSize(txt);
-        gfx->setTextColor(C_GRAY);
+        gfx->setTextColor(i == 0 ? 0x07FF : C_GRAY);
         gfx->setCursor(box.x, box.y);
         gfx->print(a.callsign);
         if (a.altFt > 0) {
-          char fl[8];
-          snprintf(fl, sizeof(fl), "FL%03d", (int)(a.altFt / 100));
+          const int flightLevel = constrain(
+              static_cast<int>(a.altFt / 100.0f), 0, 999);
+          char fl[16];
+          snprintf(fl, sizeof(fl), "FL%03d", flightLevel);
           gfx->setTextSize(1);
           gfx->setCursor(box.x, y + (txt == 1 ? 6 : 10));
           gfx->print(fl);
@@ -184,6 +189,8 @@ static void drawRadarFrame(TileCanvas* gfx, const Settings& s) {
   gfx->setCursor(TFT_WIDTH - gfxTextW(cnt, txt) - 3, 3);
   gfx->print(cnt);
 
+  gfx->drawFastHLine(0, 22, TFT_WIDTH, C_DGRAY);
+  gfx->setTextSize(1); gfx->setTextColor(C_GRAY); gfx->setCursor(82, 228); gfx->print("LIVE ADS-B");
   if (radarError()) gfx->fillCircle(6, TFT_HEIGHT - 7, 4, C_RED);
 }
 

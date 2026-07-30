@@ -5,138 +5,6 @@
 static const char* CONFIG_PATH = "/config.json";
 
 // ===========================================================================
-// Ticker slice
-// ===========================================================================
-static const char* srcToStr(uint8_t s) {
-  return (s == SRC_YAHOO) ? "yahoo"
-       : (s == SRC_CASH)  ? "cash"
-       : (s == SRC_GHUB)  ? "github" : "webhook";
-}
-static uint8_t srcFromStr(const String& s) {
-  return s.equalsIgnoreCase("yahoo")  ? SRC_YAHOO
-       : s.equalsIgnoreCase("cash")   ? SRC_CASH
-       : s.equalsIgnoreCase("github") ? SRC_GHUB : SRC_WEBHOOK;
-}
-
-void TickerSettings::setDefaults() {
-  webhookUrl = "";
-  range = DEFAULT_RANGE;
-  points = DEFAULT_POINTS;
-  pollSec = DEFAULT_POLL_SEC;
-  rotateSec = DEFAULT_ROTATE_SEC;
-  colorInverted = false;
-  changeOnRange = true;
-
-  showName = true;
-  showPrice = true;
-  showChange = true;
-  showChart = true;
-  showRangeLabel = true;
-  showUpdatedAgo = false;
-  showPageDots = true;
-  showPortfolio = true;   // only visible once a symbol has qty+cost set
-
-  symbolCount = 0;
-  for (uint8_t i = 0; i < MAX_SYMBOLS; i++) {
-    symbols[i].symbol[0] = 0;
-    symbols[i].name[0] = 0;
-    symbols[i].source = DEFAULT_SOURCE;
-    symbols[i].qty = 0;
-    symbols[i].cost = 0;
-  }
-}
-
-void TickerSettings::toJson(JsonObject o) const {
-  o["webhookUrl"]     = webhookUrl;
-  o["range"]          = range;
-  o["points"]         = points;
-  o["pollSec"]        = pollSec;
-  o["rotateSec"]      = rotateSec;
-  o["colorInverted"]  = colorInverted;
-  o["changeOnRange"]  = changeOnRange;
-  o["showName"]       = showName;
-  o["showPrice"]      = showPrice;
-  o["showChange"]     = showChange;
-  o["showChart"]      = showChart;
-  o["showRangeLabel"] = showRangeLabel;
-  o["showUpdatedAgo"] = showUpdatedAgo;
-  o["showPageDots"]   = showPageDots;
-  o["showPortfolio"]  = showPortfolio;
-
-  JsonArray arr = o["symbols"].to<JsonArray>();
-  for (uint8_t i = 0; i < symbolCount; i++) {
-    JsonObject e = arr.add<JsonObject>();
-    e["symbol"] = symbols[i].symbol;
-    e["name"]   = symbols[i].name;
-    e["source"] = srcToStr(symbols[i].source);
-    e["qty"]    = symbols[i].qty;
-    e["cost"]   = symbols[i].cost;
-  }
-}
-
-void TickerSettings::fromJson(JsonObjectConst o) {
-  // Legacy (pre-2.4) configs carried one global "source"; it becomes the
-  // default for any symbol that doesn't carry its own.
-  uint8_t legacySrc = DEFAULT_SOURCE;
-  if (o["source"].is<const char*>()) legacySrc = srcFromStr(o["source"].as<String>());
-
-  if (o["webhookUrl"].is<const char*>()) webhookUrl = o["webhookUrl"].as<String>();
-  if (o["range"].is<const char*>())      range = o["range"].as<String>();
-  if (o["points"].is<int>())             points = constrain((int)o["points"], 0, MAX_SPARK_POINTS);
-  if (o["pollSec"].is<int>())            pollSec = max(10, (int)o["pollSec"]);
-  if (o["rotateSec"].is<int>())          rotateSec = max(2, (int)o["rotateSec"]);
-  if (o["colorInverted"].is<bool>())     colorInverted = o["colorInverted"];
-  if (o["changeOnRange"].is<bool>())     changeOnRange = o["changeOnRange"];
-
-  if (o["showName"].is<bool>())       showName = o["showName"];
-  if (o["showPrice"].is<bool>())      showPrice = o["showPrice"];
-  if (o["showChange"].is<bool>())     showChange = o["showChange"];
-  if (o["showChart"].is<bool>())      showChart = o["showChart"];
-  if (o["showRangeLabel"].is<bool>()) showRangeLabel = o["showRangeLabel"];
-  if (o["showUpdatedAgo"].is<bool>()) showUpdatedAgo = o["showUpdatedAgo"];
-  if (o["showPageDots"].is<bool>())   showPageDots = o["showPageDots"];
-  if (o["showPortfolio"].is<bool>())  showPortfolio = o["showPortfolio"];
-
-  if (o["symbols"].is<JsonArrayConst>()) {
-    JsonArrayConst arr = o["symbols"].as<JsonArrayConst>();
-    symbolCount = 0;
-    for (JsonObjectConst e : arr) {
-      if (symbolCount >= MAX_SYMBOLS) break;
-      const char* sym = e["symbol"] | "";
-      if (!sym[0]) continue;                 // skip blank rows
-      SymbolCfg& dst = symbols[symbolCount];
-      strlcpy(dst.symbol, sym, MAX_SYMBOL_LEN);
-      strlcpy(dst.name, e["name"] | "", MAX_NAME_LEN);
-      dst.source = e["source"].is<const char*>()
-                     ? srcFromStr(e["source"].as<String>()) : legacySrc;
-      dst.qty  = e["qty"].as<float>();     // absent -> 0
-      dst.cost = e["cost"].as<float>();
-      if (dst.qty < 0)  dst.qty = 0;
-      if (dst.cost < 0) dst.cost = 0;
-      symbolCount++;
-    }
-  }
-}
-
-// ===========================================================================
-// Usage slice
-// ===========================================================================
-void UsageSettings::setDefaults() {
-  usageUrl = "";
-  pollSec = DEFAULT_POLL_SEC;
-}
-
-void UsageSettings::toJson(JsonObject o) const {
-  o["usageUrl"] = usageUrl;
-  o["pollSec"]  = pollSec;
-}
-
-void UsageSettings::fromJson(JsonObjectConst o) {
-  if (o["usageUrl"].is<const char*>()) usageUrl = o["usageUrl"].as<String>();
-  if (o["pollSec"].is<int>())          pollSec = max(10, (int)o["pollSec"]);
-}
-
-// ===========================================================================
 // Clock / night mode slice
 // ===========================================================================
 static uint16_t hhmmToMin(const char* s, uint16_t fallback) {
@@ -259,6 +127,20 @@ void RadarSettings::fromJson(JsonObjectConst o) {
   }
 }
 
+
+// ===========================================================================
+// Desk-dashboard feature slices
+// ===========================================================================
+void WeatherSettings::setDefaults(){ lat=23.8103f; lon=90.4125f; city="Dhaka"; pollSec=DEFAULT_WEATHER_POLL_SEC; }
+void WeatherSettings::toJson(JsonObject o) const { o["lat"]=lat; o["lon"]=lon; o["city"]=city; o["pollSec"]=pollSec; }
+void WeatherSettings::fromJson(JsonObjectConst o){ if(o["lat"].is<float>()||o["lat"].is<int>())lat=o["lat"].as<float>(); if(o["lon"].is<float>()||o["lon"].is<int>())lon=o["lon"].as<float>(); if(o["city"].is<const char*>())city=o["city"].as<String>(); if(o["pollSec"].is<int>())pollSec=constrain((int)o["pollSec"],60,3600); }
+void NetworkSettings::setDefaults(){ probeHost="1.1.1.1"; probePort=443; pollSec=DEFAULT_NETWORK_POLL_SEC; }
+void NetworkSettings::toJson(JsonObject o) const { o["probeHost"]=probeHost; o["probePort"]=probePort; o["pollSec"]=pollSec; }
+void NetworkSettings::fromJson(JsonObjectConst o){ if(o["probeHost"].is<const char*>())probeHost=o["probeHost"].as<String>(); if(o["probePort"].is<int>())probePort=constrain((int)o["probePort"],1,65535); if(o["pollSec"].is<int>())pollSec=constrain((int)o["pollSec"],2,300); }
+void GithubSettings::setDefaults(){ user=""; token=""; pollSec=DEFAULT_GITHUB_POLL_SEC; repoCount=0; for(auto &r:repos)r.repo[0]=0; }
+void GithubSettings::toJson(JsonObject o,bool includeSecrets) const { o["user"]=user; o["tokenSet"]=token.length()>0; if(includeSecrets)o["token"]=token; o["pollSec"]=pollSec; JsonArray a=o["repos"].to<JsonArray>(); for(uint8_t i=0;i<repoCount;i++)a.add(repos[i].repo); }
+void GithubSettings::fromJson(JsonObjectConst o){ if(o["user"].is<const char*>())user=o["user"].as<String>(); if(o["token"].is<const char*>()){String t=o["token"].as<String>(); if(t.length())token=t;} if(o["pollSec"].is<int>())pollSec=constrain((int)o["pollSec"],60,3600); if(o["repos"].is<JsonArrayConst>()){repoCount=0; for(JsonVariantConst v:o["repos"].as<JsonArrayConst>()){if(repoCount>=MAX_GH_REPOS)break; const char* r=v|""; if(!r[0])continue; strlcpy(repos[repoCount++].repo,r,sizeof(repos[0].repo));}} }
+
 // ===========================================================================
 // Top-level settings
 // ===========================================================================
@@ -276,7 +158,7 @@ void Settings::setDefaults() {
 
   mode = DEFAULT_MODE;
   carouselSec = DEFAULT_CAROUSEL_SEC;
-  carouselTicker = carouselUsage = carouselRadar = true;
+  carouselWeather = carouselNetwork = carouselRadar = carouselGithub = true;
   httpTimeout = DEFAULT_HTTP_TIMEOUT;
 
   brightness = DEFAULT_BRIGHTNESS;
@@ -284,9 +166,10 @@ void Settings::setDefaults() {
   backlightInverted = TFT_BL_DEFAULT_INVERTED;
   rotation = 0;
 
-  ticker.setDefaults();
-  usage.setDefaults();
+  weather.setDefaults();
+  network.setDefaults();
   radar.setDefaults();
+  github.setDefaults();
   clock.setDefaults();
 }
 
@@ -353,13 +236,12 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   }
 
   // Mode + shared HTTP/display
-  root["mode"]              = (s.mode == MODE_RADAR)    ? "radar"
-                            : (s.mode == MODE_USAGE)    ? "usage"
-                            : (s.mode == MODE_CAROUSEL) ? "carousel" : "stocks";
-  root["carouselSec"]       = s.carouselSec;
-  root["carouselTicker"]    = s.carouselTicker;
-  root["carouselUsage"]     = s.carouselUsage;
-  root["carouselRadar"]     = s.carouselRadar;
+  root["mode"] = (s.mode == MODE_NETWORK) ? "network" : (s.mode == MODE_RADAR) ? "radar" : (s.mode == MODE_GITHUB) ? "github" : (s.mode == MODE_CAROUSEL) ? "carousel" : "weather";
+  root["carouselSec"] = s.carouselSec;
+  root["carouselWeather"] = s.carouselWeather;
+  root["carouselNetwork"] = s.carouselNetwork;
+  root["carouselRadar"] = s.carouselRadar;
+  root["carouselGithub"] = s.carouselGithub;
   root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
   root["autoBrightness"]    = s.autoBrightness;
@@ -367,9 +249,10 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   root["rotation"]          = s.rotation;
 
   // Feature slices
-  s.ticker.toJson(root["ticker"].to<JsonObject>());
-  s.usage.toJson(root["usage"].to<JsonObject>());
+  s.weather.toJson(root["weather"].to<JsonObject>());
+  s.network.toJson(root["network"].to<JsonObject>());
   s.radar.toJson(root["radar"].to<JsonObject>());
+  s.github.toJson(root["github"].to<JsonObject>(), includeSecrets);
   s.clock.toJson(root["clock"].to<JsonObject>());
 }
 
@@ -419,14 +302,13 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
 
   if (root["mode"].is<const char*>()) {
     String m = root["mode"].as<String>();
-    s.mode = m.equalsIgnoreCase("radar")    ? MODE_RADAR
-           : m.equalsIgnoreCase("usage")    ? MODE_USAGE
-           : m.equalsIgnoreCase("carousel") ? MODE_CAROUSEL : MODE_STOCKS;
+    s.mode = m.equalsIgnoreCase("network") ? MODE_NETWORK : m.equalsIgnoreCase("radar") ? MODE_RADAR : m.equalsIgnoreCase("github") ? MODE_GITHUB : m.equalsIgnoreCase("carousel") ? MODE_CAROUSEL : MODE_WEATHER;
   }
-  if (root["carouselSec"].is<int>())      s.carouselSec = constrain((int)root["carouselSec"], 5, 3600);
-  if (root["carouselTicker"].is<bool>())  s.carouselTicker = root["carouselTicker"];
-  if (root["carouselUsage"].is<bool>())   s.carouselUsage = root["carouselUsage"];
-  if (root["carouselRadar"].is<bool>())   s.carouselRadar = root["carouselRadar"];
+  if (root["carouselSec"].is<int>()) s.carouselSec=constrain((int)root["carouselSec"],5,3600);
+  if (root["carouselWeather"].is<bool>()) s.carouselWeather=root["carouselWeather"];
+  if (root["carouselNetwork"].is<bool>()) s.carouselNetwork=root["carouselNetwork"];
+  if (root["carouselRadar"].is<bool>()) s.carouselRadar=root["carouselRadar"];
+  if (root["carouselGithub"].is<bool>()) s.carouselGithub=root["carouselGithub"];
 
   if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
   if (root["brightness"].is<int>())         s.brightness = constrain((int)root["brightness"], 0, 100);
@@ -434,14 +316,10 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
   if (root["backlightInverted"].is<bool>()) s.backlightInverted = root["backlightInverted"];
   if (root["rotation"].is<int>())           s.rotation = (uint8_t)(((int)root["rotation"]) & 3);
 
-  // Feature slices: prefer the nested object; fall back to the top level so a
-  // legacy flat config.json (or a legacy POST) still applies. The old shared
-  // "pollSec" thus seeds both ticker and usage cadence on first upgrade.
-  JsonObjectConst t = root["ticker"].is<JsonObjectConst>() ? root["ticker"].as<JsonObjectConst>() : root;
-  s.ticker.fromJson(t);
-  JsonObjectConst u = root["usage"].is<JsonObjectConst>() ? root["usage"].as<JsonObjectConst>() : root;
-  s.usage.fromJson(u);
-  // Radar has no legacy flat layout; only apply when its nested object is present.
+  // Feature slices.
+  if (root["weather"].is<JsonObjectConst>()) s.weather.fromJson(root["weather"].as<JsonObjectConst>());
+  if (root["network"].is<JsonObjectConst>()) s.network.fromJson(root["network"].as<JsonObjectConst>());
   if (root["radar"].is<JsonObjectConst>()) s.radar.fromJson(root["radar"].as<JsonObjectConst>());
+  if (root["github"].is<JsonObjectConst>()) s.github.fromJson(root["github"].as<JsonObjectConst>());
   if (root["clock"].is<JsonObjectConst>()) s.clock.fromJson(root["clock"].as<JsonObjectConst>());
 }

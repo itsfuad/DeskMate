@@ -1,6 +1,6 @@
 // Gfx.h — shared ST7789 device, drawing primitives, and boot/status screens.
 //
-// This is the core display layer. The three feature modes (ticker / usage / radar)
+// This is the core display layer. Desk-dashboard feature modes
 // render on top of it via gfxDev() and the exposed text helpers; each feature owns
 // its own feature-specific rendering. Nothing feature-specific lives here.
 #pragma once

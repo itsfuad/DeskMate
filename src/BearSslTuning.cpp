@@ -6,12 +6,11 @@
 // br_ec_get_default() here overrides the library's version at link time (our
 // object satisfies the reference before ec_default.o is pulled from the
 // archive), forcing P-256 only (the prebuilt lib ships br_ec_p256_m15). This
-// avoids the much heavier x25519 the server could otherwise pick, and drops the
-// unused curve code from flash. Stack cost of the EC step is minor next to the
-// RSA cert-chain verify; the real savings come from session resumption + small
-// buffers + the contiguous-heap guard in StockClient.
+// avoids the much heavier x25519 the server could otherwise pick and drops the
+// unused curve code from flash. This keeps HTTPS requests more predictable on
+// the memory-constrained ESP8266.
 // (Under BEARSSL_SSL_BASIC there is no EC engine to pin, so this is skipped —
-// used only by the small "loader" builds that don't need cash.ch.)
+// used only by builds that do not need elliptic-curve TLS.)
 #if defined(ESP8266) && !defined(BEARSSL_SSL_BASIC)
 #include <bearssl/bearssl_ec.h>
 

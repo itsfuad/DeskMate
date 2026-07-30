@@ -1,11 +1,8 @@
 // smalltv-mod — custom firmware for the GeekMagic SmallTV (ESP-12F / ESP8266)
 //
-// Three features, each a self-contained DisplayMode (see Mode.h), picked in the
-// web UI and dispatched from the registry below:
-//   - Ticker (features/ticker):  stock/crypto price, % change, sparkline.
-//   - Usage  (features/usage):   Claude 5h/7d usage bars + animated mascot.
-//   - Radar  (features/radar):   live ADS-B plane radar (compiled in when WITH_RADAR).
-// Shared plumbing (WiFi, web UI, OTA, display core, settings) lives at src root.
+// Four desk-dashboard features, each a self-contained DisplayMode (see Mode.h):
+// ambient weather, network guardian, live ADS-B radar, and GitHub status.
+// Shared plumbing (WiFi, web UI, OTA, tiled display core, settings) lives at src root.
 //
 // License: WTFPL
 #include <Arduino.h>
@@ -19,28 +16,34 @@
 #include "Mode.h"
 #include "Clock.h"
 
-#if WITH_TICKER
-#include "TickerMode.h"
+#if WITH_WEATHER
+#include "WeatherMode.h"
 #endif
-#if WITH_USAGE
-#include "UsageMode.h"
+#if WITH_NETWORK
+#include "NetworkMode.h"
 #endif
 #if WITH_RADAR
 #include "RadarMode.h"
+#endif
+#if WITH_GITHUB
+#include "GithubMode.h"
 #endif
 
 // ---- mode registry --------------------------------------------------------
 // The compiled-in features, in display order. main.cpp holds no per-feature
 // state of its own — each mode owns its fetch/render/dirty tracking.
 static DisplayMode* kModes[] = {
-#if WITH_TICKER
-  &g_tickerMode,
+#if WITH_WEATHER
+  &g_weatherMode,
 #endif
-#if WITH_USAGE
-  &g_usageMode,
+#if WITH_NETWORK
+  &g_networkMode,
 #endif
 #if WITH_RADAR
   &g_radarMode,
+#endif
+#if WITH_GITHUB
+  &g_githubMode,
 #endif
 };
 static const size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
@@ -53,10 +56,11 @@ static uint32_t g_carSwitch = 0;
 
 static bool carouselHas(const Settings& s, const DisplayMode* m) {
   switch (m->modeConst()) {
-    case MODE_STOCKS: return s.carouselTicker;
-    case MODE_USAGE:  return s.carouselUsage;
-    case MODE_RADAR:  return s.carouselRadar;
-    default:          return true;
+    case MODE_WEATHER: return s.carouselWeather;
+    case MODE_NETWORK: return s.carouselNetwork;
+    case MODE_RADAR: return s.carouselRadar;
+    case MODE_GITHUB: return s.carouselGithub;
+    default: return true;
   }
 }
 
@@ -173,8 +177,8 @@ void setup() {
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
   // Arm SNTP now that WiFi (STA) is up — but only if night mode is enabled, so a
-  // ticker-only device doesn't pay the SNTP heap cost (which can starve the cash.ch
-  // TLS handshake on the ESP8266). clockReapply arms it iff needed. Skipped after a
+  // avoid paying the SNTP heap cost when night mode is disabled. clockReapply
+  // arms it only when needed. Skipped after a
   // crash so a fault in here can't boot-loop before the web server starts (the
   // device then comes up in safe mode, OTA-recoverable, instead of needing UART).
   if (!g_safeMode) clockReapply(g_settings);
