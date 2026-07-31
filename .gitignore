@@ -33,6 +33,9 @@ Thumbs.db
 *.swp
 *~
 
+# clangd / language server artifacts (generated, contain absolute paths)
+compile_commands.json
+
 .playwright-mcp/
 
 # pioarduino-generated dependency lock

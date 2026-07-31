@@ -269,9 +269,6 @@ void gfxStaInfo(const char* ssid, const char* ip, const char* host) {
   gfx->setCursor(32, 99);
   gfx->print("WIFI");
   drawCenteredBounded(ssid && ssid[0] ? ssid : "-", 114, 176, 2, C_UI_TEXT);
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 142);
-  gfx->print("DASHBOARD");
   drawCenteredBounded(ip && ip[0] ? ip : "-", 157, 176, 2, C_UI_BLUE);
   if (host && host[0]) {
     String url = String(host) + ".local";

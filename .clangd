@@ -1,0 +1,13 @@
+CompileFlags:
+  Remove:
+    # xtensa newlib headers conflict with host libc (e.g. div_t, u_int64_t)
+    - "-I/home/itsfuad/.platformio/packages/toolchain-xtensa/include"
+    # xtensa compiler flags clangd doesn't understand
+    - "-mlongcalls"
+    - "-mtext-section-literals"
+    - "-falign-functions=4"
+    - "-free"
+    - "-fipa-pta"
+  Add:
+    - "-Wno-unknown-warning-option"
+    - "-Wno-error=return-type"

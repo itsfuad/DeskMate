@@ -291,16 +291,16 @@ void drawScreen(TileCanvas& g, void* opaque) {
   // Time and temperature share visual priority. Both remain readable from
   // across a desk while the icon/condition occupy the right-hand column.
   g.setTextColor(primary);
-  g.setTextSize(4);
+  g.setTextSize(5);
   g.setCursor(8, 24);
   g.print(timeText);
 
   char tempText[10];
   snprintf(tempText, sizeof(tempText), "%.0f", W.temp);
-  g.setTextSize(5);
-  g.setCursor(8, 65);
+  g.setTextSize(3);
+  g.setCursor(20, 65);
   g.print(tempText);
-  const int degreeX = 8 + gfxTextW(tempText, 5) + 6;
+  const int degreeX = 8 + gfxTextW(tempText, 5);
   g.drawCircle(degreeX, 72, 4, primary);
 
   drawMainIcon(g, W.conditionId, night, 176, 25, sky);
