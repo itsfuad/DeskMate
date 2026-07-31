@@ -1,15 +1,21 @@
+#if defined(DESKMATE_PREVIEW)
+#include "PreviewApi.h"
+#else
 #include "WeatherMode.h"
 #include "Platform.h"
+#include <ArduinoJson.h>
+#endif
 #include "Gfx.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
 #include "Clock.h"
-#include <ArduinoJson.h>
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 #include <time.h>
 
+#if !defined(DESKMATE_PREVIEW)
 WeatherMode g_weatherMode;
+#endif
 
 namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
@@ -78,6 +84,9 @@ struct WeatherData {
 };
 
 WeatherData W;
+#if defined(DESKMATE_PREVIEW)
+time_t previewNowUtc = 1785501000;
+#endif
 
 bool conditionIsNight() { return W.icon[2] == 'n'; }
 bool isRain(int id) { return id >= 200 && id < 600; }
@@ -109,7 +118,11 @@ void localTm(uint32_t utc, struct tm& out) {
 }
 
 void currentLocalTm(struct tm& out) {
+#if defined(DESKMATE_PREVIEW)
+  time_t now = previewNowUtc;
+#else
   time_t now = time(nullptr);
+#endif
   if (now < 1609459200) {
     now = static_cast<time_t>(W.sunrise ? W.sunrise : 1700000000UL);
   }
@@ -235,6 +248,52 @@ void drawBackdrop(TileCanvas& g, uint16_t sky) {
   g.fillRect(0, 128, 240, 20, near);
 }
 
+void blendRoundedPanel(TileCanvas& g, int x, int y, int width, int height,
+                       int radius, uint16_t overlay, uint8_t alpha,
+                       uint16_t border) {
+  const int right = x + width - 1;
+  const int bottom = y + height - 1;
+  const int innerLeft = x + radius;
+  const int innerRight = right - radius;
+  const int innerTop = y + radius;
+  const int innerBottom = bottom - radius;
+  const int tileLeft = g.tileX();
+  const int tileTop = g.tileY();
+  const int tileRight = tileLeft + g.tileW() - 1;
+  const int tileBottom = tileTop + g.tileH() - 1;
+  const int x0 = max(x, tileLeft);
+  const int y0 = max(y, tileTop);
+  const int x1 = min(right, tileRight);
+  const int y1 = min(bottom, tileBottom);
+
+  if (x0 <= x1 && y0 <= y1) {
+    uint16_t* pixels = g.pixels();
+    const int stride = g.tileW();
+
+    for (int py = y0; py <= y1; ++py) {
+      for (int px = x0; px <= x1; ++px) {
+        bool inside = px >= innerLeft && px <= innerRight;
+        if (!inside) inside = py >= innerTop && py <= innerBottom;
+        if (!inside) {
+          const int centerX = px < innerLeft ? innerLeft : innerRight;
+          const int centerY = py < innerTop ? innerTop : innerBottom;
+          const int dx = px - centerX;
+          const int dy = py - centerY;
+          inside = dx * dx + dy * dy <= radius * radius;
+        }
+        if (!inside) continue;
+
+        const int localX = px - tileLeft;
+        const int localY = py - tileTop;
+        const int index = localY * stride + localX;
+        pixels[index] = blend565(pixels[index], overlay, alpha);
+      }
+    }
+  }
+
+  g.drawRoundRect(x, y, width, height, radius, border);
+}
+
 void drawScreen(TileCanvas& g, void* opaque) {
   const Settings& s = *static_cast<const Settings*>(opaque);
   const uint16_t sky = skyColor();
@@ -249,7 +308,6 @@ void drawScreen(TileCanvas& g, void* opaque) {
     g.setTextSize(2);
     g.setCursor(26, 40);
     g.print("DESKMATE WEATHER");
-
     g.setTextSize(1);
     g.setTextColor(rgb565(155, 170, 187));
     g.setCursor(26, 82);
@@ -261,7 +319,6 @@ void drawScreen(TileCanvas& g, void* opaque) {
     } else if (W.error) {
       g.setTextColor(ERROR_C);
       g.print(W.errorText[0] ? W.errorText : "WEATHER API ERROR");
-
       if (W.httpCode) {
         g.setCursor(26, 100);
         g.print("HTTP ");
@@ -281,57 +338,6 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
   drawBackdrop(g, sky);
 
-  auto blendRoundedPanel = [&](int x, int y, int w, int h, int radius,
-                               uint16_t overlay, uint8_t alpha,
-                               uint16_t border) {
-    const int right = x + w - 1;
-    const int bottom = y + h - 1;
-    const int innerLeft = x + radius;
-    const int innerRight = right - radius;
-    const int innerTop = y + radius;
-    const int innerBottom = bottom - radius;
-
-    const int tileLeft = g.tileX();
-    const int tileTop = g.tileY();
-    const int tileRight = tileLeft + g.tileW() - 1;
-    const int tileBottom = tileTop + g.tileH() - 1;
-
-    const int x0 = x > tileLeft ? x : tileLeft;
-    const int y0 = y > tileTop ? y : tileTop;
-    const int x1 = right < tileRight ? right : tileRight;
-    const int y1 = bottom < tileBottom ? bottom : tileBottom;
-
-    if (x0 <= x1 && y0 <= y1) {
-      uint16_t* pixels = g.pixels();
-      const int stride = g.tileW();
-
-      for (int py = y0; py <= y1; ++py) {
-        for (int px = x0; px <= x1; ++px) {
-          bool inside = px >= innerLeft && px <= innerRight;
-
-          if (!inside) inside = py >= innerTop && py <= innerBottom;
-
-          if (!inside) {
-            const int centerX = px < innerLeft ? innerLeft : innerRight;
-            const int centerY = py < innerTop ? innerTop : innerBottom;
-            const int dx = px - centerX;
-            const int dy = py - centerY;
-            inside = dx * dx + dy * dy <= radius * radius;
-          }
-
-          if (!inside) continue;
-
-          const int localX = px - tileLeft;
-          const int localY = py - tileTop;
-          const int index = localY * stride + localX;
-          pixels[index] = blend565(pixels[index], overlay, alpha);
-        }
-      }
-    }
-
-    g.drawRoundRect(x, y, w, h, radius, border);
-  };
-
   const bool dark = night || isRain(W.conditionId) ||
                     isAtmosphere(W.conditionId);
   const uint16_t primary = dark ? WHITE_SOFT : INK_DARK;
@@ -343,17 +349,14 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
   char timeText[8];
   char meridiem[3];
-  clockFormatTime(s, nowTm, timeText, sizeof(timeText),
-                  meridiem, sizeof(meridiem));
+  clockFormatTime(s, nowTm, timeText, sizeof(timeText), meridiem,
+                  sizeof(meridiem));
 
   static const char* dayNames[] = {
-      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"
-  };
-
+      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
   char dateText[16];
   snprintf(dateText, sizeof(dateText), "%s %02d",
-           dayNames[nowTm.tm_wday % 7],
-           constrain(nowTm.tm_mday, 1, 31));
+           dayNames[nowTm.tm_wday % 7], constrain(nowTm.tm_mday, 1, 31));
 
   char cityText[24];
   copyShort(s.weather.city.length() ? s.weather.city.c_str() : W.city,
@@ -367,7 +370,6 @@ void drawScreen(TileCanvas& g, void* opaque) {
   g.print(dateText);
 
   const uint8_t clockSize = s.clock.use24Hour ? 5 : 4;
-
   g.setTextColor(primary);
   g.setTextSize(clockSize);
   g.setCursor(8, 24);
@@ -381,15 +383,12 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
   char tempText[10];
   snprintf(tempText, sizeof(tempText), "%.0f", W.temp);
-
   constexpr int tempX = 20;
   constexpr int tempY = 65;
   constexpr uint8_t tempSize = 3;
-
   g.setTextSize(tempSize);
   g.setCursor(tempX, tempY);
   g.print(tempText);
-
   const int degreeX = tempX + gfxTextW(tempText, tempSize) + 5;
   g.drawCircle(degreeX, tempY + 7, 4, primary);
 
@@ -408,9 +407,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
   constexpr int detailW = 224;
   constexpr int detailH = 34;
   constexpr int detailRadius = 7;
-
-  static_assert(DisplayLayout::fitsSafe(
-                    detailX, detailY, detailW, detailH),
+  static_assert(DisplayLayout::fitsSafe(detailX, detailY, detailW, detailH),
                 "Weather telemetry panel must fit the safe display area");
 
   const uint16_t detailOverlay = dark ? rgb565(3, 12, 22)
@@ -419,27 +416,24 @@ void drawScreen(TileCanvas& g, void* opaque) {
                                      : rgb565(179, 197, 202);
   const uint16_t detailText = dark ? WHITE_SOFT : rgb565(34, 52, 65);
   const uint8_t detailAlpha = dark ? 112 : 128;
-
-  blendRoundedPanel(detailX, detailY, detailW, detailH, detailRadius,
+  blendRoundedPanel(g, detailX, detailY, detailW, detailH, detailRadius,
                     detailOverlay, detailAlpha, detailBorder);
 
   char detail[38];
-
   g.setTextSize(1);
   g.setTextColor(detailText);
-  snprintf(detail, sizeof(detail), "FEELS %.0f%c  HUM %d%%",
-           W.feels, unit, W.humidity);
+  snprintf(detail, sizeof(detail), "FEELS %.0f%c  HUM %d%%", W.feels,
+           unit, W.humidity);
   g.setCursor(14, 109);
   g.print(detail);
 
   if (s.weather.metric) {
-    snprintf(detail, sizeof(detail), "WIND %.0f km/h  %d hPa",
-             W.wind, W.pressure);
+    snprintf(detail, sizeof(detail), "WIND %.0f km/h  %d hPa", W.wind,
+             W.pressure);
   } else {
-    snprintf(detail, sizeof(detail), "WIND %.0f mph  %d hPa",
-             W.wind, W.pressure);
+    snprintf(detail, sizeof(detail), "WIND %.0f mph  %d hPa", W.wind,
+             W.pressure);
   }
-
   g.setCursor(14, 122);
   g.print(detail);
 
@@ -448,9 +442,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
   constexpr int panelW = DisplayLayout::Width;
   constexpr int panelH = 87;
   constexpr int panelRadius = 13;
-
-  static_assert(DisplayLayout::fitsSafe(
-                    panelX, panelY, panelW, panelH),
+  static_assert(DisplayLayout::fitsSafe(panelX, panelY, panelW, panelH),
                 "Weather forecast panel must fit the safe display area");
 
   const uint16_t panelOverlay = dark ? rgb565(3, 12, 22)
@@ -463,8 +455,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
   const uint16_t separator = dark ? rgb565(65, 83, 105)
                                   : rgb565(181, 198, 201);
   const uint8_t panelAlpha = dark ? 138 : 158;
-
-  blendRoundedPanel(panelX, panelY, panelW, panelH, panelRadius,
+  blendRoundedPanel(g, panelX, panelY, panelW, panelH, panelRadius,
                     panelOverlay, panelAlpha, panelBorder);
 
   g.setTextSize(1);
@@ -472,12 +463,10 @@ void drawScreen(TileCanvas& g, void* opaque) {
   g.setCursor(22, 153);
   g.print("NEXT 12 HOURS");
 
-  const uint16_t forecastIconBg =
-      blend565(sky, panelOverlay, panelAlpha);
+  const uint16_t forecastIconBg = blend565(sky, panelOverlay, panelAlpha);
 
   for (uint8_t i = 0; i < 4; ++i) {
     const int left = 9 + i * 56;
-
     if (i) g.drawFastVLine(left - 3, 166, 56, separator);
     if (i >= W.forecastCount || !W.forecast[i].valid) continue;
 
@@ -490,16 +479,15 @@ void drawScreen(TileCanvas& g, void* opaque) {
                     forecastMeridiem, sizeof(forecastMeridiem));
 
     char forecastTime[12];
-
     if (!forecastMeridiem[0]) {
       strlcpy(forecastTime, forecastClock, sizeof(forecastTime));
     } else if (ft.tm_min == 0) {
       const int hour12 = ft.tm_hour % 12 ? ft.tm_hour % 12 : 12;
-      snprintf(forecastTime, sizeof(forecastTime), "%d %s",
-               hour12, forecastMeridiem);
+      snprintf(forecastTime, sizeof(forecastTime), "%d %s", hour12,
+               forecastMeridiem);
     } else {
-      snprintf(forecastTime, sizeof(forecastTime), "%s%c",
-               forecastClock, forecastMeridiem[0]);
+      snprintf(forecastTime, sizeof(forecastTime), "%s%c", forecastClock,
+               forecastMeridiem[0]);
     }
 
     g.setTextSize(1);
@@ -507,13 +495,12 @@ void drawScreen(TileCanvas& g, void* opaque) {
     g.setCursor(left + (52 - gfxTextW(forecastTime, 1)) / 2, 167);
     g.print(forecastTime);
 
-    drawMiniIcon(g, W.forecast[i].id, W.forecast[i].night,
-                 left + 12, 181, forecastIconBg);
+    drawMiniIcon(g, W.forecast[i].id, W.forecast[i].night, left + 12, 181,
+                 forecastIconBg);
 
     char forecastTemp[12];
     snprintf(forecastTemp, sizeof(forecastTemp), "%.0f%c",
              W.forecast[i].temp, unit);
-
     g.setTextSize(2);
     g.setTextColor(panelText);
     g.setCursor(left + (52 - gfxTextW(forecastTemp, 2)) / 2, 211);
@@ -521,6 +508,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
   }
 }
 
+#if !defined(DESKMATE_PREVIEW)
 bool beginGet(const Settings& s, const String& url,
               std::unique_ptr<SecureClient>& client, HTTPClient& http,
               uint16_t budgetMs) {
@@ -653,7 +641,39 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
   }
   return W.forecastCount > 0;
 }
+#endif
 }  // namespace
+
+#if defined(DESKMATE_PREVIEW)
+void previewRenderWeather(const Settings& settings,
+                          const PreviewWeatherState& state) {
+  W = WeatherData();
+  W.valid = state.valid;
+  W.error = state.error;
+  W.httpCode = state.httpCode;
+  strlcpy(W.errorText, state.errorText ? state.errorText : "",
+          sizeof(W.errorText));
+  strlcpy(W.city, state.city ? state.city : "", sizeof(W.city));
+  strlcpy(W.icon, state.icon ? state.icon : "01d", sizeof(W.icon));
+  W.temp = state.temp;
+  W.feels = state.feels;
+  W.wind = state.wind;
+  W.humidity = state.humidity;
+  W.pressure = state.pressure;
+  W.conditionId = state.conditionId;
+  W.timezone = state.timezone;
+  W.forecastCount = min<uint8_t>(state.forecastCount, 4);
+  for (uint8_t i = 0; i < W.forecastCount; ++i) {
+    W.forecast[i].valid = state.forecast[i].valid;
+    W.forecast[i].id = state.forecast[i].id;
+    W.forecast[i].night = state.forecast[i].night;
+    W.forecast[i].temp = state.forecast[i].temp;
+    W.forecast[i].stamp = state.forecast[i].stamp;
+  }
+  previewNowUtc = state.nowUtc;
+  gfxRenderTiled(drawScreen, const_cast<Settings*>(&settings), skyColor());
+}
+#else
 
 uint32_t WeatherMode::pollIntervalMs(const Settings& settings) const {
   return static_cast<uint32_t>(settings.weather.pollSec) * 1000UL;
@@ -734,3 +754,5 @@ void WeatherMode::displayTick(const Settings& settings) {
     dirty_ = false;
   }
 }
+
+#endif  // DESKMATE_PREVIEW

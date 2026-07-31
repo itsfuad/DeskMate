@@ -1,7 +1,11 @@
 #include "TileRenderer.h"
 
+#if defined(DESKMATE_PREVIEW)
+#include "PreviewFramebuffer.h"
+#else
 #include <Arduino_GFX_Library.h>
 #include "Gfx.h"
+#endif
 #include "config.h"
 
 namespace {
@@ -134,8 +138,12 @@ void gfxMarkLineTiles(TileMask& mask, int16_t x0, int16_t y0,
 
 void gfxRenderTileMask(TileRenderCallback render, void* context,
                        uint16_t clearColor, TileMask mask) {
+#if defined(DESKMATE_PREVIEW)
+  if (!render || !mask) return;
+#else
   Arduino_GFX* out = gfxDev();
   if (!out || !render || !mask) return;
+#endif
 
   for (int16_t row = 0; row < TileCanvas::ROWS; ++row) {
     bool wroteRow = false;
@@ -152,7 +160,11 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
           ? remainingW : TileCanvas::MAX_TILE;
       g_tileCanvas.beginTile(x, y, w, h, clearColor);
       render(g_tileCanvas, context);
+#if defined(DESKMATE_PREVIEW)
+      PreviewFramebuffer::blit(x, y, g_tileCanvas.pixels(), w, h, w);
+#else
       out->draw16bitRGBBitmap(x, y, g_tileCanvas.pixels(), w, h);
+#endif
       wroteRow = true;
     }
     // Feed Wi-Fi/watchdog only between complete rows, never during a tile push.
@@ -163,8 +175,12 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
 void gfxRenderRegion(TileRenderCallback render, void* context,
                      uint16_t clearColor, int16_t x, int16_t y,
                      int16_t w, int16_t h) {
+#if defined(DESKMATE_PREVIEW)
+  if (!render || w <= 0 || h <= 0) return;
+#else
   Arduino_GFX* out = gfxDev();
   if (!out || !render || w <= 0 || h <= 0) return;
+#endif
 
   const int16_t x0 = constrain(x, 0, TFT_WIDTH);
   const int16_t y0 = constrain(y, 0, TFT_HEIGHT);
@@ -182,7 +198,12 @@ void gfxRenderRegion(TileRenderCallback render, void* context,
           ? remainingW : TileCanvas::MAX_TILE;
       g_tileCanvas.beginTile(xx, yy, chunkW, chunkH, clearColor);
       render(g_tileCanvas, context);
+#if defined(DESKMATE_PREVIEW)
+      PreviewFramebuffer::blit(xx, yy, g_tileCanvas.pixels(), chunkW, chunkH,
+                               chunkW);
+#else
       out->draw16bitRGBBitmap(xx, yy, g_tileCanvas.pixels(), chunkW, chunkH);
+#endif
     }
     yield();
   }

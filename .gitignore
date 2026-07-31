@@ -43,3 +43,8 @@ dependencies.lock
 
 # manual quotes-branch staging dir (see .github/workflows/quotes.yml)
 /out/
+
+# Native desktop preview output
+/preview/build/
+/preview-output/
+*.bmp

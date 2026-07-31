@@ -1,3 +1,18 @@
+# DeskMate 4.4.0 changes
+
+## Native 240 × 240 desktop preview
+
+- Added a native Linux preview that directly compiles DeskMate's real Weather, GitHub, Network, Radar, OTA, and tile-rendering source files.
+- Added an exact 240 × 240 RGB565 framebuffer with an X11 window enlarged by nearest-neighbour scaling.
+- Reused the exact Adafruit GFX primitives and built-in 5 × 7 font resolved by the firmware build.
+- Added 22 deterministic fixtures covering normal, loading, busy, error, empty, day/night, and OTA progress states.
+- Added keyboard navigation, pixel-grid inspection, per-screen BMP capture, and batch screenshot generation.
+- Added a headless verification script that builds the preview and validates every generated 240 × 240 screenshot.
+- Refactored OTA rendering into a shared `FirmwareUi` renderer used by both the ESP firmware and desktop preview.
+- Added true per-pixel RGB565 translucency for both Weather telemetry and forecast panels.
+
+Firmware version: 4.4.0
+
 ## 4.3.6
 
 - Pixel-aligned GitHub stats panel and compact, independently aligned range/total/streak labels.

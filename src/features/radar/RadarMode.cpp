@@ -1,4 +1,8 @@
+#if defined(DESKMATE_PREVIEW)
+#include "PreviewApi.h"
+#else
 #include "RadarMode.h"
+#endif
 #include "Gfx.h"
 #include "RadarClient.h"
 #include "TileRenderer.h"
@@ -7,7 +11,9 @@
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 
+#if !defined(DESKMATE_PREVIEW)
 RadarMode g_radarMode;
+#endif
 
 namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
@@ -160,6 +166,7 @@ void drawRadarHeartbeat(TileCanvas& g, const Settings& settings,
   StatusHeartbeat::draw(g, x, y, color, on, busy);
 }
 
+#if !defined(DESKMATE_PREVIEW)
 struct RadarLedContext {
   const Settings* settings = nullptr;
   bool on = false;
@@ -172,6 +179,7 @@ void drawRadarLedRegion(TileCanvas& g, void* opaque) {
   g.fillScreen(BG);
   drawRadarHeartbeat(g, *context.settings, context.on, context.busy);
 }
+#endif
 
 void drawRadar(TileCanvas& g, void* opaque) {
   const RadarRenderContext& context =
@@ -344,6 +352,18 @@ void drawRadar(TileCanvas& g, void* opaque) {
 }
 }  // namespace
 
+#if defined(DESKMATE_PREVIEW)
+void previewRenderRadar(const Settings& settings,
+                        const PreviewRadarState& state) {
+  previewSetRadarState(state);
+  RadarRenderContext context;
+  context.settings = &settings;
+  context.heartbeatOn = state.heartbeatOn;
+  context.pollBusy = state.pollBusy;
+  gfxRenderTiled(drawRadar, &context, BG);
+}
+#else
+
 void RadarMode::begin(const Settings& settings) {
   radarInit(settings);
   renderedOk_ = 0xFFFFFFFF;
@@ -447,3 +467,5 @@ void RadarMode::displayTick(const Settings& settings) {
     renderHeartbeat(settings);
   }
 }
+
+#endif  // DESKMATE_PREVIEW

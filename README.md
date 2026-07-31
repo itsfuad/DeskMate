@@ -2,11 +2,13 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible GeekMagic-style hardware.
 
-## DeskMate 4.3.2
+## DeskMate 4.4.0
+
+Version 4.4 adds a native Linux desktop preview for the fixed 240 × 240 interface. It compiles the real firmware drawing functions against an RGB565 framebuffer, displays them in an enlarged X11 window, and can generate deterministic BMP screenshots for every UI state. This makes pixel-level layout work possible without repeatedly flashing the device.
 
 Version 4.3 separates **data acquisition** from **display rendering**. Every screen selected in the carousel keeps an independent refresh schedule while hidden, but only the visible screen renders. A central cooperative scheduler owns all polling, permits one network-heavy job at a time, and keeps the latest cached snapshot for instant carousel transitions.
 
-### 4.3.2 contribution-grid correction
+### Rendering and polling architecture
 
 The GitHub heatmap now calculates one shared cell dimension from both the available width and height. Every day remains a strict square for 1, 3, 6, and 12-month ranges; shorter grids are enlarged and centered instead of being stretched into horizontal strips.
 
@@ -48,6 +50,29 @@ DeskMate repeats inexpensive structural validation on the device. Secrets are wr
 ## Time
 
 NTP supplies UTC. The browser-resolved location provides an IANA timezone label and current UTC offset, while normal OpenWeather polling refreshes the offset. The cached offset is available immediately after reboot for the clock, forecast timestamps and scheduled night brightness.
+
+
+## Desktop preview
+
+On Fedora, install the native build dependencies:
+
+```bash
+sudo dnf install gcc-c++ cmake libX11-devel
+```
+
+Launch the interactive preview:
+
+```bash
+./preview/run.sh
+```
+
+Render all screen fixtures without opening a window:
+
+```bash
+./preview/run.sh --all preview-output --scale 1
+```
+
+The preview uses the same 40 × 40 tile renderer, RGB565 colors, Adafruit GFX drawing code, classic font, and Weather/GitHub/Network/Radar/OTA layout sources as the firmware. Hardware and API inputs are replaced with deterministic fixtures. See [`preview/README.md`](preview/README.md) for controls, available scenarios, watch mode, and headless testing.
 
 ## Build
 

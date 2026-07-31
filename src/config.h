@@ -5,7 +5,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "deskmate"
-#define FW_VERSION  "4.3.6"
+#define FW_VERSION  "4.4.0"
 
 #define REPO_URL      "https://github.com/itsfuad/deskmate"
 #define REPO_OWNER    "itsfuad"
@@ -22,7 +22,9 @@
 // ---------------------------------------------------------------------------
 // Board selection
 // ---------------------------------------------------------------------------
-#if defined(DESKMATE_ESP32C2)
+#if defined(DESKMATE_PREVIEW)
+  // Desktop preview has no physical board pins.
+#elif defined(DESKMATE_ESP32C2)
   #include "board_esp32c2.h"
 #elif defined(DESKMATE_ESP32)
   #include "board_esp32.h"

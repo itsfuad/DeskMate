@@ -1,5 +1,9 @@
+#if defined(DESKMATE_PREVIEW)
+#include "PreviewApi.h"
+#else
 #include "NetworkMode.h"
 #include "Platform.h"
+#endif
 #include "Gfx.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
@@ -7,7 +11,9 @@
 #include "StatusHeartbeat.h"
 #include <Arduino_GFX_Library.h>
 
+#if !defined(DESKMATE_PREVIEW)
 NetworkMode g_networkMode;
+#endif
 
 namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
@@ -108,6 +114,7 @@ void drawNetworkHeartbeat(TileCanvas& g, bool on, bool busy) {
   StatusHeartbeat::draw(g, x, y, color, on, busy);
 }
 
+#if !defined(DESKMATE_PREVIEW)
 struct NetworkLedContext {
   bool on = false;
   bool busy = false;
@@ -119,6 +126,7 @@ void drawNetworkLedRegion(TileCanvas& g, void* opaque) {
   g.fillScreen(BG);
   drawNetworkHeartbeat(g, context.on, context.busy);
 }
+#endif
 
 void drawCardValue(TileCanvas& g, int x, int y, int w, const char* label,
                    const char* value, uint16_t accent) {
@@ -256,6 +264,36 @@ void drawNetwork(TileCanvas& g, void* opaque) {
 }
 }  // namespace
 
+#if defined(DESKMATE_PREVIEW)
+void previewRenderNetwork(const Settings& settings,
+                          const PreviewNetworkState& state) {
+  for (Sample& sample : samples) sample = Sample();
+  count = min<uint8_t>(state.sampleCount, SAMPLE_COUNT);
+  head = count % SAMPLE_COUNT;
+  for (uint8_t i = 0; i < count; ++i) {
+    samples[i].tcpMs = state.samples[i].tcpMs;
+    samples[i].dnsMs = state.samples[i].dnsMs;
+    samples[i].tcpOk = state.samples[i].tcpOk;
+    samples[i].dnsOk = state.samples[i].dnsOk;
+  }
+
+  online = state.online;
+  haveState = state.haveState;
+  outageStart = state.outageStartMs;
+  lastOutageSec = state.lastOutageSec;
+  outageCount = state.outageCount;
+  previewSetNetworkRssi(state.rssi);
+
+  NetworkRenderContext context;
+  context.settings = &settings;
+  strlcpy(context.host, state.host ? state.host : "", sizeof(context.host));
+  strlcpy(context.ip, state.ip ? state.ip : "", sizeof(context.ip));
+  context.heartbeatOn = state.heartbeatOn;
+  context.pollBusy = state.pollBusy;
+  gfxRenderTiled(drawNetwork, &context, BG);
+}
+#else
+
 void NetworkMode::probe(const Settings& settings, uint16_t budgetMs) {
   Sample sample;
   const uint16_t halfBudget = max<uint16_t>(250, budgetMs / 2);
@@ -383,3 +421,5 @@ void NetworkMode::displayTick(const Settings& settings) {
     renderHeartbeat(settings);
   }
 }
+
+#endif  // DESKMATE_PREVIEW

@@ -1,5 +1,9 @@
+#if defined(DESKMATE_PREVIEW)
+#include "PreviewApi.h"
+#else
 #include "GithubMode.h"
 #include "Platform.h"
+#endif
 #include "Gfx.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
@@ -7,7 +11,9 @@
 #include <time.h>
 #include <ctype.h>
 
+#if !defined(DESKMATE_PREVIEW)
 GithubMode g_githubMode;
+#endif
 
 namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
@@ -46,6 +52,7 @@ struct GithubData {
 
 GithubData G;
 
+#if !defined(DESKMATE_PREVIEW)
 void isoUtc(time_t value, char* out, size_t outSize) {
   struct tm t;
   gmtime_r(&value, &t);
@@ -324,6 +331,8 @@ bool parseGithubResponse(Stream& stream, NetClient& client, int contentLength,
   return sawLogin && sawCommitCount && calendar.sawDay;
 }
 
+#endif
+
 void copyDisplayLabel(const char* source, char* output, size_t outputSize,
                       uint8_t maxChars) {
   if (!outputSize) return;
@@ -524,6 +533,7 @@ void drawGithub(TileCanvas& g, void*) {
   }
 }
 
+#if !defined(DESKMATE_PREVIEW)
 bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
   if (!settings.github.token.length()) {
     setError("TOKEN REQUIRED");
@@ -654,7 +664,34 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
   setError("GITHUB REQUEST FAILED");
   return false;
 }
+#endif
 }  // namespace
+
+#if defined(DESKMATE_PREVIEW)
+void previewRenderGithub(const PreviewGithubState& state) {
+  G = GithubData();
+  G.valid = state.valid;
+  G.error = state.error;
+  G.httpCode = state.httpCode;
+  strlcpy(G.errorText, state.errorText ? state.errorText : "",
+          sizeof(G.errorText));
+  strlcpy(G.login, state.login ? state.login : "", sizeof(G.login));
+  G.commits = state.commits;
+  G.openIssues = state.openIssues;
+  G.openPullRequests = state.openPullRequests;
+  G.totalContributions = state.totalContributions;
+  G.streak = state.streak;
+  G.weekTotal = state.weekTotal;
+  G.weekCount = min<uint8_t>(state.weekCount, GITHUB_GRAPH_WEEKS);
+  G.rangeMonths = state.rangeMonths;
+  for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
+    for (uint8_t day = 0; day < 7; ++day) {
+      G.graphLevel[week][day] = constrain(state.graphLevel[week][day], 0, 4);
+    }
+  }
+  gfxRenderTiled(drawGithub, nullptr, BG);
+}
+#else
 
 uint32_t GithubMode::pollIntervalMs(const Settings& settings) const {
   return static_cast<uint32_t>(settings.github.pollSec) * 1000UL;
@@ -698,3 +735,5 @@ void GithubMode::displayTick(const Settings& settings) {
     dirty_ = false;
   }
 }
+
+#endif  // DESKMATE_PREVIEW
