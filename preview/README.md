@@ -14,17 +14,21 @@ sudo dnf install gcc-c++ cmake libX11-devel
 
 ## Interactive preview
 
-From the project root:
+From the project root, launch the animated clear-weather day cycle. One
+simulated 24-hour cycle takes 72 seconds and uses the same C++ renderer as the
+firmware:
 
 ```bash
 ./preview/run.sh
 ```
 
-Open a specific fixture:
+Open a specific weather cycle or another fixture:
 
 ```bash
+./preview/run.sh --screen weather-cycle-partly
+./preview/run.sh --screen weather-cycle-cloudy
+./preview/run.sh --screen weather-cycle-rain
 ./preview/run.sh --screen github-3m
-./preview/run.sh --screen weather-rain
 ./preview/run.sh --screen ota-0
 ```
 
@@ -40,10 +44,13 @@ The default scale is 4×, so each display pixel appears as a 4 × 4 desktop bloc
 |---|---|
 | Left / Right or J / L | Previous or next fixture |
 | W | First Weather fixture |
+| 1 / 2 / 3 / 4 | Clear / Partly cloudy / Cloudy / Rain animated cycle |
 | G | First GitHub fixture |
 | N | First Network fixture |
 | R | First Radar fixture |
 | O | First OTA fixture |
+| Space | Pause or resume an animated fixture |
+| Up / Down | Step an animated weather cycle forward/back by 30 simulated minutes |
 | P | Toggle the enlarged-pixel grid |
 | S | Save the current fixture to `preview-output/` |
 | A | Save every fixture to `preview-output/` |
@@ -57,6 +64,18 @@ Render one fixture without opening a window:
 ./preview/run.sh --headless \
   --screen weather-clear \
   --output weather-clear.bmp \
+  --scale 1
+```
+
+For an animated fixture, `--frame-ms` selects the animation position. The
+weather cycle begins at 04:30 and advances one simulated minute per 50 ms. For
+example, this captures clear weather at 18:30:
+
+```bash
+./preview/run.sh --headless \
+  --screen weather-cycle-clear \
+  --frame-ms 42000 \
+  --output weather-evening.bmp \
   --scale 1
 ```
 
@@ -95,6 +114,26 @@ Run the native build and render every fixture into a temporary directory:
 ```bash
 ./preview/test.sh
 ```
+
+## Weather transition preview
+
+A ready-made animation is included at `preview/weather-cycle-demo.gif`. The interactive preview remains the authoritative version because it renders live and lets you pause or step through the cycle.
+
+
+The four animated fixtures keep the condition fixed while time moves through
+morning, noon, afternoon, evening, and night:
+
+- `weather-cycle-clear`
+- `weather-cycle-partly`
+- `weather-cycle-cloudy`
+- `weather-cycle-rain`
+
+The palette is continuously interpolated around the configured sunrise and
+sunset, including dedicated dawn and dusk transition ranges. The same scene
+draws the moving sun/moon, moving cloud lanes, precipitation, bridge/skyline,
+water reflections, stars, and lights after dark. Panels are rendered as true
+per-pixel translucent glass: a faint light wash during bright hours and a faint
+dark wash at dusk/night, so they inherit the current backdrop automatically.
 
 ## Source sharing
 

@@ -2,9 +2,15 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible GeekMagic-style hardware.
 
-## DeskMate 4.4.0
+[![Weather Cycle Demo](preview/weather-cycle-demo.gif)](preview/weather-cycle-demo.gif)
 
-Version 4.4 adds a native Linux desktop preview for the fixed 240 × 240 interface. It compiles the real firmware drawing functions against an RGB565 framebuffer, displays them in an enlarged X11 window, and can generate deterministic BMP screenshots for every UI state. This makes pixel-level layout work possible without repeatedly flashing the device.
+## DeskMate 4.5.0
+
+Version 4.5 replaces the flat Weather backdrop with a lightweight scenic renderer built for the ESP8266: a continuously blended sky and horizon, moving cloud lanes, a sun and moon following time-based arcs, a bridge and skyline, water reflections, stars, rain/snow motion, and city/bridge lights that fade in after dark. Dawn and dusk are transition ranges rather than hard theme switches.
+
+The Weather telemetry and forecast cards are true RGB565 translucent overlays. They automatically change between a faint light wash and a faint dark wash so the underlying scene remains visible while text stays readable. The complete UI redraws only when data or the minute changes; cloud/rain animation recomposes only the upper 145 rows every 2.5 seconds, leaving the forecast panel retained in LCD RAM.
+
+Version 4.4 added a native Linux desktop preview for the fixed 240 × 240 interface. It compiles the real firmware drawing functions against an RGB565 framebuffer, displays them in an enlarged X11 window, and can generate deterministic BMP screenshots for every UI state. This makes pixel-level layout work possible without repeatedly flashing the device.
 
 Version 4.3 separates **data acquisition** from **display rendering**. Every screen selected in the carousel keeps an independent refresh schedule while hidden, but only the visible screen renders. A central cooperative scheduler owns all polling, permits one network-heavy job at a time, and keeps the latest cached snapshot for instant carousel transitions.
 
@@ -24,7 +30,7 @@ When demand exceeds the ESP8266's capacity, DeskMate degrades predictably instea
 
 ## Views
 
-- **Weather** — OpenWeather current conditions and four upcoming 3-hour forecast points. The browser resolves a city through Open-Meteo, verifies the OpenWeather key, and sends canonical coordinates/timezone data to DeskMate.
+- **Weather** — OpenWeather current conditions and four upcoming 3-hour forecast points. The scene includes a sky/horizon gradient, bridge, skyline, water, moving clouds, sun/moon arcs, precipitation, stars, reflections, and lights after dark. Morning, noon, afternoon, evening, and night blend continuously through explicit dawn/dusk transition ranges. Weather conditions tint the same time-driven scene instead of replacing it. Telemetry and forecast cards are translucent and inherit the backdrop. The browser resolves a city through Open-Meteo, verifies the OpenWeather key, and sends canonical coordinates/timezone data to DeskMate.
 - **Network guardian** — TCP latency, DNS timing, availability, outage history, Wi-Fi quality and local IP.
 - **Aircraft radar** — Static full-screen PPI scope with airports, vectors, labels, range rings and aircraft silhouettes scaled from ADS-B emitter category when the feed provides it.
 - **GitHub activity** — Authenticated-user commits, open issues, open pull requests, streak and a contribution graph. The graph range is configurable as 1, 3, 6 or 12 months.
@@ -60,11 +66,13 @@ On Fedora, install the native build dependencies:
 sudo dnf install gcc-c++ cmake libX11-devel
 ```
 
-Launch the interactive preview:
+Launch the interactive preview. It opens on the animated clear-weather day cycle by default:
 
 ```bash
 ./preview/run.sh
 ```
+
+Use Space to pause the transition and Up/Down to step by 30 simulated minutes. Press 1, 2, 3, or 4 to switch directly between clear, partly cloudy, cloudy, and rain cycles. The preview animates cloud drift, precipitation, celestial movement, dawn/dusk color interpolation, and night lighting with the same renderer used by the firmware.
 
 Render all screen fixtures without opening a window:
 

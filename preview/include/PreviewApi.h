@@ -30,6 +30,8 @@ struct PreviewWeatherState {
   int conditionId = 800;
   int32_t timezone = 21600;
   time_t nowUtc = 1785501000;
+  uint32_t sunrise = 1785454200UL;
+  uint32_t sunset = 1785501000UL;
   PreviewForecastPoint forecast[4];
   uint8_t forecastCount = 4;
 };

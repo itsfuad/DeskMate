@@ -30,17 +30,43 @@ Settings baseSettings() {
   return settings;
 }
 
-uint32_t fixtureNowUtc() {
-  // 2026-07-31 12:30 UTC, 18:30 in Dhaka.
-  return 1785501000UL;
+constexpr int PREVIEW_TIMEZONE = 6 * 3600;
+constexpr int PREVIEW_SUNRISE_MINUTE = 5 * 60 + 30;
+constexpr int PREVIEW_SUNSET_MINUTE = 18 * 60 + 30;
+constexpr uint32_t PREVIEW_LOCAL_MIDNIGHT_UTC = 1785434400UL;
+
+uint32_t localMinuteUtc(int minute) {
+  while (minute < 0) minute += 1440;
+  return PREVIEW_LOCAL_MIDNIGHT_UTC +
+         static_cast<uint32_t>(minute) * 60UL;
+}
+
+uint32_t localTimeUtc(int hour, int minute) {
+  return localMinuteUtc(hour * 60 + minute);
+}
+
+void setSolarTimes(PreviewWeatherState& state) {
+  state.timezone = PREVIEW_TIMEZONE;
+  state.sunrise = localMinuteUtc(PREVIEW_SUNRISE_MINUTE);
+  state.sunset = localMinuteUtc(PREVIEW_SUNSET_MINUTE);
+}
+
+bool previewNightAtMinute(int minute) {
+  minute %= 1440;
+  if (minute < 0) minute += 1440;
+  return minute < PREVIEW_SUNRISE_MINUTE ||
+         minute >= PREVIEW_SUNSET_MINUTE;
 }
 
 void setForecast(PreviewWeatherState& state, int index, uint32_t hours,
-                 int id, bool night, float temperature) {
+                 int id, float temperature) {
   state.forecast[index].valid = true;
-  state.forecast[index].stamp = fixtureNowUtc() + hours * 3600UL;
+  state.forecast[index].stamp = state.nowUtc + hours * 3600UL;
   state.forecast[index].id = id;
-  state.forecast[index].night = night;
+  const int nowLocalMinute = static_cast<int>(
+      ((state.nowUtc - PREVIEW_LOCAL_MIDNIGHT_UTC) / 60UL) % 1440UL);
+  state.forecast[index].night =
+      previewNightAtMinute(nowLocalMinute + static_cast<int>(hours) * 60);
   state.forecast[index].temp = temperature;
 }
 
@@ -50,16 +76,17 @@ void renderWeatherClear(uint32_t) {
   state.city = "Dhaka";
   state.icon = "01d";
   state.conditionId = 800;
-  state.temp = 31;
-  state.feels = 37;
+  state.temp = 33;
+  state.feels = 38;
   state.wind = 13;
-  state.humidity = 67;
+  state.humidity = 58;
   state.pressure = 1004;
-  state.nowUtc = fixtureNowUtc();
-  setForecast(state, 0, 3, 801, false, 30);
-  setForecast(state, 1, 6, 500, true, 28);
-  setForecast(state, 2, 9, 802, true, 27);
-  setForecast(state, 3, 12, 800, true, 26);
+  state.nowUtc = localTimeUtc(12, 30);
+  setSolarTimes(state);
+  setForecast(state, 0, 3, 800, 34);
+  setForecast(state, 1, 6, 802, 32);
+  setForecast(state, 2, 9, 804, 29);
+  setForecast(state, 3, 12, 800, 27);
   previewRenderWeather(settings, state);
 }
 
@@ -70,16 +97,17 @@ void renderWeatherRain(uint32_t) {
   state.city = "Chattogram";
   state.icon = "10d";
   state.conditionId = 501;
-  state.temp = 27;
-  state.feels = 32;
+  state.temp = 29;
+  state.feels = 33;
   state.wind = 22;
   state.humidity = 89;
   state.pressure = 998;
-  state.nowUtc = fixtureNowUtc();
-  setForecast(state, 0, 3, 501, false, 27);
-  setForecast(state, 1, 6, 502, true, 26);
-  setForecast(state, 2, 9, 802, true, 26);
-  setForecast(state, 3, 12, 800, true, 25);
+  state.nowUtc = localTimeUtc(18, 0);
+  setSolarTimes(state);
+  setForecast(state, 0, 3, 501, 28);
+  setForecast(state, 1, 6, 502, 27);
+  setForecast(state, 2, 9, 802, 26);
+  setForecast(state, 3, 12, 800, 25);
   previewRenderWeather(settings, state);
 }
 
@@ -95,12 +123,67 @@ void renderWeatherNight(uint32_t) {
   state.wind = 7;
   state.humidity = 76;
   state.pressure = 1009;
-  state.nowUtc = fixtureNowUtc() + 5 * 3600UL;
-  setForecast(state, 0, 3, 800, true, 23);
-  setForecast(state, 1, 6, 801, true, 22);
-  setForecast(state, 2, 9, 802, false, 25);
-  setForecast(state, 3, 12, 800, false, 29);
+  state.nowUtc = localTimeUtc(23, 30);
+  setSolarTimes(state);
+  setForecast(state, 0, 3, 800, 23);
+  setForecast(state, 1, 6, 801, 22);
+  setForecast(state, 2, 9, 802, 25);
+  setForecast(state, 3, 12, 800, 29);
   previewRenderWeather(settings, state);
+}
+
+const char* cycleIconFor(int conditionId, bool night) {
+  if (conditionId == 800) return night ? "01n" : "01d";
+  if (conditionId == 801 || conditionId == 802) return night ? "02n" : "02d";
+  if (conditionId == 803 || conditionId == 804) return night ? "04n" : "04d";
+  return night ? "10n" : "10d";
+}
+
+void renderWeatherCycle(uint32_t nowMs, int conditionId) {
+  Settings settings = baseSettings();
+  settings.clock.use24Hour = false;
+
+  // One full day takes 72 seconds. Each desktop frame advances only a few
+  // simulated minutes, making dawn/dusk interpolation easy to inspect.
+  const int minute = (4 * 60 + 30 + static_cast<int>(nowMs / 50UL)) % 1440;
+  const bool night = previewNightAtMinute(minute);
+  const float angle = static_cast<float>(minute - 9 * 60) *
+                      2.0f * 3.14159265f / 1440.0f;
+
+  PreviewWeatherState state;
+  state.city = "Dhaka";
+  state.icon = cycleIconFor(conditionId, night);
+  state.conditionId = conditionId;
+  state.temp = 28.0f + 5.0f * std::sin(angle);
+  state.feels = state.temp + (conditionId >= 500 && conditionId < 600 ? 3.0f : 2.0f);
+  state.wind = conditionId >= 500 && conditionId < 600 ? 18.0f : 11.0f;
+  state.humidity = conditionId >= 500 && conditionId < 600 ? 86 : 64;
+  state.pressure = conditionId >= 500 && conditionId < 600 ? 1000 : 1006;
+  state.nowUtc = localMinuteUtc(minute);
+  setSolarTimes(state);
+
+  for (int index = 0; index < 4; ++index) {
+    const uint32_t hours = static_cast<uint32_t>((index + 1) * 3);
+    const float forecastTemp = state.temp - 0.7f * static_cast<float>(index);
+    setForecast(state, index, hours, conditionId, forecastTemp);
+  }
+  previewRenderWeather(settings, state);
+}
+
+void renderWeatherCycleClear(uint32_t nowMs) {
+  renderWeatherCycle(nowMs, 800);
+}
+
+void renderWeatherCyclePartly(uint32_t nowMs) {
+  renderWeatherCycle(nowMs, 802);
+}
+
+void renderWeatherCycleCloudy(uint32_t nowMs) {
+  renderWeatherCycle(nowMs, 804);
+}
+
+void renderWeatherCycleRain(uint32_t nowMs) {
+  renderWeatherCycle(nowMs, 501);
 }
 
 void renderWeatherLoading(uint32_t) {
@@ -339,8 +422,17 @@ void renderOtaComplete(uint32_t) {
 }
 
 const std::vector<PreviewScenario> scenarios = {
-    {"weather-clear", "Weather / clear day", false, renderWeatherClear},
-    {"weather-rain", "Weather / rain and 12-hour clock", false,
+    {"weather-cycle-clear", "Weather / animated day cycle / clear", true,
+     renderWeatherCycleClear},
+    {"weather-cycle-partly",
+     "Weather / animated day cycle / partly cloudy", true,
+     renderWeatherCyclePartly},
+    {"weather-cycle-cloudy", "Weather / animated day cycle / cloudy", true,
+     renderWeatherCycleCloudy},
+    {"weather-cycle-rain", "Weather / animated day cycle / rain", true,
+     renderWeatherCycleRain},
+    {"weather-clear", "Weather / clear noon", false, renderWeatherClear},
+    {"weather-rain", "Weather / evening rain and 12-hour clock", false,
      renderWeatherRain},
     {"weather-night", "Weather / clear night", false, renderWeatherNight},
     {"weather-loading", "Weather / loading", false, renderWeatherLoading},

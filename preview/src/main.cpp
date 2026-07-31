@@ -19,10 +19,11 @@
 
 namespace {
 struct Options {
-  std::string screen = "weather-clear";
+  std::string screen = "weather-cycle-clear";
   std::string output;
   std::string allDirectory;
   int scale = 4;
+  uint32_t frameMs = 0;
   bool headless = false;
   bool list = false;
   bool pixelGrid = false;
@@ -32,13 +33,16 @@ void printUsage(const char* program) {
   std::cout
       << "DeskMate desktop preview\n\n"
       << "Usage:\n"
-      << "  " << program << " [--screen ID] [--scale N]\n"
+      << "  " << program << " [--screen ID] [--scale N] [--frame-ms N]\n"
       << "  " << program << " --headless --screen ID --output frame.bmp\n"
       << "  " << program << " --all preview-output\n"
       << "  " << program << " --list\n\n"
       << "Interactive keys:\n"
       << "  Left/Right or J/L   Previous/next fixture\n"
       << "  W/G/N/R/O           Jump to Weather/GitHub/Network/Radar/OTA\n"
+      << "  1/2/3/4             Clear/Partly/Cloudy/Rain day cycle\n"
+      << "  Space               Pause/resume animation\n"
+      << "  Up/Down             Step weather cycle by 30 minutes\n"
       << "  S                   Save a BMP screenshot\n"
       << "  A                   Save every fixture\n"
       << "  P                   Toggle pixel grid\n"
@@ -73,6 +77,10 @@ bool parseOptions(int argc, char** argv, Options& options) {
       const char* value = nextValue("--scale");
       if (!value) return false;
       options.scale = std::clamp(std::atoi(value), 1, 10);
+    } else if (argument == "--frame-ms") {
+      const char* value = nextValue("--frame-ms");
+      if (!value) return false;
+      options.frameMs = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
     } else if (argument == "--headless") {
       options.headless = true;
     } else if (argument == "--list") {
@@ -98,7 +106,7 @@ void renderScenario(const PreviewScenario& scenario, uint32_t nowMs) {
 
 bool saveScenario(const PreviewScenario& scenario,
                   const std::filesystem::path& path, int scale,
-                  uint32_t nowMs = 1250) {
+                  uint32_t nowMs) {
   renderScenario(scenario, nowMs);
   if (!PreviewFramebuffer::saveBmp(path.string(), scale)) {
     std::cerr << "Could not write " << path << "\n";
@@ -108,12 +116,14 @@ bool saveScenario(const PreviewScenario& scenario,
   return true;
 }
 
-bool saveAll(const std::filesystem::path& directory, int scale) {
+bool saveAll(const std::filesystem::path& directory, int scale,
+             uint32_t nowMs) {
   std::error_code error;
   std::filesystem::create_directories(directory, error);
   bool ok = true;
   for (const PreviewScenario& scenario : previewScenarios()) {
-    ok = saveScenario(scenario, directory / (scenario.id + ".bmp"), scale) && ok;
+    ok = saveScenario(scenario, directory / (scenario.id + ".bmp"), scale,
+                      nowMs) && ok;
   }
   return ok;
 }
@@ -168,10 +178,11 @@ void drawFramebufferToImage(XImage* image, Visual* visual, int scale,
 }
 
 void updateTitle(Display* display, Window window,
-                 const PreviewScenario& scenario, size_t index) {
+                 const PreviewScenario& scenario, size_t index, bool paused) {
   std::string title = "DeskMate 240x240 Preview - " + scenario.title +
                       "  [" + std::to_string(index + 1) + "/" +
                       std::to_string(previewScenarios().size()) + "]";
+  if (paused && scenario.animated) title += "  [PAUSED]";
   XStoreName(display, window, title.c_str());
 }
 
@@ -232,8 +243,22 @@ int runInteractive(const Options& options, int initialIndex) {
   bool running = true;
   bool dirty = true;
   bool pixelGrid = options.pixelGrid;
+  bool paused = false;
+  uint32_t pausedNowMs = options.frameMs;
+  int64_t timeOffsetMs = options.frameMs;
   auto start = std::chrono::steady_clock::now();
   auto nextAnimation = start;
+
+  auto wallElapsedMs = [&]() -> uint32_t {
+    return static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start).count());
+  };
+  auto currentFrameMs = [&]() -> uint32_t {
+    if (paused) return pausedNowMs;
+    const int64_t value = static_cast<int64_t>(wallElapsedMs()) + timeOffsetMs;
+    return value < 0 ? 0U : static_cast<uint32_t>(value);
+  };
 
   while (running) {
     while (XPending(display)) {
@@ -264,6 +289,18 @@ int runInteractive(const Options& options, int initialIndex) {
         } else if (key == XK_w || key == XK_W) {
           currentIndex = firstScenarioWithPrefix("weather-");
           dirty = true;
+        } else if (key == XK_1 || key == XK_KP_1) {
+          currentIndex = previewScenarioIndex("weather-cycle-clear");
+          dirty = true;
+        } else if (key == XK_2 || key == XK_KP_2) {
+          currentIndex = previewScenarioIndex("weather-cycle-partly");
+          dirty = true;
+        } else if (key == XK_3 || key == XK_KP_3) {
+          currentIndex = previewScenarioIndex("weather-cycle-cloudy");
+          dirty = true;
+        } else if (key == XK_4 || key == XK_KP_4) {
+          currentIndex = previewScenarioIndex("weather-cycle-rain");
+          dirty = true;
         } else if (key == XK_g || key == XK_G) {
           currentIndex = firstScenarioWithPrefix("github-");
           dirty = true;
@@ -276,6 +313,29 @@ int runInteractive(const Options& options, int initialIndex) {
         } else if (key == XK_o || key == XK_O) {
           currentIndex = firstScenarioWithPrefix("ota-");
           dirty = true;
+        } else if (key == XK_space) {
+          const uint32_t frame = currentFrameMs();
+          paused = !paused;
+          if (paused) {
+            pausedNowMs = frame;
+          } else {
+            timeOffsetMs = static_cast<int64_t>(pausedNowMs) -
+                           static_cast<int64_t>(wallElapsedMs());
+          }
+          dirty = true;
+        } else if (key == XK_Up || key == XK_Down) {
+          const PreviewScenario& selected = previewScenarios()[currentIndex];
+          if (selected.id.rfind("weather-cycle-", 0) == 0) {
+            // Weather cycle uses 50 ms per simulated minute.
+            const int32_t step = key == XK_Up ? 1500 : -1500;
+            if (paused) {
+              const int64_t changed = static_cast<int64_t>(pausedNowMs) + step;
+              pausedNowMs = changed < 0 ? 0U : static_cast<uint32_t>(changed);
+            } else {
+              timeOffsetMs += step;
+            }
+            dirty = true;
+          }
         } else if (key == XK_p || key == XK_P) {
           pixelGrid = !pixelGrid;
           dirty = true;
@@ -287,18 +347,16 @@ int runInteractive(const Options& options, int initialIndex) {
           PreviewFramebuffer::saveBmp(path.string(), options.scale);
           std::cout << "Saved " << path << "\n";
         } else if (key == XK_a || key == XK_A) {
-          saveAll("preview-output", options.scale);
+          saveAll("preview-output", options.scale, options.frameMs);
           dirty = true;
         }
       }
     }
 
     const auto now = std::chrono::steady_clock::now();
-    const uint32_t nowMs = static_cast<uint32_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(now - start)
-            .count());
+    const uint32_t nowMs = currentFrameMs();
     const PreviewScenario& scenario = previewScenarios()[currentIndex];
-    if (scenario.animated && now >= nextAnimation) {
+    if (scenario.animated && !paused && now >= nextAnimation) {
       dirty = true;
       nextAnimation = now + std::chrono::milliseconds(90);
     }
@@ -309,7 +367,7 @@ int runInteractive(const Options& options, int initialIndex) {
       XPutImage(display, window, graphics, image, 0, 0, 0, 0, outputWidth,
                 outputHeight);
       XFlush(display);
-      updateTitle(display, window, scenario, currentIndex);
+      updateTitle(display, window, scenario, currentIndex, paused);
       dirty = false;
     }
 
@@ -340,7 +398,7 @@ int main(int argc, char** argv) {
   }
 
   if (!options.allDirectory.empty()) {
-    return saveAll(options.allDirectory, options.scale) ? 0 : 1;
+    return saveAll(options.allDirectory, options.scale, options.frameMs) ? 0 : 1;
   }
 
   const int scenarioIndex = previewScenarioIndex(options.screen);
@@ -355,7 +413,7 @@ int main(int argc, char** argv) {
         ? previewScenarios()[scenarioIndex].id + ".bmp"
         : options.output;
     return saveScenario(previewScenarios()[scenarioIndex], output,
-                        options.scale) ? 0 : 1;
+                        options.scale, options.frameMs) ? 0 : 1;
   }
 
 #if defined(DESKMATE_HAVE_X11)

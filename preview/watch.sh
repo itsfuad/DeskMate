@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROGRAM="$ROOT/preview/build/deskmate-preview"
-SCREEN="${1:-weather-clear}"
+SCREEN="${1:-weather-cycle-clear}"
 
 if ! command -v inotifywait >/dev/null 2>&1; then
   echo "watch.sh needs inotify-tools: sudo dnf install inotify-tools"

@@ -17,6 +17,7 @@ class WeatherMode : public DisplayMode {
  private:
   uint8_t pollStage_ = 0;  // current conditions, then forecast in a separate job
   int32_t renderedMinute_ = -1;
+  uint32_t nextAnimationMs_ = 0;
   bool dirty_ = true;
   void render(const Settings&);
 };

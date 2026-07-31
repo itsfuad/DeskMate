@@ -1,3 +1,20 @@
+# DeskMate 4.5.0 changes
+
+## Scenic Weather renderer
+
+- Replaced the flat geometric Weather background with a lightweight bridge, skyline, water, and skyscape scene drawn entirely with RGB565 primitives.
+- Added explicit dawn and dusk transition palettes between Night/Morning and Afternoon/Evening; all transitions use smooth interpolation around the API-provided sunrise and sunset.
+- Added a time-driven sun arc and night-driven moon arc, including subtle horizon reflections.
+- Added moving background cloud lanes with condition-dependent cloud density, plus an independently drifting main weather icon.
+- Added animated rain/snow particles without allocating a second framebuffer.
+- Added stars, city windows, bridge lamps, and water reflections that fade in continuously as darkness increases.
+- Changed Weather panels to adaptive translucent glass: a faint light overlay with dark text by day and a faint dark overlay with light text at dawn/dusk/night.
+- Added partial animation rendering: only rows 0–144 are recomposed every 2.5 seconds on firmware; the forecast card remains retained in LCD RAM.
+- Added direct preview keys 1/2/3/4 for Clear/Partly Cloudy/Cloudy/Rain cycles and bundled `preview/weather-cycle-demo.gif`.
+- Kept the existing streamed HTTPS/ArduinoJson weather transport in the default firmware build rather than introducing an unverified whole-response async client dependency.
+
+Firmware version: 4.5.0
+
 # DeskMate 4.4.0 changes
 
 ## Native 240 × 240 desktop preview
@@ -5,11 +22,14 @@
 - Added a native Linux preview that directly compiles DeskMate's real Weather, GitHub, Network, Radar, OTA, and tile-rendering source files.
 - Added an exact 240 × 240 RGB565 framebuffer with an X11 window enlarged by nearest-neighbour scaling.
 - Reused the exact Adafruit GFX primitives and built-in 5 × 7 font resolved by the firmware build.
-- Added 22 deterministic fixtures covering normal, loading, busy, error, empty, day/night, and OTA progress states.
+- Added 26 deterministic fixtures covering normal, loading, busy, error, empty, animated weather cycles, day/night, and OTA progress states.
 - Added keyboard navigation, pixel-grid inspection, per-screen BMP capture, and batch screenshot generation.
 - Added a headless verification script that builds the preview and validates every generated 240 × 240 screenshot.
 - Refactored OTA rendering into a shared `FirmwareUi` renderer used by both the ESP firmware and desktop preview.
 - Added true per-pixel RGB565 translucency for both Weather telemetry and forecast panels.
+- Replaced fixed weather colors with sunrise/sunset-aware Morning, Noon, Afternoon, Evening, and Night palettes blended continuously with smooth interpolation.
+- Weather conditions now apply restrained tints instead of replacing the time-of-day palette; partly cloudy and cloudy also have distinct labels/icons.
+- Added animated clear, partly cloudy, cloudy, and rain day-cycle previews, plus pause and 30-minute stepping controls.
 
 Firmware version: 4.4.0
 

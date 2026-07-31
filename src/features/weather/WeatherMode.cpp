@@ -35,23 +35,84 @@ constexpr uint16_t blend565(uint16_t base, uint16_t overlay, uint8_t alpha) {
       ((bb * inv + ob * alpha) / 255U));
 }
 
-constexpr uint16_t SKY_CLEAR = rgb565(242, 174, 67);
-constexpr uint16_t SKY_CLOUD = rgb565(102, 163, 211);
-constexpr uint16_t SKY_RAIN  = rgb565(56, 75, 106);
-constexpr uint16_t SKY_SNOW  = rgb565(165, 193, 217);
-constexpr uint16_t SKY_NIGHT = rgb565(24, 42, 78);
-constexpr uint16_t LAND_WARM = rgb565(225, 126, 80);
-constexpr uint16_t LAND_COOL = rgb565(65, 91, 122);
-constexpr uint16_t PANEL_DAY = rgb565(247, 248, 245);
 constexpr uint16_t PANEL_DARK = rgb565(18, 29, 48);
-constexpr uint16_t INK_DARK = rgb565(28, 39, 53);
-constexpr uint16_t INK_MUTED = rgb565(108, 125, 143);
+constexpr uint16_t GLASS_DARK = rgb565(3, 12, 22);
 constexpr uint16_t WHITE_SOFT = rgb565(246, 248, 251);
 constexpr uint16_t SUN = rgb565(255, 208, 54);
 constexpr uint16_t CLOUD = rgb565(224, 233, 242);
 constexpr uint16_t RAIN = rgb565(64, 188, 236);
 constexpr uint16_t SNOW = rgb565(235, 246, 252);
 constexpr uint16_t ERROR_C = rgb565(255, 112, 112);
+
+struct TimePalette {
+  uint16_t skyTop;
+  uint16_t skyHorizon;
+  uint16_t far;
+  uint16_t near;
+  uint16_t water;
+  uint16_t secondary;
+  uint8_t panelAlpha;
+  uint8_t nightAmount;
+  uint8_t warmAmount;
+};
+
+struct WeatherTheme {
+  uint16_t skyTop;
+  uint16_t skyHorizon;
+  uint16_t far;
+  uint16_t near;
+  uint16_t water;
+  uint16_t primary;
+  uint16_t secondary;
+  uint16_t panelOverlay;
+  uint16_t panelBorder;
+  uint16_t panelText;
+  uint16_t panelMuted;
+  uint16_t separator;
+  uint16_t cloudLight;
+  uint16_t cloudShade;
+  uint16_t rainColor;
+  uint16_t lightColor;
+  uint8_t panelAlpha;
+  uint8_t nightAmount;
+  uint8_t warmAmount;
+  uint8_t cloudLevel;
+  uint8_t precipitation;
+};
+
+constexpr uint16_t INK_DARK = rgb565(13, 34, 58);
+constexpr uint16_t WINDOW_LIGHT = rgb565(255, 198, 102);
+
+// Extra dawn and dusk keys are deliberately present between the five named
+// day phases. They are transition colours, not abrupt themes.
+constexpr TimePalette TIME_NIGHT = {
+    rgb565(6, 20, 42), rgb565(24, 51, 78), rgb565(24, 48, 70),
+    rgb565(9, 29, 52), rgb565(12, 45, 70), rgb565(184, 207, 232),
+    82, 255, 0};
+constexpr TimePalette TIME_DAWN = {
+    rgb565(55, 76, 112), rgb565(226, 145, 121), rgb565(95, 91, 112),
+    rgb565(48, 55, 78), rgb565(62, 91, 118), rgb565(255, 216, 190),
+    76, 118, 255};
+constexpr TimePalette TIME_MORNING = {
+    rgb565(120, 183, 221), rgb565(207, 235, 246), rgb565(112, 163, 188),
+    rgb565(69, 122, 149), rgb565(74, 148, 181), rgb565(23, 57, 91),
+    66, 0, 35};
+constexpr TimePalette TIME_NOON = {
+    rgb565(47, 148, 211), rgb565(139, 207, 236), rgb565(83, 157, 194),
+    rgb565(43, 111, 151), rgb565(40, 135, 177), rgb565(12, 43, 73),
+    68, 0, 0};
+constexpr TimePalette TIME_AFTERNOON = {
+    rgb565(88, 157, 198), rgb565(190, 208, 202), rgb565(103, 151, 167),
+    rgb565(66, 113, 132), rgb565(59, 128, 157), rgb565(17, 46, 72),
+    68, 0, 72};
+constexpr TimePalette TIME_DUSK = {
+    rgb565(57, 70, 109), rgb565(220, 119, 102), rgb565(103, 76, 98),
+    rgb565(45, 46, 73), rgb565(57, 72, 100), rgb565(255, 190, 154),
+    78, 92, 255};
+constexpr TimePalette TIME_EVENING = {
+    rgb565(27, 45, 78), rgb565(94, 65, 91), rgb565(58, 55, 80),
+    rgb565(23, 35, 59), rgb565(29, 56, 82), rgb565(232, 183, 172),
+    82, 198, 150};
 
 struct ForecastPoint {
   bool valid = false;
@@ -88,28 +149,26 @@ WeatherData W;
 time_t previewNowUtc = 1785501000;
 #endif
 
-bool conditionIsNight() { return W.icon[2] == 'n'; }
 bool isRain(int id) { return id >= 200 && id < 600; }
 bool isSnow(int id) { return id >= 600 && id < 700; }
 bool isAtmosphere(int id) { return id >= 700 && id < 800; }
 bool isCloud(int id) { return id >= 801 && id <= 804; }
+bool isPartlyCloudy(int id) { return id == 801 || id == 802; }
 
-const char* conditionLabel(int id) {
-  if (id >= 200 && id < 300) return "THUNDER";
-  if (id >= 300 && id < 400) return "DRIZZLE";
-  if (id >= 500 && id < 600) return "RAIN";
-  if (id >= 600 && id < 700) return "SNOW";
-  if (id >= 700 && id < 800) return "MIST";
-  if (id == 800) return "CLEAR";
-  return "CLOUDS";
-}
+struct ConditionLabel {
+  const char* first;
+  const char* second;
+};
 
-uint16_t skyColor() {
-  if (conditionIsNight()) return SKY_NIGHT;
-  if (isSnow(W.conditionId)) return SKY_SNOW;
-  if (isRain(W.conditionId) || isAtmosphere(W.conditionId)) return SKY_RAIN;
-  if (isCloud(W.conditionId)) return SKY_CLOUD;
-  return SKY_CLEAR;
+ConditionLabel conditionLabel(int id) {
+  if (id >= 200 && id < 300) return {"THUNDER", nullptr};
+  if (id >= 300 && id < 400) return {"DRIZZLE", nullptr};
+  if (id >= 500 && id < 600) return {"RAIN", nullptr};
+  if (id >= 600 && id < 700) return {"SNOW", nullptr};
+  if (id >= 700 && id < 800) return {"MIST", nullptr};
+  if (id == 800) return {"CLEAR", nullptr};
+  if (isPartlyCloudy(id)) return {"PARTLY", "CLOUDY"};
+  return {"CLOUDY", nullptr};
 }
 
 void localTm(uint32_t utc, struct tm& out) {
@@ -129,6 +188,215 @@ void currentLocalTm(struct tm& out) {
   const time_t shifted = now + W.timezone;
   gmtime_r(&shifted, &out);
 }
+
+uint8_t lerpByte(uint8_t from, uint8_t to, uint8_t amount) {
+  const uint16_t inverse = 255U - amount;
+  return static_cast<uint8_t>((from * inverse + to * amount + 127U) / 255U);
+}
+
+uint8_t smoothAmount(int value, int start, int end) {
+  if (value <= start) return 0;
+  if (value >= end || end <= start) return 255;
+  const uint32_t x = static_cast<uint32_t>(value - start) * 255U /
+                     static_cast<uint32_t>(end - start);
+  const uint32_t smooth = x * x * (765U - 2U * x) / 65025U;
+  return static_cast<uint8_t>(smooth);
+}
+
+TimePalette blendPalette(const TimePalette& from, const TimePalette& to,
+                         uint8_t amount) {
+  TimePalette result;
+  result.skyTop = blend565(from.skyTop, to.skyTop, amount);
+  result.skyHorizon = blend565(from.skyHorizon, to.skyHorizon, amount);
+  result.far = blend565(from.far, to.far, amount);
+  result.near = blend565(from.near, to.near, amount);
+  result.water = blend565(from.water, to.water, amount);
+  result.secondary = blend565(from.secondary, to.secondary, amount);
+  result.panelAlpha = lerpByte(from.panelAlpha, to.panelAlpha, amount);
+  result.nightAmount = lerpByte(from.nightAmount, to.nightAmount, amount);
+  result.warmAmount = lerpByte(from.warmAmount, to.warmAmount, amount);
+  return result;
+}
+
+int localMinuteForUtc(uint32_t utc) {
+  struct tm value;
+  localTm(utc, value);
+  return value.tm_hour * 60 + value.tm_min;
+}
+
+void solarMinutes(int& sunriseMinute, int& sunsetMinute) {
+  sunriseMinute = 6 * 60;
+  sunsetMinute = 18 * 60;
+  if (W.sunrise > 1609459200UL && W.sunset > W.sunrise) {
+    sunriseMinute = localMinuteForUtc(W.sunrise);
+    sunsetMinute = localMinuteForUtc(W.sunset);
+  }
+
+  // Keep malformed provider data from collapsing the visual cycle.
+  sunriseMinute = constrain(sunriseMinute, 4 * 60, 9 * 60);
+  sunsetMinute = constrain(sunsetMinute, 16 * 60, 21 * 60);
+  if (sunsetMinute - sunriseMinute < 7 * 60) {
+    sunriseMinute = 6 * 60;
+    sunsetMinute = 18 * 60;
+  }
+}
+
+TimePalette timePaletteForMinute(int minute) {
+  int sunriseMinute;
+  int sunsetMinute;
+  solarMinutes(sunriseMinute, sunsetMinute);
+
+  const int dawnStart = max(0, sunriseMinute - 90);
+  const int morningEnd = min(sunriseMinute + 100, sunsetMinute - 390);
+  const int solarNoon = (sunriseMinute + sunsetMinute) / 2;
+  const int duskStart = max(solarNoon + 120, sunsetMinute - 100);
+  const int eveningEnd = min(1439, sunsetMinute + 80);
+  const int nightStart = min(1439, sunsetMinute + 155);
+
+  if (minute < dawnStart) return TIME_NIGHT;
+  if (minute < sunriseMinute) {
+    return blendPalette(TIME_NIGHT, TIME_DAWN,
+                        smoothAmount(minute, dawnStart, sunriseMinute));
+  }
+  if (minute < morningEnd) {
+    return blendPalette(TIME_DAWN, TIME_MORNING,
+                        smoothAmount(minute, sunriseMinute, morningEnd));
+  }
+  if (minute < solarNoon) {
+    return blendPalette(TIME_MORNING, TIME_NOON,
+                        smoothAmount(minute, morningEnd, solarNoon));
+  }
+  if (minute < duskStart) {
+    return blendPalette(TIME_NOON, TIME_AFTERNOON,
+                        smoothAmount(minute, solarNoon, duskStart));
+  }
+  if (minute < sunsetMinute) {
+    return blendPalette(TIME_AFTERNOON, TIME_DUSK,
+                        smoothAmount(minute, duskStart, sunsetMinute));
+  }
+  if (minute < eveningEnd) {
+    return blendPalette(TIME_DUSK, TIME_EVENING,
+                        smoothAmount(minute, sunsetMinute, eveningEnd));
+  }
+  if (minute < nightStart) {
+    return blendPalette(TIME_EVENING, TIME_NIGHT,
+                        smoothAmount(minute, eveningEnd, nightStart));
+  }
+  return TIME_NIGHT;
+}
+
+WeatherTheme weatherThemeForMinute(int minute) {
+  const TimePalette palette = timePaletteForMinute(minute);
+
+  uint16_t conditionTint = palette.skyTop;
+  uint8_t topTint = 0;
+  uint8_t horizonTint = 0;
+  uint8_t terrainTint = 0;
+  uint8_t extraPanelAlpha = 0;
+  uint8_t cloudLevel = 1;
+  uint8_t precipitation = 0;
+
+  if (isPartlyCloudy(W.conditionId)) {
+    conditionTint = rgb565(117, 143, 165);
+    topTint = 14;
+    horizonTint = 8;
+    terrainTint = 18;
+    cloudLevel = 2;
+  } else if (isCloud(W.conditionId)) {
+    conditionTint = rgb565(99, 122, 145);
+    topTint = 35;
+    horizonTint = 22;
+    terrainTint = 42;
+    extraPanelAlpha = 5;
+    cloudLevel = 4;
+  } else if (isRain(W.conditionId)) {
+    conditionTint = rgb565(42, 58, 79);
+    topTint = 64;
+    horizonTint = 45;
+    terrainTint = 72;
+    extraPanelAlpha = 13;
+    cloudLevel = 5;
+    precipitation = 2;
+  } else if (isAtmosphere(W.conditionId)) {
+    conditionTint = rgb565(103, 116, 126);
+    topTint = 48;
+    horizonTint = 35;
+    terrainTint = 55;
+    extraPanelAlpha = 8;
+    cloudLevel = 3;
+  } else if (isSnow(W.conditionId)) {
+    conditionTint = rgb565(181, 204, 220);
+    topTint = 34;
+    horizonTint = 25;
+    terrainTint = 43;
+    extraPanelAlpha = 5;
+    cloudLevel = 4;
+    precipitation = 1;
+  }
+
+  WeatherTheme theme;
+  theme.skyTop = blend565(palette.skyTop, conditionTint, topTint);
+  theme.skyHorizon = blend565(palette.skyHorizon, conditionTint, horizonTint);
+  theme.far = blend565(palette.far, conditionTint, terrainTint);
+  theme.near = blend565(palette.near, conditionTint, terrainTint);
+  theme.water = blend565(palette.water, conditionTint, terrainTint / 2);
+
+  // Text/glass contrast follows sunrise and sunset directly. This avoids the
+  // low-contrast grey phase that occurs when a colour palette is halfway
+  // between dawn and morning.
+  int sunriseMinute;
+  int sunsetMinute;
+  solarMinutes(sunriseMinute, sunsetMinute);
+  uint8_t textNight = 255;
+  if (minute >= sunriseMinute - 10 && minute < sunriseMinute + 20) {
+    textNight = static_cast<uint8_t>(
+        255 - smoothAmount(minute, sunriseMinute - 10, sunriseMinute + 20));
+  } else if (minute >= sunriseMinute + 20 && minute < sunsetMinute - 50) {
+    textNight = 0;
+  } else if (minute >= sunsetMinute - 50 && minute < sunsetMinute + 10) {
+    textNight = smoothAmount(minute, sunsetMinute - 50, sunsetMinute + 10);
+  }
+
+  theme.primary = blend565(INK_DARK, WHITE_SOFT, textNight);
+  theme.secondary = blend565(theme.skyTop, theme.primary, 205);
+  theme.panelOverlay = blend565(WHITE_SOFT, GLASS_DARK, textNight);
+  theme.panelAlpha = static_cast<uint8_t>(
+      min<int>(132, palette.panelAlpha + extraPanelAlpha + 20));
+  theme.panelBorder = blend565(theme.skyHorizon, theme.primary,
+                               textNight > 140 ? 98 : 72);
+  theme.panelText = theme.primary;
+  theme.panelMuted = blend565(theme.panelOverlay, theme.primary,
+                              textNight > 140 ? 188 : 205);
+  theme.separator = blend565(theme.panelOverlay, theme.primary,
+                             textNight > 140 ? 76 : 60);
+
+  const uint16_t dayCloud = rgb565(235, 241, 246);
+  const uint16_t nightCloud = rgb565(129, 143, 165);
+  const uint16_t rainCloud = rgb565(87, 98, 120);
+  theme.cloudLight = blend565(dayCloud, nightCloud, palette.nightAmount);
+  if (isRain(W.conditionId)) {
+    theme.cloudLight = blend565(theme.cloudLight, rainCloud, 150);
+  }
+  theme.cloudShade = blend565(theme.cloudLight, theme.near,
+                              isRain(W.conditionId) ? 115 : 58);
+  theme.rainColor = blend565(rgb565(65, 190, 236), rgb565(103, 151, 210),
+                            palette.nightAmount / 2);
+  theme.lightColor = blend565(theme.near, WINDOW_LIGHT,
+                              static_cast<uint8_t>(palette.nightAmount * 4 / 5));
+  theme.nightAmount = palette.nightAmount;
+  theme.warmAmount = palette.warmAmount;
+  theme.cloudLevel = cloudLevel;
+  theme.precipitation = precipitation;
+  return theme;
+}
+
+struct WeatherRenderContext {
+  const Settings* settings = nullptr;
+  struct tm nowTm{};
+  WeatherTheme theme{};
+  int minute = 0;
+  uint32_t animationMs = 0;
+};
 
 void copyShort(const char* source, char* target, size_t targetSize,
                size_t maxChars) {
@@ -165,21 +433,25 @@ void drawCloud(TileCanvas& g, int x, int y, uint16_t color) {
 }
 
 void drawMainIcon(TileCanvas& g, int id, bool night, int x, int y,
-                  uint16_t background) {
+                  uint16_t background, uint16_t cloudColor,
+                  uint16_t rainColor) {
   if (id == 800) {
     if (night) drawMoon(g, x + 20, y + 20, 17, background);
     else drawSun(g, x + 20, y + 20, 16, SUN);
     return;
   }
-  if (isCloud(id) && !night) drawSun(g, x + 11, y + 8, 9, SUN);
-  drawCloud(g, x + 1, y + 11, CLOUD);
+  if (isPartlyCloudy(id)) {
+    if (night) drawMoon(g, x + 12, y + 10, 9, background);
+    else drawSun(g, x + 11, y + 8, 9, SUN);
+  }
+  drawCloud(g, x + 1, y + 11, cloudColor);
   if (id >= 200 && id < 300) {
     g.fillTriangle(x + 22, y + 34, x + 16, y + 47, x + 23, y + 44, SUN);
     g.fillTriangle(x + 23, y + 43, x + 20, y + 53, x + 31, y + 38, SUN);
   } else if (isRain(id)) {
     for (int i = 0; i < 3; ++i) {
       const int rx = x + 10 + i * 13;
-      g.drawLine(rx, y + 37, rx - 3, y + 46, RAIN);
+      g.drawLine(rx, y + 37, rx - 3, y + 46, rainColor);
     }
   } else if (isSnow(id)) {
     for (int i = 0; i < 3; ++i) {
@@ -207,7 +479,10 @@ void drawMiniIcon(TileCanvas& g, int id, bool night, int x, int y,
     }
     return;
   }
-  if (isCloud(id) && !night) g.fillCircle(x + 6, y + 5, 5, SUN);
+  if (isPartlyCloudy(id)) {
+    if (night) drawMoon(g, x + 7, y + 6, 5, panel);
+    else g.fillCircle(x + 6, y + 5, 5, SUN);
+  }
   g.fillCircle(x + 7, y + 10, 5, CLOUD);
   g.fillCircle(x + 14, y + 7, 7, CLOUD);
   g.fillCircle(x + 21, y + 11, 5, CLOUD);
@@ -223,29 +498,233 @@ void drawMiniIcon(TileCanvas& g, int id, bool night, int x, int y,
   }
 }
 
-void drawBackdrop(TileCanvas& g, uint16_t sky) {
-  const bool dark = conditionIsNight() || isRain(W.conditionId);
-  if (conditionIsNight()) {
-    for (int i = 0; i < 10; ++i) {
-      const int x = (i * 43 + 17) % TFT_WIDTH;
-      const int y = 12 + (i * 29) % 103;
-      g.drawPixel(x, y, i % 3 ? rgb565(130, 154, 188) : WHITE_SOFT);
+uint16_t skyColorAt(const WeatherTheme& theme, int y) {
+  const int clampedY = constrain(y, 0, 126);
+  const uint8_t amount = static_cast<uint8_t>(
+      static_cast<uint32_t>(clampedY) * 255U / 126U);
+  return blend565(theme.skyTop, theme.skyHorizon, amount);
+}
+
+void drawSkyGradient(TileCanvas& g, const WeatherTheme& theme) {
+  constexpr int bandHeight = 9;
+  for (int y = 0; y < 126; y += bandHeight) {
+    const int sampleY = min(126, y + bandHeight / 2);
+    g.fillRect(0, y, TFT_WIDTH, min(bandHeight, 126 - y),
+               skyColorAt(theme, sampleY));
+  }
+  g.fillRect(0, 126, TFT_WIDTH, 19, theme.water);
+  g.drawFastHLine(0, 126, TFT_WIDTH,
+                  blend565(theme.water, theme.skyHorizon, 118));
+}
+
+void drawSceneCloud(TileCanvas& g, int x, int y, int scale,
+                    uint16_t light, uint16_t shade) {
+  const int s = max(1, scale);
+  g.fillCircle(x + 7 * s, y + 7 * s, 5 * s, light);
+  g.fillCircle(x + 15 * s, y + 4 * s, 7 * s, light);
+  g.fillCircle(x + 24 * s, y + 8 * s, 5 * s, light);
+  g.fillRoundRect(x + 2 * s, y + 7 * s, 28 * s, 9 * s, 4 * s, light);
+  g.drawFastHLine(x + 5 * s, y + 15 * s, 22 * s, shade);
+}
+
+void drawStars(TileCanvas& g, const WeatherTheme& theme) {
+  if (theme.nightAmount < 18) return;
+  const uint8_t alpha = static_cast<uint8_t>(
+      min<int>(210, (theme.nightAmount - 18) * 9 / 10));
+  const uint16_t star = blend565(theme.skyTop, WHITE_SOFT, alpha);
+  static const uint8_t stars[][2] = {
+      {12, 18}, {34, 42}, {61, 15}, {88, 54}, {113, 24},
+      {139, 13}, {161, 48}, {191, 21}, {218, 52}, {231, 15},
+      {24, 76}, {124, 71}, {203, 78}};
+  for (uint8_t i = 0; i < sizeof(stars) / sizeof(stars[0]); ++i) {
+    g.drawPixel(stars[i][0], stars[i][1], star);
+    if ((i % 4) == 1 && theme.nightAmount > 175) {
+      g.drawPixel(stars[i][0] + 1, stars[i][1], star);
+    }
+  }
+}
+
+void drawCelestial(TileCanvas& g, const WeatherTheme& theme, int minute) {
+  int sunriseMinute;
+  int sunsetMinute;
+  solarMinutes(sunriseMinute, sunsetMinute);
+
+  const int sunStart = sunriseMinute - 48;
+  const int sunEnd = sunsetMinute + 48;
+  if (minute >= sunStart && minute <= sunEnd) {
+    const float t = constrain(static_cast<float>(minute - sunStart) /
+                                  static_cast<float>(sunEnd - sunStart),
+                              0.0f, 1.0f);
+    const float arc = sinf(t * static_cast<float>(PI));
+    const int x = 8 + static_cast<int>(224.0f * t);
+    const int y = 116 - static_cast<int>(86.0f * arc);
+    const uint16_t bg = skyColorAt(theme, y);
+    const uint8_t cloudDim = static_cast<uint8_t>(theme.cloudLevel * 20);
+    const uint16_t glow = blend565(bg, SUN,
+        static_cast<uint8_t>(max<int>(22, 92 - cloudDim / 2)));
+    const uint16_t disc = blend565(bg, SUN,
+        static_cast<uint8_t>(max<int>(118, 255 - cloudDim)));
+    g.fillCircle(x, y, 13, glow);
+    g.fillCircle(x, y, 8, disc);
+
+    // A small horizon reflection makes sunrise and sunset feel connected to
+    // the skyscape without requiring another framebuffer.
+    if (y > 72) {
+      const uint8_t reflectionAlpha = static_cast<uint8_t>(
+          min<int>(120, (y - 72) * 3));
+      const uint16_t reflection = blend565(theme.water, SUN, reflectionAlpha);
+      for (int row = 0; row < 4; ++row) {
+        const int half = max(1, 7 - row * 2);
+        g.drawFastHLine(x - half, 130 + row * 3, half * 2 + 1, reflection);
+      }
     }
   }
 
-  // Broad, static shapes create the layered card-like depth from the visual
-  // reference without animation or expensive per-pixel gradients.
-  const uint16_t far = dark ? rgb565(37, 57, 84)
-                       : (isCloud(W.conditionId) ? rgb565(83, 147, 197)
-                                                : rgb565(235, 151, 70));
-  const uint16_t near = dark ? LAND_COOL : LAND_WARM;
-  g.fillCircle(212, 18, 70, far);
-  g.fillCircle(229, 25, 42, sky);
-  g.fillTriangle(0, 132, 87, 94, 171, 132, far);
-  g.fillTriangle(65, 132, 174, 84, 240, 132, far);
-  g.fillTriangle(0, 144, 72, 110, 147, 144, near);
-  g.fillTriangle(91, 144, 190, 101, 240, 144, near);
-  g.fillRect(0, 128, 240, 20, near);
+  if (theme.nightAmount < 24) return;
+  const int nightLength = (1440 - sunsetMinute) + sunriseMinute;
+  int elapsed = minute >= sunsetMinute ? minute - sunsetMinute
+                                      : minute + 1440 - sunsetMinute;
+  elapsed = constrain(elapsed, 0, nightLength);
+  const float t = constrain(static_cast<float>(elapsed) /
+                                static_cast<float>(nightLength),
+                            0.0f, 1.0f);
+  const float arc = sinf(t * static_cast<float>(PI));
+  const int x = 10 + static_cast<int>(220.0f * t);
+  const int y = 108 - static_cast<int>(70.0f * arc);
+  const uint16_t bg = skyColorAt(theme, y);
+  const uint8_t moonAlpha = static_cast<uint8_t>(
+      min<int>(235, 72 + theme.nightAmount * 3 / 5));
+  const uint16_t moon = blend565(bg, WHITE_SOFT, moonAlpha);
+  g.fillCircle(x, y, 8, moon);
+  g.fillCircle(x + 4, y - 3, 8, bg);
+}
+
+void drawMovingClouds(TileCanvas& g, const WeatherTheme& theme,
+                      uint32_t animationMs) {
+  static const int seed[] = {15, 126, 242, 68, 188};
+  static const int yPos[] = {18, 50, 76, 72, 88};
+  static const int scale[] = {1, 1, 1, 1, 1};
+  static const uint16_t speedMs[] = {1450, 1950, 1250, 2500, 3100};
+  const uint8_t count = constrain(theme.cloudLevel, 1, 5);
+
+  for (uint8_t i = 0; i < count; ++i) {
+    const int travel = static_cast<int>(animationMs / speedMs[i]);
+    const int x = ((seed[i] + travel) % 330) - 70;
+    int y = yPos[i];
+    const int cloudWidth = 32 * scale[i];
+    const int cloudHeight = 17 * scale[i];
+    // Preserve the weather word on the right. The cloud remains in motion but
+    // takes a higher lane while crossing that small readability-critical area.
+    if (x + cloudWidth > 158 && x < 240 &&
+        y + cloudHeight > 64 && y < 103) {
+      y = 12 + static_cast<int>(i) * 6;
+    }
+    const uint8_t visibility = count == 1 ? 30
+        : static_cast<uint8_t>(min<int>(120, 50 + count * 12 + i * 2));
+    const uint16_t localSky = skyColorAt(theme, y + 7 * scale[i]);
+    const uint16_t light = blend565(localSky, theme.cloudLight, visibility);
+    const uint16_t shade = blend565(localSky, theme.cloudShade,
+                                    static_cast<uint8_t>(visibility * 3 / 4));
+    drawSceneCloud(g, x, y, scale[i], light, shade);
+  }
+}
+
+void drawSkylineAndBridge(TileCanvas& g, const WeatherTheme& theme) {
+  // Water texture stays low contrast so the forecast text remains dominant.
+  const uint16_t waterLine = blend565(theme.water, theme.skyHorizon, 76);
+  g.drawFastHLine(0, 132, TFT_WIDTH, waterLine);
+  g.drawFastHLine(8, 139, 57, waterLine);
+  g.drawFastHLine(83, 136, 72, waterLine);
+  g.drawFastHLine(172, 141, 61, waterLine);
+
+  static const uint8_t buildings[][3] = {
+      {3, 13, 18}, {19, 10, 27}, {33, 16, 15}, {82, 12, 23},
+      {98, 16, 31}, {117, 11, 19}, {132, 18, 36}, {153, 11, 24},
+      {190, 12, 21}, {207, 18, 30}, {229, 9, 17}};
+  for (uint8_t i = 0; i < sizeof(buildings) / sizeof(buildings[0]); ++i) {
+    const int x = buildings[i][0];
+    const int w = buildings[i][1];
+    const int h = buildings[i][2];
+    const int y = 125 - h;
+    g.fillRect(x, y, w, h, theme.far);
+    if ((i % 3) == 1) g.fillRect(x + w / 2, y - 4, 1, 4, theme.far);
+  }
+
+  const uint16_t bridge = blend565(theme.far, theme.secondary, 24);
+  constexpr int deckY = 122;
+  constexpr int towerTop = 88;
+  constexpr int leftTower = 58;
+  constexpr int rightTower = 175;
+  g.fillRect(0, deckY, TFT_WIDTH, 3, bridge);
+  g.fillRect(leftTower - 2, towerTop, 5, deckY - towerTop, bridge);
+  g.fillRect(rightTower - 2, towerTop, 5, deckY - towerTop, bridge);
+  g.drawFastHLine(leftTower - 6, towerTop, 13, bridge);
+  g.drawFastHLine(rightTower - 6, towerTop, 13, bridge);
+
+  // Two cable fans are enough to read as a bridge at 240x240.
+  for (int step = 0; step < 4; ++step) {
+    const int deckXLeft = 8 + step * 10;
+    const int deckXMidLeft = 70 + step * 20;
+    g.drawLine(leftTower, towerTop + 2, deckXLeft, deckY, bridge);
+    g.drawLine(leftTower, towerTop + 2, deckXMidLeft, deckY, bridge);
+
+    const int deckXRight = 232 - step * 10;
+    const int deckXMidRight = 163 - step * 20;
+    g.drawLine(rightTower, towerTop + 2, deckXRight, deckY, bridge);
+    g.drawLine(rightTower, towerTop + 2, deckXMidRight, deckY, bridge);
+  }
+
+  if (theme.nightAmount < 52) return;
+  const uint8_t glowAmount = smoothAmount(theme.nightAmount, 52, 220);
+  const uint16_t lamp = blend565(bridge, WINDOW_LIGHT, glowAmount);
+  for (int x = 7; x < 238; x += 14) g.drawPixel(x, deckY - 2, lamp);
+  g.drawPixel(leftTower, towerTop + 6, lamp);
+  g.drawPixel(rightTower, towerTop + 6, lamp);
+
+  for (uint8_t i = 0; i < sizeof(buildings) / sizeof(buildings[0]); ++i) {
+    const int x = buildings[i][0];
+    const int w = buildings[i][1];
+    const int h = buildings[i][2];
+    const int y = 125 - h;
+    if ((i & 1) == 0) g.drawPixel(x + max(2, w / 3), y + 6, lamp);
+    if ((i % 3) == 1 && h > 22) g.drawPixel(x + w - 3, y + 13, lamp);
+  }
+
+  const uint16_t reflection = blend565(theme.water, lamp, glowAmount / 2);
+  for (int x = 7; x < 238; x += 28) {
+    g.drawPixel(x, 130, reflection);
+    g.drawFastVLine(x, 134, 3, reflection);
+  }
+}
+
+void drawPrecipitation(TileCanvas& g, const WeatherTheme& theme,
+                       uint32_t animationMs) {
+  if (!theme.precipitation) return;
+  const int phase = static_cast<int>((animationMs / 160UL) % 9UL);
+  if (theme.precipitation == 2) {
+    for (int i = 0; i < 15; ++i) {
+      const int x = (i * 29 + phase * 7) % 250 - 5;
+      const int y = 16 + (i * 17 + phase * 5) % 103;
+      g.drawLine(x, y, x - 2, y + 6, theme.rainColor);
+    }
+  } else {
+    for (int i = 0; i < 13; ++i) {
+      const int x = (i * 37 + phase * 4) % 240;
+      const int y = 14 + (i * 23 + phase * 3) % 108;
+      g.drawPixel(x, y, SNOW);
+      if ((i & 3) == 0) g.drawPixel(x + 1, y, SNOW);
+    }
+  }
+}
+
+void drawBackdrop(TileCanvas& g, const WeatherTheme& theme, int minute,
+                  uint32_t animationMs) {
+  drawSkyGradient(g, theme);
+  drawStars(g, theme);
+  drawCelestial(g, theme, minute);
+  drawMovingClouds(g, theme, animationMs);
+  drawSkylineAndBridge(g, theme);
+  drawPrecipitation(g, theme, animationMs);
 }
 
 void blendRoundedPanel(TileCanvas& g, int x, int y, int width, int height,
@@ -295,11 +774,15 @@ void blendRoundedPanel(TileCanvas& g, int x, int y, int width, int height,
 }
 
 void drawScreen(TileCanvas& g, void* opaque) {
-  const Settings& s = *static_cast<const Settings*>(opaque);
-  const uint16_t sky = skyColor();
-  const bool night = conditionIsNight();
+  const WeatherRenderContext& context =
+      *static_cast<const WeatherRenderContext*>(opaque);
+  const Settings& s = *context.settings;
+  const WeatherTheme& theme = context.theme;
+  const bool night = theme.nightAmount >= 132;
 
-  g.fillScreen(sky);
+  // Outside the scenic top half, the near-scene colour becomes the substrate
+  // visible through the translucent cards.
+  g.fillScreen(theme.near);
   g.setTextWrap(false);
 
   if (!W.valid) {
@@ -336,16 +819,11 @@ void drawScreen(TileCanvas& g, void* opaque) {
     return;
   }
 
-  drawBackdrop(g, sky);
+  drawBackdrop(g, theme, context.minute, context.animationMs);
 
-  const bool dark = night || isRain(W.conditionId) ||
-                    isAtmosphere(W.conditionId);
-  const uint16_t primary = dark ? WHITE_SOFT : INK_DARK;
-  const uint16_t secondary = dark ? rgb565(187, 204, 221)
-                                  : rgb565(72, 88, 103);
-
-  struct tm nowTm;
-  currentLocalTm(nowTm);
+  const uint16_t primary = theme.primary;
+  const uint16_t secondary = theme.secondary;
+  const struct tm& nowTm = context.nowTm;
 
   char timeText[8];
   char meridiem[3];
@@ -392,13 +870,30 @@ void drawScreen(TileCanvas& g, void* opaque) {
   const int degreeX = tempX + gfxTextW(tempText, tempSize) + 5;
   g.drawCircle(degreeX, tempY + 7, 4, primary);
 
-  drawMainIcon(g, W.conditionId, night, 176, 25, sky);
+  // Clear conditions use the moving celestial body itself. Other conditions
+  // keep a compact icon on the right without hiding the bridge scene.
+  if (W.conditionId != 800) {
+    int drift = static_cast<int>((context.animationMs / 900UL) % 12UL);
+    if (drift > 6) drift = 12 - drift;
+    drift -= 3;
+    drawMainIcon(g, W.conditionId, night, 178 + drift, 18,
+                 skyColorAt(theme, 42), theme.cloudLight, theme.rainColor);
+  }
 
-  const char* condition = conditionLabel(W.conditionId);
-  g.setTextSize(2);
+  const ConditionLabel condition = conditionLabel(W.conditionId);
   g.setTextColor(primary);
-  g.setCursor(226 - gfxTextW(condition, 2), 81);
-  g.print(condition);
+  if (condition.second) {
+    g.setTextSize(1);
+    g.setCursor(226 - gfxTextW(condition.first, 1), 78);
+    g.print(condition.first);
+    g.setTextSize(2);
+    g.setCursor(226 - gfxTextW(condition.second, 2), 88);
+    g.print(condition.second);
+  } else {
+    g.setTextSize(2);
+    g.setCursor(226 - gfxTextW(condition.first, 2), 81);
+    g.print(condition.first);
+  }
 
   const char unit = s.weather.metric ? 'C' : 'F';
 
@@ -410,12 +905,10 @@ void drawScreen(TileCanvas& g, void* opaque) {
   static_assert(DisplayLayout::fitsSafe(detailX, detailY, detailW, detailH),
                 "Weather telemetry panel must fit the safe display area");
 
-  const uint16_t detailOverlay = dark ? rgb565(3, 12, 22)
-                                      : rgb565(247, 250, 250);
-  const uint16_t detailBorder = dark ? rgb565(83, 107, 130)
-                                     : rgb565(179, 197, 202);
-  const uint16_t detailText = dark ? WHITE_SOFT : rgb565(34, 52, 65);
-  const uint8_t detailAlpha = dark ? 112 : 128;
+  const uint16_t detailOverlay = theme.panelOverlay;
+  const uint16_t detailBorder = theme.panelBorder;
+  const uint16_t detailText = theme.panelText;
+  const uint8_t detailAlpha = theme.panelAlpha;
   blendRoundedPanel(g, detailX, detailY, detailW, detailH, detailRadius,
                     detailOverlay, detailAlpha, detailBorder);
 
@@ -445,16 +938,13 @@ void drawScreen(TileCanvas& g, void* opaque) {
   static_assert(DisplayLayout::fitsSafe(panelX, panelY, panelW, panelH),
                 "Weather forecast panel must fit the safe display area");
 
-  const uint16_t panelOverlay = dark ? rgb565(3, 12, 22)
-                                     : rgb565(247, 250, 250);
-  const uint16_t panelBorder = dark ? rgb565(67, 88, 110)
-                                    : rgb565(179, 197, 202);
-  const uint16_t panelText = dark ? WHITE_SOFT : INK_DARK;
-  const uint16_t panelMuted = dark ? rgb565(166, 184, 205)
-                                   : rgb565(61, 78, 90);
-  const uint16_t separator = dark ? rgb565(65, 83, 105)
-                                  : rgb565(181, 198, 201);
-  const uint8_t panelAlpha = dark ? 138 : 158;
+  const uint16_t panelOverlay = theme.panelOverlay;
+  const uint16_t panelBorder = theme.panelBorder;
+  const uint16_t panelText = theme.panelText;
+  const uint16_t panelMuted = theme.panelMuted;
+  const uint16_t separator = theme.separator;
+  const uint8_t panelAlpha = static_cast<uint8_t>(
+      min<int>(120, theme.panelAlpha + 10));
   blendRoundedPanel(g, panelX, panelY, panelW, panelH, panelRadius,
                     panelOverlay, panelAlpha, panelBorder);
 
@@ -463,7 +953,8 @@ void drawScreen(TileCanvas& g, void* opaque) {
   g.setCursor(22, 153);
   g.print("NEXT 12 HOURS");
 
-  const uint16_t forecastIconBg = blend565(sky, panelOverlay, panelAlpha);
+  const uint16_t forecastIconBg =
+      blend565(theme.near, panelOverlay, panelAlpha);
 
   for (uint8_t i = 0; i < 4; ++i) {
     const int left = 9 + i * 56;
@@ -507,6 +998,31 @@ void drawScreen(TileCanvas& g, void* opaque) {
     g.print(forecastTemp);
   }
 }
+
+WeatherRenderContext makeWeatherContext(const Settings& settings) {
+  WeatherRenderContext context;
+  context.settings = &settings;
+  currentLocalTm(context.nowTm);
+  context.minute = context.nowTm.tm_hour * 60 + context.nowTm.tm_min;
+  context.animationMs = millis();
+  context.theme = weatherThemeForMinute(context.minute);
+  return context;
+}
+
+void renderWeatherScreen(const Settings& settings) {
+  WeatherRenderContext context = makeWeatherContext(settings);
+  gfxRenderTiled(drawScreen, &context, context.theme.near);
+}
+
+#if !defined(DESKMATE_PREVIEW)
+void renderWeatherAnimatedTop(const Settings& settings) {
+  WeatherRenderContext context = makeWeatherContext(settings);
+  // Recompose only the scenic/header/telemetry area. The forecast panel stays
+  // in LCD RAM, keeping the animation affordable on the ESP8266.
+  gfxRenderRegion(drawScreen, &context, context.theme.near,
+                  0, 0, TFT_WIDTH, 145);
+}
+#endif
 
 #if !defined(DESKMATE_PREVIEW)
 bool beginGet(const Settings& s, const String& url,
@@ -662,6 +1178,8 @@ void previewRenderWeather(const Settings& settings,
   W.pressure = state.pressure;
   W.conditionId = state.conditionId;
   W.timezone = state.timezone;
+  W.sunrise = state.sunrise;
+  W.sunset = state.sunset;
   W.forecastCount = min<uint8_t>(state.forecastCount, 4);
   for (uint8_t i = 0; i < W.forecastCount; ++i) {
     W.forecast[i].valid = state.forecast[i].valid;
@@ -671,7 +1189,7 @@ void previewRenderWeather(const Settings& settings,
     W.forecast[i].stamp = state.forecast[i].stamp;
   }
   previewNowUtc = state.nowUtc;
-  gfxRenderTiled(drawScreen, const_cast<Settings*>(&settings), skyColor());
+  renderWeatherScreen(settings);
 }
 #else
 
@@ -725,26 +1243,33 @@ void WeatherMode::begin(const Settings& settings) {
   pollStage_ = 0;
   W.timezone = settings.weather.utcOffsetSec;
   renderedMinute_ = -1;
+  nextAnimationMs_ = millis();
   dirty_ = true;
 }
 
 void WeatherMode::invalidate(const Settings& settings) {
   pollStage_ = 0;
   W.timezone = settings.weather.utcOffsetSec;
+  nextAnimationMs_ = millis();
   dirty_ = true;
 }
 
-void WeatherMode::wake(const Settings&) { dirty_ = true; }
+void WeatherMode::wake(const Settings&) {
+  nextAnimationMs_ = millis();
+  dirty_ = true;
+}
 
 void WeatherMode::render(const Settings& settings) {
-  gfxRenderTiled(drawScreen, const_cast<Settings*>(&settings), skyColor());
+  renderWeatherScreen(settings);
 }
 
 void WeatherMode::displayTick(const Settings& settings) {
   struct tm current;
   currentLocalTm(current);
   const int32_t minute = static_cast<int32_t>(current.tm_yday) * 1440L +
-                         static_cast<int32_t>(current.tm_hour) * 60L + current.tm_min;
+                         static_cast<int32_t>(current.tm_hour) * 60L +
+                         current.tm_min;
+  const uint32_t nowMs = millis();
   if (minute != renderedMinute_) {
     renderedMinute_ = minute;
     dirty_ = true;
@@ -752,6 +1277,15 @@ void WeatherMode::displayTick(const Settings& settings) {
   if (dirty_) {
     render(settings);
     dirty_ = false;
+    nextAnimationMs_ = nowMs + 2500UL;
+    return;
+  }
+
+  // The ESP8266 does not redraw the whole 240x240 display for cloud motion.
+  // Every 2.5 seconds only the upper 145 rows are recomposed tile-by-tile.
+  if (W.valid && static_cast<int32_t>(nowMs - nextAnimationMs_) >= 0) {
+    renderWeatherAnimatedTop(settings);
+    nextAnimationMs_ = nowMs + 2500UL;
   }
 }
 
