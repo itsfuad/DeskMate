@@ -244,9 +244,13 @@ void setup() {
     // server up for OTA recovery — don't enter the render path that crashed.
     gfxCrash(g_epcStr, g_addrStr, netIP().c_str());
   } else {
-    // Show which network we joined and how to reach the web UI, long enough to read.
-    gfxStaInfo(netSSID().c_str(), netIP().c_str(), g_settings.hostname.c_str());
-    delay(3500);
+    // No second "connected" splash. Move directly from the single boot screen
+    // to the first selected feature using its normal tiled renderer.
+    DisplayMode* mode = activeMode(g_settings);
+    if (mode) {
+      mode->wake(g_settings);
+      mode->displayTick(g_settings);
+    }
   }
 }
 

@@ -48,6 +48,5 @@ uint8_t gfxFitSize(const char* s, int maxW, uint8_t maxSize);
 // ---- Shared boot / status / diagnostic screens ----------------------------
 void gfxBoot(const char* line1, const char* line2);
 void gfxApInfo(const char* ssid, const char* pass, const char* ip);
-void gfxStaInfo(const char* ssid, const char* ip, const char* host);
 void gfxMessage(const char* title, const char* msg, uint16_t titleColor);
 void gfxCrash(const char* epc, const char* addr, const char* ip);  // safe-mode diag

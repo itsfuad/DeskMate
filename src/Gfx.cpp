@@ -138,8 +138,6 @@ static_assert(kFrameX >= 0 && kFrameY >= 0 &&
               "System frame must fit the 240x240 panel");
 static_assert(20 + 200 <= TFT_WIDTH && 88 + 101 <= kFooterY,
               "Network boot card must not overlap the footer");
-static_assert(134 + 28 < 181,
-              "Boot status badge must not overlap progress markers");
 
 void revealBacklight() {
   if (backlightRevealed) return;
@@ -241,21 +239,15 @@ bool lastBootValid = false;
 
 void renderBoot(TileCanvas& g, void* raw) {
   const BootContext& c = *static_cast<BootContext*>(raw);
-  drawSystemFrame(g, c.accent, "SYSTEM START");
 
-  g.drawCircle(120, 74, 19, C_UI_LINE);
-  g.drawCircle(120, 74, 12, c.accent);
-  g.fillCircle(120, 74, 4, C_UI_CYAN);
-  g.fillCircle(137, 74, 2, C_UI_AMBER);
-
+  // Deliberately minimal: one stable screen, one title, one accent rule and
+  // one status line. Startup progress only repaints the regions that change.
+  g.fillScreen(C_UI_BG);
   drawCenteredBounded(g, c.line1[0] ? c.line1 : "DeskMate",
-                      101, 196, 3, C_UI_TEXT);
-  drawStatusBadge(g, c.line2, c.accent, 134);
-
-  g.fillRoundRect(48, 181, 31, 4, 2, C_UI_CYAN);
-  g.fillRoundRect(85, 181, 31, 4, 2, C_UI_BLUE);
-  g.fillRoundRect(122, 181, 31, 4, 2, C_UI_VIOLET);
-  g.fillRoundRect(159, 181, 31, 4, 2, C_UI_AMBER);
+                      84, 216, 3, C_UI_TEXT);
+  g.fillRoundRect(72, 121, 96, 2, 1, c.accent);
+  if (c.line2[0])
+    drawCenteredBounded(g, c.line2, 143, 208, 1, C_UI_MUTED);
 }
 
 TileMask bootDirtyMask(const BootContext& next) {
@@ -263,15 +255,11 @@ TileMask bootDirtyMask(const BootContext& next) {
 
   TileMask mask = 0;
   if (strcmp(lastBoot.line1, next.line1) != 0)
-    gfxMarkRectTiles(mask, 18, 97, 204, 31, 2);
+    gfxMarkRectTiles(mask, 12, 80, 216, 30, 2);
   if (strcmp(lastBoot.line2, next.line2) != 0)
-    gfxMarkRectTiles(mask, 18, 132, 204, 34, 2);
-  if (lastBoot.accent != next.accent) {
-    gfxMarkRectTiles(mask, 8, 8, 224, 7, 1);      // frame accent rail
-    gfxMarkRectTiles(mask, 14, 18, 20, 20, 1);    // header status mark
-    gfxMarkRectTiles(mask, 98, 52, 44, 44, 2);    // center glyph
-    gfxMarkRectTiles(mask, 18, 132, 204, 34, 2);  // badge accent dot
-  }
+    gfxMarkRectTiles(mask, 12, 138, 216, 18, 2);
+  if (lastBoot.accent != next.accent)
+    gfxMarkRectTiles(mask, 70, 118, 100, 8, 1);
   return mask;
 }
 
@@ -297,28 +285,6 @@ void renderAp(TileCanvas& g, void* raw) {
   g.setCursor(32, 143);
   g.print(c.passwordState);
   drawCenteredBounded(g, c.url, 164, 176, 2, C_UI_BLUE);
-}
-
-struct StaContext {
-  char ssid[48];
-  char ip[32];
-  char url[64];
-};
-
-void renderSta(TileCanvas& g, void* raw) {
-  const StaContext& c = *static_cast<StaContext*>(raw);
-  drawSystemFrame(g, C_UI_GREEN, "NETWORK READY");
-  drawCenteredBounded(g, "CONNECTED", 55, 196, 3, C_UI_GREEN);
-
-  g.fillRoundRect(20, 88, 200, 101, 11, C_UI_PANEL2);
-  g.drawRoundRect(20, 88, 200, 101, 11, C_UI_LINE);
-  g.setTextSize(1);
-  g.setTextColor(C_UI_MUTED);
-  g.setCursor(32, 99);
-  g.print("WIFI");
-  drawCenteredBounded(g, c.ssid, 114, 176, 2, C_UI_TEXT);
-  drawCenteredBounded(g, c.ip, 157, 176, 2, C_UI_BLUE);
-  if (c.url[0]) drawCenteredBounded(g, c.url, 178, 176, 1, C_UI_VIOLET);
 }
 
 struct MessageContext {
@@ -385,16 +351,6 @@ void gfxApInfo(const char* ssid, const char* pass, const char* ip) {
           sizeof(c.passwordState));
   snprintf(c.url, sizeof(c.url), "http://%s", ip && ip[0] ? ip : "192.168.4.1");
   gfxRenderTiled(renderAp, &c, C_UI_BG);
-  revealBacklight();
-}
-
-void gfxStaInfo(const char* ssid, const char* ip, const char* host) {
-  if (!gfx) return;
-  StaContext c = {};
-  strlcpy(c.ssid, ssid && ssid[0] ? ssid : "-", sizeof(c.ssid));
-  strlcpy(c.ip, ip && ip[0] ? ip : "-", sizeof(c.ip));
-  if (host && host[0]) snprintf(c.url, sizeof(c.url), "%s.local", host);
-  gfxRenderTiled(renderSta, &c, C_UI_BG);
   revealBacklight();
 }
 
