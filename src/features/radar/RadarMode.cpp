@@ -31,10 +31,10 @@ static_assert(CX - RR >= DisplayLayout::Left && CY - RR >= DisplayLayout::Top &&
               CX + RR <= DisplayLayout::Right &&
               CY + RR <= DisplayLayout::Bottom,
               "Radar scope must fit the safe display area");
-static_assert(226 - 5 >= DisplayLayout::Left &&
-              226 + 5 < DisplayLayout::Right &&
-              226 - 5 >= DisplayLayout::Top &&
-              226 + 5 < DisplayLayout::Bottom,
+static_assert(226 - 4 >= DisplayLayout::Left &&
+              226 + 4 < DisplayLayout::Right &&
+              226 - 4 >= DisplayLayout::Top &&
+              226 + 4 < DisplayLayout::Bottom,
               "Radar heartbeat must fit the safe display area");
 
 void polar(float radius, float bearing, int& x, int& y) {
@@ -138,7 +138,8 @@ bool intersects(const LabelBox& a, const LabelBox& b) {
 
 struct RadarRenderContext {
   const Settings* settings = nullptr;
-  uint8_t heartbeatFrame = 4;
+  bool heartbeatOn = false;
+  bool pollBusy = false;
 };
 
 uint16_t radarStatusColor(const Settings& settings) {
@@ -152,10 +153,24 @@ uint16_t radarStatusColor(const Settings& settings) {
 }
 
 void drawRadarHeartbeat(TileCanvas& g, const Settings& settings,
-                        uint8_t frame) {
+                        bool on, bool busy) {
   constexpr int x = 226;
   constexpr int y = 226;
-  StatusHeartbeat::draw(g, x, y, radarStatusColor(settings), frame, 5);
+  const uint16_t color = busy ? BLUE : radarStatusColor(settings);
+  StatusHeartbeat::draw(g, x, y, color, on, busy);
+}
+
+struct RadarLedContext {
+  const Settings* settings = nullptr;
+  bool on = false;
+  bool busy = false;
+};
+
+void drawRadarLedRegion(TileCanvas& g, void* opaque) {
+  const RadarLedContext& context =
+      *static_cast<const RadarLedContext*>(opaque);
+  g.fillScreen(BG);
+  drawRadarHeartbeat(g, *context.settings, context.on, context.busy);
 }
 
 void drawRadar(TileCanvas& g, void* opaque) {
@@ -325,7 +340,7 @@ void drawRadar(TileCanvas& g, void* opaque) {
     g.print("ADSB.FI  NO TARGETS");
   }
 
-  drawRadarHeartbeat(g, settings, context.heartbeatFrame);
+  drawRadarHeartbeat(g, settings, context.heartbeatOn, context.pollBusy);
 }
 }  // namespace
 
@@ -335,7 +350,8 @@ void RadarMode::begin(const Settings& settings) {
   renderedError_ = false;
   needRender_ = true;
   heartbeatEpochMs_ = millis();
-  heartbeatFrame_ = 0;
+  heartbeatOn_ = true;
+  pollBusy_ = false;
 }
 
 void RadarMode::invalidate(const Settings& settings) {
@@ -344,13 +360,15 @@ void RadarMode::invalidate(const Settings& settings) {
   renderedError_ = false;
   needRender_ = true;
   heartbeatEpochMs_ = millis();
-  heartbeatFrame_ = 0;
+  heartbeatOn_ = true;
+  pollBusy_ = false;
 }
 
 void RadarMode::wake(const Settings&) {
   needRender_ = true;
   heartbeatEpochMs_ = millis();
-  heartbeatFrame_ = 0;
+  heartbeatOn_ = true;
+  pollBusy_ = false;
 }
 
 uint32_t RadarMode::pollIntervalMs(const Settings& settings) const {
@@ -376,17 +394,29 @@ void RadarMode::render(const Settings& settings) {
   }
   RadarRenderContext context;
   context.settings = &settings;
-  context.heartbeatFrame = heartbeatFrame_;
+  context.heartbeatOn = heartbeatOn_;
+  context.pollBusy = pollBusy_;
   gfxRenderTiled(drawRadar, &context, BG);
 }
 
 void RadarMode::renderHeartbeat(const Settings& settings) {
-  RadarRenderContext context;
+  RadarLedContext context;
   context.settings = &settings;
-  context.heartbeatFrame = heartbeatFrame_;
-  TileMask mask = 0;
-  gfxMarkRectTiles(mask, 218, 218, 16, 16, 1);
-  gfxRenderTileMask(drawRadar, &context, BG, mask);
+  context.on = heartbeatOn_;
+  context.busy = pollBusy_;
+  // Exact 11x11 retained region with a dedicated callback: minimal CPU and SPI.
+  gfxRenderRegion(drawRadarLedRegion, &context, BG, 221, 221, 11, 11);
+}
+
+void RadarMode::pollActivityChanged(const Settings& settings, bool busy) {
+  if (settings.radar.lat == 0.0f && settings.radar.lon == 0.0f) return;
+  if (pollBusy_ == busy) return;
+  pollBusy_ = busy;
+  if (!busy) {
+    heartbeatEpochMs_ = millis();
+    heartbeatOn_ = true;
+  }
+  renderHeartbeat(settings);
 }
 
 void RadarMode::displayTick(const Settings& settings) {
@@ -398,10 +428,10 @@ void RadarMode::displayTick(const Settings& settings) {
     return;
   }
 
-  const uint32_t now = millis();
-  const uint8_t frame = StatusHeartbeat::frameAt(now, heartbeatEpochMs_);
-  const bool heartbeatChanged = frame != heartbeatFrame_;
-  if (heartbeatChanged) heartbeatFrame_ = frame;
+  const bool nextOn = pollBusy_ ? true
+      : StatusHeartbeat::onAt(millis(), heartbeatEpochMs_);
+  const bool heartbeatChanged = nextOn != heartbeatOn_;
+  if (heartbeatChanged) heartbeatOn_ = nextOn;
 
   const uint32_t ok = radarLastOkMs();
   const bool error = radarError();

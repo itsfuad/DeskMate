@@ -186,9 +186,15 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
 
   uint16_t budget = mode->pollBudgetMs(settings);
   if (budget < 250) budget = 250;
+
+  // Paint a deterministic busy state before entering a synchronous DNS/TLS/API
+  // call. The ESP8266 cannot animate while that call owns the single core, but
+  // the visible blue LED makes the pause explicit instead of appearing stuck.
+  if (active) active->pollActivityChanged(settings, true);
   const uint32_t started = millis();
   const PollResult result = mode->poll(settings, budget);
   const uint32_t finished = millis();
+  if (active) active->pollActivityChanged(settings, false);
   const uint32_t duration = finished - started;
 
   r.lastDurationMs = duration;

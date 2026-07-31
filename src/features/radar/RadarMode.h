@@ -13,6 +13,7 @@ class RadarMode : public DisplayMode {
   uint16_t pollBudgetMs(const Settings&) const override;
   uint8_t pollCost() const override { return 3; }
   PollResult poll(const Settings&, uint16_t budgetMs) override;
+  void pollActivityChanged(const Settings&, bool busy) override;
   void displayTick(const Settings&) override;
 
  private:
@@ -21,7 +22,8 @@ class RadarMode : public DisplayMode {
   uint32_t renderedOk_ = 0xFFFFFFFF;
   bool renderedError_ = false;
   bool needRender_ = true;
-  uint8_t heartbeatFrame_ = 4;
+  bool heartbeatOn_ = false;
+  bool pollBusy_ = false;
   uint32_t heartbeatEpochMs_ = 0;
 };
 

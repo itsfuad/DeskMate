@@ -393,9 +393,11 @@ void drawStatCount(TileCanvas& g, int centerX, int iconY, uint32_t value,
 
   char number[12];
   formatCompactCount(value, number, sizeof(number));
-  g.setTextSize(2);
+  const uint8_t size = gfxTextW(number, 2) <= 60 ? 2 : 1;
+  g.setTextSize(size);
   g.setTextColor(accent);
-  g.setCursor(centerX - gfxTextW(number, 2) / 2, iconY + 12);
+  const int countY = iconY + 12 + (size == 1 ? 4 : 0);
+  g.setCursor(centerX - gfxTextW(number, size) / 2, countY);
   g.print(number);
 }
 
@@ -449,30 +451,48 @@ void drawGithub(TileCanvas& g, void*) {
   constexpr int statsX = 10;
   constexpr int statsY = 55;
   constexpr int statsW = 220;
-  constexpr int statsH = 57;
+  constexpr int statsH = 58;
   static_assert(DisplayLayout::fitsSafe(statsX, statsY, statsW, statsH),
                 "GitHub stats panel must fit the safe display area");
   g.fillRoundRect(statsX, statsY, statsW, statsH, 10, PANEL);
-  g.drawFastVLine(83, statsY + 8, statsH - 16, rgb565(43, 49, 58));
-  g.drawFastVLine(157, statsY + 8, statsH - 16, rgb565(43, 49, 58));
-  drawStatCount(g, 46, 68, G.openIssues, PURPLE, 0);
-  drawStatCount(g, 120, 68, G.openPullRequests, BLUE, 1);
-  drawStatCount(g, 194, 68, G.commits, GREEN_4, 2);
 
+  // Three equal 73/74 px columns. Icon + count content is vertically centered
+  // as one block inside the panel rather than centered independently.
+  constexpr int dividerTop = statsY + 8;
+  constexpr int dividerH = statsH - 16;
+  g.drawFastVLine(83, dividerTop, dividerH, rgb565(43, 49, 58));
+  g.drawFastVLine(157, dividerTop, dividerH, rgb565(43, 49, 58));
+  constexpr int statIconY = 74;
+  drawStatCount(g, 46, statIconY, G.openIssues, PURPLE, 0);
+  drawStatCount(g, 120, statIconY, G.openPullRequests, BLUE, 1);
+  drawStatCount(g, 194, statIconY, G.commits, GREEN_4, 2);
+
+  // drawStatCount leaves text size at 2; explicitly restore the 6x8 metadata
+  // font. Each label owns a fixed alignment anchor, so no long combined string
+  // can overflow or appear visually off-center.
+  g.setTextSize(1);
+  g.setTextColor(MUTED);
+  char rangeText[8];
+  char totalText[20];
+  char streakText[18];
   char compactTotal[12];
   formatCompactCount(G.totalContributions, compactTotal, sizeof(compactTotal));
-  char graphMeta[48];
-  snprintf(graphMeta, sizeof(graphMeta), "%uM  %s TOTAL  %uD STREAK",
-           G.rangeMonths, compactTotal, G.streak);
-  g.setTextColor(MUTED);
-  g.setCursor((TFT_WIDTH - gfxTextW(graphMeta, 1)) / 2, 118);
-  g.print(graphMeta);
+  snprintf(rangeText, sizeof(rangeText), "%uM", G.rangeMonths);
+  snprintf(totalText, sizeof(totalText), "%s TOTAL", compactTotal);
+  snprintf(streakText, sizeof(streakText), "%uD STREAK", G.streak);
+  constexpr int metaY = 117;
+  g.setCursor(12, metaY);
+  g.print(rangeText);
+  g.setCursor((TFT_WIDTH - gfxTextW(totalText, 1)) / 2, metaY);
+  g.print(totalText);
+  g.setCursor(228 - gfxTextW(streakText, 1), metaY);
+  g.print(streakText);
 
   const uint16_t levelColors[5] = {PANEL, GREEN_1, GREEN_2, GREEN_3, GREEN_4};
   constexpr int graphAreaX = 12;
-  constexpr int graphAreaY = 130;
+  constexpr int graphAreaY = 128;
   constexpr int graphAreaW = 216;
-  constexpr int graphAreaH = 98;
+  constexpr int graphAreaH = 100;
   constexpr int dayRows = 7;
   static_assert(DisplayLayout::fitsSafe(
                     graphAreaX, graphAreaY, graphAreaW, graphAreaH),

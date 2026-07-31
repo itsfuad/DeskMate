@@ -15,6 +15,19 @@ namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
+constexpr uint16_t blend565(uint16_t base, uint16_t overlay, uint8_t alpha) {
+  const uint16_t br = (base >> 11) & 0x1F;
+  const uint16_t bg = (base >> 5) & 0x3F;
+  const uint16_t bb = base & 0x1F;
+  const uint16_t or_ = (overlay >> 11) & 0x1F;
+  const uint16_t og = (overlay >> 5) & 0x3F;
+  const uint16_t ob = overlay & 0x1F;
+  const uint16_t inv = 255U - alpha;
+  return static_cast<uint16_t>(
+      (((br * inv + or_ * alpha) / 255U) << 11) |
+      (((bg * inv + og * alpha) / 255U) << 5) |
+      ((bb * inv + ob * alpha) / 255U));
+}
 
 constexpr uint16_t SKY_CLEAR = rgb565(242, 174, 67);
 constexpr uint16_t SKY_CLOUD = rgb565(102, 163, 211);
@@ -226,6 +239,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
   const Settings& s = *static_cast<const Settings*>(opaque);
   const uint16_t sky = skyColor();
   const bool night = conditionIsNight();
+
   g.fillScreen(sky);
   g.setTextWrap(false);
 
@@ -235,9 +249,11 @@ void drawScreen(TileCanvas& g, void* opaque) {
     g.setTextSize(2);
     g.setCursor(26, 40);
     g.print("DESKMATE WEATHER");
+
     g.setTextSize(1);
     g.setTextColor(rgb565(155, 170, 187));
     g.setCursor(26, 82);
+
     if (!s.weather.apiKey.length()) {
       g.print("OPENWEATHER KEY REQUIRED");
       g.setCursor(26, 100);
@@ -245,6 +261,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
     } else if (W.error) {
       g.setTextColor(ERROR_C);
       g.print(W.errorText[0] ? W.errorText : "WEATHER API ERROR");
+
       if (W.httpCode) {
         g.setCursor(26, 100);
         g.print("HTTP ");
@@ -253,6 +270,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
     } else {
       g.print("LOADING WEATHER...");
     }
+
     g.setTextColor(rgb565(115, 136, 158));
     g.setCursor(26, 180);
     g.print("Current weather + four");
@@ -263,25 +281,84 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
   drawBackdrop(g, sky);
 
-  const bool dark = night || isRain(W.conditionId) || isAtmosphere(W.conditionId);
+  auto blendRoundedPanel = [&](int x, int y, int w, int h, int radius,
+                               uint16_t overlay, uint8_t alpha,
+                               uint16_t border) {
+    const int right = x + w - 1;
+    const int bottom = y + h - 1;
+    const int innerLeft = x + radius;
+    const int innerRight = right - radius;
+    const int innerTop = y + radius;
+    const int innerBottom = bottom - radius;
+
+    const int tileLeft = g.tileX();
+    const int tileTop = g.tileY();
+    const int tileRight = tileLeft + g.tileW() - 1;
+    const int tileBottom = tileTop + g.tileH() - 1;
+
+    const int x0 = x > tileLeft ? x : tileLeft;
+    const int y0 = y > tileTop ? y : tileTop;
+    const int x1 = right < tileRight ? right : tileRight;
+    const int y1 = bottom < tileBottom ? bottom : tileBottom;
+
+    if (x0 <= x1 && y0 <= y1) {
+      uint16_t* pixels = g.pixels();
+      const int stride = g.tileW();
+
+      for (int py = y0; py <= y1; ++py) {
+        for (int px = x0; px <= x1; ++px) {
+          bool inside = px >= innerLeft && px <= innerRight;
+
+          if (!inside) inside = py >= innerTop && py <= innerBottom;
+
+          if (!inside) {
+            const int centerX = px < innerLeft ? innerLeft : innerRight;
+            const int centerY = py < innerTop ? innerTop : innerBottom;
+            const int dx = px - centerX;
+            const int dy = py - centerY;
+            inside = dx * dx + dy * dy <= radius * radius;
+          }
+
+          if (!inside) continue;
+
+          const int localX = px - tileLeft;
+          const int localY = py - tileTop;
+          const int index = localY * stride + localX;
+          pixels[index] = blend565(pixels[index], overlay, alpha);
+        }
+      }
+    }
+
+    g.drawRoundRect(x, y, w, h, radius, border);
+  };
+
+  const bool dark = night || isRain(W.conditionId) ||
+                    isAtmosphere(W.conditionId);
   const uint16_t primary = dark ? WHITE_SOFT : INK_DARK;
   const uint16_t secondary = dark ? rgb565(187, 204, 221)
                                   : rgb565(72, 88, 103);
 
   struct tm nowTm;
   currentLocalTm(nowTm);
+
   char timeText[8];
   char meridiem[3];
   clockFormatTime(s, nowTm, timeText, sizeof(timeText),
                   meridiem, sizeof(meridiem));
-  static const char* dayNames[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+
+  static const char* dayNames[] = {
+      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"
+  };
+
   char dateText[16];
-  snprintf(dateText, sizeof(dateText), "%s %02d", dayNames[nowTm.tm_wday % 7],
+  snprintf(dateText, sizeof(dateText), "%s %02d",
+           dayNames[nowTm.tm_wday % 7],
            constrain(nowTm.tm_mday, 1, 31));
 
   char cityText[24];
   copyShort(s.weather.city.length() ? s.weather.city.c_str() : W.city,
             cityText, sizeof(cityText), 21);
+
   g.setTextSize(1);
   g.setTextColor(secondary);
   g.setCursor(DisplayLayout::Left + 2, 8);
@@ -289,13 +366,13 @@ void drawScreen(TileCanvas& g, void* opaque) {
   g.setCursor(DisplayLayout::Right - gfxTextW(dateText, 1) - 2, 8);
   g.print(dateText);
 
-  // Time and temperature share visual priority. Both remain readable from
-  // across a desk while the icon/condition occupy the right-hand column.
-  g.setTextColor(primary);
   const uint8_t clockSize = s.clock.use24Hour ? 5 : 4;
+
+  g.setTextColor(primary);
   g.setTextSize(clockSize);
   g.setCursor(8, 24);
   g.print(timeText);
+
   if (meridiem[0]) {
     g.setTextSize(2);
     g.setCursor(8 + gfxTextW(timeText, clockSize) + 5, 43);
@@ -304,90 +381,143 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
   char tempText[10];
   snprintf(tempText, sizeof(tempText), "%.0f", W.temp);
-  g.setTextSize(3);
-  g.setCursor(20, 65);
+
+  constexpr int tempX = 20;
+  constexpr int tempY = 65;
+  constexpr uint8_t tempSize = 3;
+
+  g.setTextSize(tempSize);
+  g.setCursor(tempX, tempY);
   g.print(tempText);
-  const int degreeX = 8 + gfxTextW(tempText, 5);
-  g.drawCircle(degreeX, 72, 4, primary);
+
+  const int degreeX = tempX + gfxTextW(tempText, tempSize) + 5;
+  g.drawCircle(degreeX, tempY + 7, 4, primary);
 
   drawMainIcon(g, W.conditionId, night, 176, 25, sky);
+
+  const char* condition = conditionLabel(W.conditionId);
   g.setTextSize(2);
   g.setTextColor(primary);
-  const char* condition = conditionLabel(W.conditionId);
   g.setCursor(226 - gfxTextW(condition, 2), 81);
   g.print(condition);
 
-  char detail[38];
   const char unit = s.weather.metric ? 'C' : 'F';
+
+  constexpr int detailX = 8;
+  constexpr int detailY = 103;
+  constexpr int detailW = 224;
+  constexpr int detailH = 34;
+  constexpr int detailRadius = 7;
+
+  static_assert(DisplayLayout::fitsSafe(
+                    detailX, detailY, detailW, detailH),
+                "Weather telemetry panel must fit the safe display area");
+
+  const uint16_t detailOverlay = dark ? rgb565(3, 12, 22)
+                                      : rgb565(247, 250, 250);
+  const uint16_t detailBorder = dark ? rgb565(83, 107, 130)
+                                     : rgb565(179, 197, 202);
+  const uint16_t detailText = dark ? WHITE_SOFT : rgb565(34, 52, 65);
+  const uint8_t detailAlpha = dark ? 112 : 128;
+
+  blendRoundedPanel(detailX, detailY, detailW, detailH, detailRadius,
+                    detailOverlay, detailAlpha, detailBorder);
+
+  char detail[38];
+
   g.setTextSize(1);
-  g.setTextColor(secondary);
-  snprintf(detail, sizeof(detail), "FEELS %.0f%c  HUM %d%%", W.feels, unit,
-           W.humidity);
-  g.setCursor(10, 111);
-  g.print(detail);
-  if (s.weather.metric) {
-    snprintf(detail, sizeof(detail), "WIND %.0f km/h  %d hPa", W.wind, W.pressure);
-  } else {
-    snprintf(detail, sizeof(detail), "WIND %.0f mph  %d hPa", W.wind, W.pressure);
-  }
-  g.setCursor(10, 124);
+  g.setTextColor(detailText);
+  snprintf(detail, sizeof(detail), "FEELS %.0f%c  HUM %d%%",
+           W.feels, unit, W.humidity);
+  g.setCursor(14, 109);
   g.print(detail);
 
-  const uint16_t panel = dark ? PANEL_DARK : PANEL_DAY;
-  const uint16_t panelText = dark ? WHITE_SOFT : INK_DARK;
-  const uint16_t panelMuted = dark ? rgb565(137, 158, 183) : INK_MUTED;
+  if (s.weather.metric) {
+    snprintf(detail, sizeof(detail), "WIND %.0f km/h  %d hPa",
+             W.wind, W.pressure);
+  } else {
+    snprintf(detail, sizeof(detail), "WIND %.0f mph  %d hPa",
+             W.wind, W.pressure);
+  }
+
+  g.setCursor(14, 122);
+  g.print(detail);
+
   constexpr int panelX = DisplayLayout::Left;
   constexpr int panelY = 145;
   constexpr int panelW = DisplayLayout::Width;
-  constexpr int panelH = 87;  // ends exactly at the 232 px safe bottom
-  static_assert(DisplayLayout::fitsSafe(panelX, panelY, panelW, panelH),
+  constexpr int panelH = 87;
+  constexpr int panelRadius = 13;
+
+  static_assert(DisplayLayout::fitsSafe(
+                    panelX, panelY, panelW, panelH),
                 "Weather forecast panel must fit the safe display area");
-  g.fillRoundRect(panelX, panelY, panelW, panelH, 13, panel);
+
+  const uint16_t panelOverlay = dark ? rgb565(3, 12, 22)
+                                     : rgb565(247, 250, 250);
+  const uint16_t panelBorder = dark ? rgb565(67, 88, 110)
+                                    : rgb565(179, 197, 202);
+  const uint16_t panelText = dark ? WHITE_SOFT : INK_DARK;
+  const uint16_t panelMuted = dark ? rgb565(166, 184, 205)
+                                   : rgb565(61, 78, 90);
+  const uint16_t separator = dark ? rgb565(65, 83, 105)
+                                  : rgb565(181, 198, 201);
+  const uint8_t panelAlpha = dark ? 138 : 158;
+
+  blendRoundedPanel(panelX, panelY, panelW, panelH, panelRadius,
+                    panelOverlay, panelAlpha, panelBorder);
 
   g.setTextSize(1);
   g.setTextColor(panelMuted);
-  g.setCursor(12, 153);
+  g.setCursor(22, 153);
   g.print("NEXT 12 HOURS");
+
+  const uint16_t forecastIconBg =
+      blend565(sky, panelOverlay, panelAlpha);
 
   for (uint8_t i = 0; i < 4; ++i) {
     const int left = 9 + i * 56;
-    if (i) {
-      g.drawFastVLine(left - 3, 166, 56,
-                      dark ? rgb565(43, 60, 81) : rgb565(224, 229, 226));
-    }
+
+    if (i) g.drawFastVLine(left - 3, 166, 56, separator);
     if (i >= W.forecastCount || !W.forecast[i].valid) continue;
 
     struct tm ft;
     localTm(W.forecast[i].stamp, ft);
+
     char forecastClock[8];
     char forecastMeridiem[3];
     clockFormatTime(s, ft, forecastClock, sizeof(forecastClock),
                     forecastMeridiem, sizeof(forecastMeridiem));
+
     char forecastTime[12];
+
     if (!forecastMeridiem[0]) {
       strlcpy(forecastTime, forecastClock, sizeof(forecastTime));
     } else if (ft.tm_min == 0) {
       const int hour12 = ft.tm_hour % 12 ? ft.tm_hour % 12 : 12;
-      snprintf(forecastTime, sizeof(forecastTime), "%d %s", hour12,
-               forecastMeridiem);
+      snprintf(forecastTime, sizeof(forecastTime), "%d %s",
+               hour12, forecastMeridiem);
     } else {
-      snprintf(forecastTime, sizeof(forecastTime), "%s%c", forecastClock,
-               forecastMeridiem[0]);
+      snprintf(forecastTime, sizeof(forecastTime), "%s%c",
+               forecastClock, forecastMeridiem[0]);
     }
+
+    g.setTextSize(1);
     g.setTextColor(panelMuted);
     g.setCursor(left + (52 - gfxTextW(forecastTime, 1)) / 2, 167);
     g.print(forecastTime);
+
     drawMiniIcon(g, W.forecast[i].id, W.forecast[i].night,
-                 left + 12, 181, panel);
+                 left + 12, 181, forecastIconBg);
 
     char forecastTemp[12];
-    snprintf(forecastTemp, sizeof(forecastTemp), "%.0f%c", W.forecast[i].temp,
-             unit);
+    snprintf(forecastTemp, sizeof(forecastTemp), "%.0f%c",
+             W.forecast[i].temp, unit);
+
     g.setTextSize(2);
     g.setTextColor(panelText);
     g.setCursor(left + (52 - gfxTextW(forecastTemp, 2)) / 2, 211);
     g.print(forecastTemp);
-    g.setTextSize(1);
   }
 }
 

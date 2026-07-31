@@ -12,11 +12,13 @@ class NetworkMode : public DisplayMode {
   uint16_t pollBudgetMs(const Settings&) const override { return 1500; }
   uint8_t pollCost() const override { return 1; }
   PollResult poll(const Settings&, uint16_t budgetMs) override;
+  void pollActivityChanged(const Settings&, bool busy) override;
   void displayTick(const Settings&) override;
 
  private:
   bool dirty_ = true;
-  uint8_t heartbeatFrame_ = 4;
+  bool heartbeatOn_ = false;
+  bool pollBusy_ = false;
   uint32_t heartbeatEpochMs_ = 0;
   void probe(const Settings&, uint16_t budgetMs);
   void render(const Settings&);

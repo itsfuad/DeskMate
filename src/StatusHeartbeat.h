@@ -3,23 +3,19 @@
 #include <Arduino.h>
 #include "TileRenderer.h"
 
-// A low-cost, time-based double heartbeat for tiny status indicators.
+// A tiny time-based double heartbeat LED.
 //
-// The frame is derived from millis() rather than advanced once per loop. A
-// blocking DNS/TLS/API operation can therefore skip an intermediate frame, but
-// it cannot stretch a 1.2 second heartbeat into a slow multi-second pulse.
+// There is deliberately no expanding pulse ring. The indicator is simply a
+// colored LED switching between a dim "off" state and a bright "on" state.
+// The phase comes from millis(), so a blocking call may skip a beat but cannot
+// stretch the animation speed. While the scheduler is inside a blocking job,
+// the visible mode paints a solid blue LED before the call begins.
 namespace StatusHeartbeat {
 constexpr uint16_t PERIOD_MS = 1200;
 
-// Four visible transitions followed by a deliberate rest:
-//   strong -> release -> smaller beat -> release -> rest
-inline uint8_t frameAt(uint32_t now, uint32_t epoch) {
+inline bool onAt(uint32_t now, uint32_t epoch) {
   const uint16_t phase = static_cast<uint16_t>((now - epoch) % PERIOD_MS);
-  if (phase < 110) return 0;
-  if (phase < 220) return 1;
-  if (phase < 330) return 2;
-  if (phase < 460) return 3;
-  return 4;
+  return phase < 105 || (phase >= 205 && phase < 310);
 }
 
 inline uint16_t scaleRgb565(uint16_t color, uint8_t scale) {
@@ -33,29 +29,13 @@ inline uint16_t scaleRgb565(uint16_t color, uint8_t scale) {
 }
 
 inline void draw(TileCanvas& g, int16_t x, int16_t y, uint16_t color,
-                 uint8_t frame, uint8_t maximumRadius) {
-  const uint16_t dim = scaleRgb565(color, 105);
-  const uint16_t soft = scaleRgb565(color, 175);
+                 bool on, bool solidBusy = false) {
+  const uint16_t bezel = scaleRgb565(color, 42);
+  const uint16_t off = scaleRgb565(color, 72);
 
-  // The center remains visible throughout the long rest so it continues to
-  // communicate state even when no ring is being animated.
-  g.fillCircle(x, y, 2, frame == 4 ? soft : color);
-
-  switch (frame) {
-    case 0:
-      g.drawCircle(x, y, maximumRadius, color);
-      break;
-    case 1:
-      g.drawCircle(x, y, maximumRadius > 5 ? maximumRadius - 2 : 3, dim);
-      break;
-    case 2:
-      g.drawCircle(x, y, maximumRadius > 4 ? maximumRadius - 1 : 4, color);
-      break;
-    case 3:
-      g.drawCircle(x, y, 3, dim);
-      break;
-    default:
-      break;
-  }
+  // Dark bezel + one solid fill. No pulse ring and no changing radius.
+  g.fillCircle(x, y, 4, bezel);
+  g.fillCircle(x, y, 3, (solidBusy || on) ? color : off);
+  if (solidBusy || on) g.drawPixel(x - 1, y - 1, scaleRgb565(color, 245));
 }
 }  // namespace StatusHeartbeat

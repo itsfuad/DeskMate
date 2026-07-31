@@ -416,10 +416,19 @@ void renderFirmware(TileCanvas& g, void* raw) {
   if (c.state == GfxFirmwareState::Current ||
       (c.state == GfxFirmwareState::Complete && !c.total)) {
     g.fillRoundRect(barX + 1, barY + 1, barW - 2, barH - 2, 4, accent);
-  } else if (c.total && percent) {
-    const int fillW = max(4, static_cast<int>((barW - 2) * percent / 100));
-    g.fillRoundRect(barX + 1, barY + 1, fillW, barH - 2, 4, accent);
+  } else if (c.total) {
+    // A known upload size is determinate from the first frame. At 0% leave the
+    // track empty; never draw the indeterminate segment in the middle and then
+    // jump it to the left when the first chunk arrives.
+    const int fillW = static_cast<int>((barW - 2) * percent / 100);
+    if (fillW >= 8) {
+      g.fillRoundRect(barX + 1, barY + 1, fillW, barH - 2, 4, accent);
+    } else if (fillW > 0) {
+      g.fillRect(barX + 1, barY + 1, fillW, barH - 2, accent);
+    }
   } else if (c.state != GfxFirmwareState::Failed) {
+    // GitHub release downloads may not expose a content length. Only those use
+    // the centered indeterminate marker.
     g.fillRoundRect(barX + 72, barY + 1, 56, barH - 2, 4, accent);
   }
 

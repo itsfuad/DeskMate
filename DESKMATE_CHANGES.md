@@ -1,3 +1,12 @@
+## 4.3.6
+
+- Pixel-aligned GitHub stats panel and compact, independently aligned range/total/streak labels.
+- Added a readable blended telemetry plate behind Weather feels-like/humidity/wind data.
+- Replaced status pulse rings with a simple color-state double-heartbeat LED.
+- Visible Network/Radar pages show a solid blue LED before synchronous network work, then resume the state-colored heartbeat.
+- Tiny status updates now push only an 11x11 retained region instead of a full 40x40 tile.
+- Manual OTA uploads start with an empty left-anchored 0% progress bar; indeterminate center fill is reserved for unknown-length downloads.
+
 # DeskMate 4.3.2 changes
 
 ## 4.3.2 GitHub heatmap geometry fix

@@ -64,5 +64,14 @@ void gfxMarkLineTiles(TileMask& mask, int16_t x0, int16_t y0,
 // remain untouched in the LCD controller's own display RAM.
 void gfxRenderTileMask(TileRenderCallback render, void* context,
                        uint16_t clearColor, TileMask mask);
+
+// Compose and push only the requested rectangle. This shares the same static
+// tile buffer as full-screen rendering and is intended for tiny retained UI
+// elements such as status LEDs. Width/height may exceed one tile; the helper
+// splits the rectangle into <=40x40 chunks without allocating another buffer.
+void gfxRenderRegion(TileRenderCallback render, void* context,
+                     uint16_t clearColor, int16_t x, int16_t y,
+                     int16_t w, int16_t h);
+
 void gfxRenderTiled(TileRenderCallback render, void* context,
                     uint16_t clearColor = 0x0000);

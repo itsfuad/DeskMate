@@ -301,10 +301,15 @@ void loop() {
     enabled[i] = modePollingEnabled(g_settings, kModes[i]);
   }
 
+  // Paint an incoming carousel screen from its cache before a due network job
+  // can block. The second tick commits any snapshot that finished in this pass.
+  // Both calls are retained/dirty-aware, so a stable screen performs no redraw.
+  if (active) active->displayTick(g_settings);
+
   // One bounded/coalesced background job at a time. All selected carousel
   // sources retain independent schedules; only the visible mode touches LCD RAM.
   g_pollScheduler.service(g_settings, enabled, active, upcoming);
-  if (active) active->displayTick(g_settings);
 
+  if (active) active->displayTick(g_settings);
   delay(2);
 }

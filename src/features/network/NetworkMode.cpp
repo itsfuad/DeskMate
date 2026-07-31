@@ -24,10 +24,10 @@ constexpr uint16_t CORAL    = rgb565(244, 103, 112);
 constexpr uint16_t AMBER    = rgb565(244, 186, 82);
 constexpr uint16_t GREEN    = rgb565(80, 204, 127);
 constexpr uint8_t SAMPLE_COUNT = 60;
-static_assert(225 - 6 >= DisplayLayout::Left &&
-              225 + 6 < DisplayLayout::Right &&
-              14 - 6 >= DisplayLayout::Top &&
-              14 + 6 < DisplayLayout::Bottom,
+static_assert(225 - 4 >= DisplayLayout::Left &&
+              225 + 4 < DisplayLayout::Right &&
+              14 - 4 >= DisplayLayout::Top &&
+              14 + 4 < DisplayLayout::Bottom,
               "Network heartbeat must fit the safe display area");
 
 struct Sample {
@@ -41,7 +41,8 @@ struct NetworkRenderContext {
   const Settings* settings = nullptr;
   char host[20] = "";
   char ip[20] = "";
-  uint8_t heartbeatFrame = 4;
+  bool heartbeatOn = false;
+  bool pollBusy = false;
 };
 
 Sample samples[SAMPLE_COUNT];
@@ -100,10 +101,23 @@ uint16_t networkStatusColor() {
   return CORAL;
 }
 
-void drawNetworkHeartbeat(TileCanvas& g, uint8_t frame) {
+void drawNetworkHeartbeat(TileCanvas& g, bool on, bool busy) {
   constexpr int x = 225;
   constexpr int y = 14;
-  StatusHeartbeat::draw(g, x, y, networkStatusColor(), frame, 6);
+  const uint16_t color = busy ? BLUE : networkStatusColor();
+  StatusHeartbeat::draw(g, x, y, color, on, busy);
+}
+
+struct NetworkLedContext {
+  bool on = false;
+  bool busy = false;
+};
+
+void drawNetworkLedRegion(TileCanvas& g, void* opaque) {
+  const NetworkLedContext& context =
+      *static_cast<const NetworkLedContext*>(opaque);
+  g.fillScreen(BG);
+  drawNetworkHeartbeat(g, context.on, context.busy);
 }
 
 void drawCardValue(TileCanvas& g, int x, int y, int w, const char* label,
@@ -136,7 +150,7 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   g.setTextColor(MUTED);
   g.setCursor(10, 9);
   g.print("NETWORK GUARDIAN");
-  drawNetworkHeartbeat(g, context.heartbeatFrame);
+  drawNetworkHeartbeat(g, context.heartbeatOn, context.pollBusy);
 
   g.setTextColor(TEXT);
   g.setTextSize(5);
@@ -308,48 +322,59 @@ PollResult NetworkMode::poll(const Settings& settings, uint16_t budgetMs) {
 void NetworkMode::begin(const Settings&) {
   dirty_ = true;
   heartbeatEpochMs_ = millis();
-  heartbeatFrame_ = 0;
+  heartbeatOn_ = true;
+  pollBusy_ = false;
 }
 
 void NetworkMode::invalidate(const Settings&) {
   dirty_ = true;
   heartbeatEpochMs_ = millis();
-  heartbeatFrame_ = 0;
+  heartbeatOn_ = true;
+  pollBusy_ = false;
 }
 
 void NetworkMode::wake(const Settings&) {
   dirty_ = true;
   heartbeatEpochMs_ = millis();
-  heartbeatFrame_ = 0;
+  heartbeatOn_ = true;
+  pollBusy_ = false;
 }
 
 void NetworkMode::render(const Settings& settings) {
   NetworkRenderContext context;
   context.settings = &settings;
-  context.heartbeatFrame = heartbeatFrame_;
+  context.heartbeatOn = heartbeatOn_;
+  context.pollBusy = pollBusy_;
   strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
   const String ip = netIP();
   strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
   gfxRenderTiled(drawNetwork, &context, BG);
 }
 
-void NetworkMode::renderHeartbeat(const Settings& settings) {
-  NetworkRenderContext context;
-  context.settings = &settings;
-  context.heartbeatFrame = heartbeatFrame_;
-  strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
-  const String ip = netIP();
-  strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
-  TileMask mask = 0;
-  gfxMarkRectTiles(mask, 217, 5, 18, 18, 1);
-  gfxRenderTileMask(drawNetwork, &context, BG, mask);
+void NetworkMode::renderHeartbeat(const Settings&) {
+  NetworkLedContext context;
+  context.on = heartbeatOn_;
+  context.busy = pollBusy_;
+  // Push exactly the 11x11 LED region. The dedicated callback avoids rebuilding
+  // the full dashboard or allocating temporary Strings before a TLS request.
+  gfxRenderRegion(drawNetworkLedRegion, &context, BG, 220, 9, 11, 11);
+}
+
+void NetworkMode::pollActivityChanged(const Settings& settings, bool busy) {
+  if (pollBusy_ == busy) return;
+  pollBusy_ = busy;
+  if (!busy) {
+    heartbeatEpochMs_ = millis();
+    heartbeatOn_ = true;
+  }
+  renderHeartbeat(settings);
 }
 
 void NetworkMode::displayTick(const Settings& settings) {
-  const uint32_t now = millis();
-  const uint8_t frame = StatusHeartbeat::frameAt(now, heartbeatEpochMs_);
-  const bool heartbeatChanged = frame != heartbeatFrame_;
-  if (heartbeatChanged) heartbeatFrame_ = frame;
+  const bool nextOn = pollBusy_ ? true
+      : StatusHeartbeat::onAt(millis(), heartbeatEpochMs_);
+  const bool heartbeatChanged = nextOn != heartbeatOn_;
+  if (heartbeatChanged) heartbeatOn_ = nextOn;
 
   if (dirty_) {
     render(settings);
