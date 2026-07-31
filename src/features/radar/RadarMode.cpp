@@ -3,6 +3,7 @@
 #include "RadarClient.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
+#include "StatusHeartbeat.h"
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 
@@ -34,7 +35,7 @@ static_assert(226 - 5 >= DisplayLayout::Left &&
               226 + 5 < DisplayLayout::Right &&
               226 - 5 >= DisplayLayout::Top &&
               226 + 5 < DisplayLayout::Bottom,
-              "Radar pulse must fit the safe display area");
+              "Radar heartbeat must fit the safe display area");
 
 void polar(float radius, float bearing, int& x, int& y) {
   const float angle = bearing * static_cast<float>(PI) / 180.0f;
@@ -137,7 +138,7 @@ bool intersects(const LabelBox& a, const LabelBox& b) {
 
 struct RadarRenderContext {
   const Settings* settings = nullptr;
-  bool pulseLarge = false;
+  uint8_t heartbeatFrame = 4;
 };
 
 uint16_t radarStatusColor(const Settings& settings) {
@@ -150,12 +151,11 @@ uint16_t radarStatusColor(const Settings& settings) {
   return GREEN;
 }
 
-void drawRadarPulse(TileCanvas& g, const Settings& settings, bool large) {
+void drawRadarHeartbeat(TileCanvas& g, const Settings& settings,
+                        uint8_t frame) {
   constexpr int x = 226;
   constexpr int y = 226;
-  const uint16_t color = radarStatusColor(settings);
-  g.fillCircle(x, y, 2, color);
-  g.drawCircle(x, y, large ? 5 : 3, color);
+  StatusHeartbeat::draw(g, x, y, radarStatusColor(settings), frame, 5);
 }
 
 void drawRadar(TileCanvas& g, void* opaque) {
@@ -325,7 +325,7 @@ void drawRadar(TileCanvas& g, void* opaque) {
     g.print("ADSB.FI  NO TARGETS");
   }
 
-  drawRadarPulse(g, settings, context.pulseLarge);
+  drawRadarHeartbeat(g, settings, context.heartbeatFrame);
 }
 }  // namespace
 
@@ -334,8 +334,8 @@ void RadarMode::begin(const Settings& settings) {
   renderedOk_ = 0xFFFFFFFF;
   renderedError_ = false;
   needRender_ = true;
-  pulseLarge_ = false;
-  nextPulseMs_ = millis() + 500UL;
+  heartbeatEpochMs_ = millis();
+  heartbeatFrame_ = 0;
 }
 
 void RadarMode::invalidate(const Settings& settings) {
@@ -343,13 +343,14 @@ void RadarMode::invalidate(const Settings& settings) {
   renderedOk_ = 0xFFFFFFFF;
   renderedError_ = false;
   needRender_ = true;
-  pulseLarge_ = false;
-  nextPulseMs_ = millis() + 500UL;
+  heartbeatEpochMs_ = millis();
+  heartbeatFrame_ = 0;
 }
 
 void RadarMode::wake(const Settings&) {
   needRender_ = true;
-  nextPulseMs_ = millis() + 500UL;
+  heartbeatEpochMs_ = millis();
+  heartbeatFrame_ = 0;
 }
 
 uint32_t RadarMode::pollIntervalMs(const Settings& settings) const {
@@ -375,14 +376,14 @@ void RadarMode::render(const Settings& settings) {
   }
   RadarRenderContext context;
   context.settings = &settings;
-  context.pulseLarge = pulseLarge_;
+  context.heartbeatFrame = heartbeatFrame_;
   gfxRenderTiled(drawRadar, &context, BG);
 }
 
-void RadarMode::renderPulse(const Settings& settings) {
+void RadarMode::renderHeartbeat(const Settings& settings) {
   RadarRenderContext context;
   context.settings = &settings;
-  context.pulseLarge = pulseLarge_;
+  context.heartbeatFrame = heartbeatFrame_;
   TileMask mask = 0;
   gfxMarkRectTiles(mask, 218, 218, 16, 16, 1);
   gfxRenderTileMask(drawRadar, &context, BG, mask);
@@ -398,11 +399,9 @@ void RadarMode::displayTick(const Settings& settings) {
   }
 
   const uint32_t now = millis();
-  const bool pulseDue = static_cast<int32_t>(now - nextPulseMs_) >= 0;
-  if (pulseDue) {
-    pulseLarge_ = !pulseLarge_;
-    nextPulseMs_ = now + 500UL;
-  }
+  const uint8_t frame = StatusHeartbeat::frameAt(now, heartbeatEpochMs_);
+  const bool heartbeatChanged = frame != heartbeatFrame_;
+  if (heartbeatChanged) heartbeatFrame_ = frame;
 
   const uint32_t ok = radarLastOkMs();
   const bool error = radarError();
@@ -414,7 +413,7 @@ void RadarMode::displayTick(const Settings& settings) {
   if (needRender_) {
     render(settings);
     needRender_ = false;
-  } else if (pulseDue) {
-    renderPulse(settings);
+  } else if (heartbeatChanged) {
+    renderHeartbeat(settings);
   }
 }

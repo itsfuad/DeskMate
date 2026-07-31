@@ -17,12 +17,12 @@ class RadarMode : public DisplayMode {
 
  private:
   void render(const Settings&);
-  void renderPulse(const Settings&);
+  void renderHeartbeat(const Settings&);
   uint32_t renderedOk_ = 0xFFFFFFFF;
   bool renderedError_ = false;
   bool needRender_ = true;
-  bool pulseLarge_ = false;
-  uint32_t nextPulseMs_ = 0;
+  uint8_t heartbeatFrame_ = 4;
+  uint32_t heartbeatEpochMs_ = 0;
 };
 
 extern RadarMode g_radarMode;

@@ -4,6 +4,7 @@
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
 #include "Net.h"
+#include "StatusHeartbeat.h"
 #include <Arduino_GFX_Library.h>
 
 NetworkMode g_networkMode;
@@ -27,7 +28,7 @@ static_assert(225 - 6 >= DisplayLayout::Left &&
               225 + 6 < DisplayLayout::Right &&
               14 - 6 >= DisplayLayout::Top &&
               14 + 6 < DisplayLayout::Bottom,
-              "Network pulse must fit the safe display area");
+              "Network heartbeat must fit the safe display area");
 
 struct Sample {
   uint16_t tcpMs = 0;
@@ -40,7 +41,7 @@ struct NetworkRenderContext {
   const Settings* settings = nullptr;
   char host[20] = "";
   char ip[20] = "";
-  bool pulseLarge = false;
+  uint8_t heartbeatFrame = 4;
 };
 
 Sample samples[SAMPLE_COUNT];
@@ -99,12 +100,10 @@ uint16_t networkStatusColor() {
   return CORAL;
 }
 
-void drawNetworkPulse(TileCanvas& g, bool large) {
+void drawNetworkHeartbeat(TileCanvas& g, uint8_t frame) {
   constexpr int x = 225;
   constexpr int y = 14;
-  const uint16_t color = networkStatusColor();
-  g.fillCircle(x, y, 2, color);
-  g.drawCircle(x, y, large ? 6 : 4, color);
+  StatusHeartbeat::draw(g, x, y, networkStatusColor(), frame, 6);
 }
 
 void drawCardValue(TileCanvas& g, int x, int y, int w, const char* label,
@@ -137,7 +136,7 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   g.setTextColor(MUTED);
   g.setCursor(10, 9);
   g.print("NETWORK GUARDIAN");
-  drawNetworkPulse(g, context.pulseLarge);
+  drawNetworkHeartbeat(g, context.heartbeatFrame);
 
   g.setTextColor(TEXT);
   g.setTextSize(5);
@@ -308,35 +307,36 @@ PollResult NetworkMode::poll(const Settings& settings, uint16_t budgetMs) {
 
 void NetworkMode::begin(const Settings&) {
   dirty_ = true;
-  pulseLarge_ = false;
-  nextPulseMs_ = millis() + 500UL;
+  heartbeatEpochMs_ = millis();
+  heartbeatFrame_ = 0;
 }
 
 void NetworkMode::invalidate(const Settings&) {
   dirty_ = true;
-  pulseLarge_ = false;
-  nextPulseMs_ = millis() + 500UL;
+  heartbeatEpochMs_ = millis();
+  heartbeatFrame_ = 0;
 }
 
 void NetworkMode::wake(const Settings&) {
   dirty_ = true;
-  nextPulseMs_ = millis() + 500UL;
+  heartbeatEpochMs_ = millis();
+  heartbeatFrame_ = 0;
 }
 
 void NetworkMode::render(const Settings& settings) {
   NetworkRenderContext context;
   context.settings = &settings;
-  context.pulseLarge = pulseLarge_;
+  context.heartbeatFrame = heartbeatFrame_;
   strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
   const String ip = netIP();
   strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
   gfxRenderTiled(drawNetwork, &context, BG);
 }
 
-void NetworkMode::renderPulse(const Settings& settings) {
+void NetworkMode::renderHeartbeat(const Settings& settings) {
   NetworkRenderContext context;
   context.settings = &settings;
-  context.pulseLarge = pulseLarge_;
+  context.heartbeatFrame = heartbeatFrame_;
   strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
   const String ip = netIP();
   strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
@@ -347,16 +347,14 @@ void NetworkMode::renderPulse(const Settings& settings) {
 
 void NetworkMode::displayTick(const Settings& settings) {
   const uint32_t now = millis();
-  const bool pulseDue = static_cast<int32_t>(now - nextPulseMs_) >= 0;
-  if (pulseDue) {
-    pulseLarge_ = !pulseLarge_;
-    nextPulseMs_ = now + 500UL;
-  }
+  const uint8_t frame = StatusHeartbeat::frameAt(now, heartbeatEpochMs_);
+  const bool heartbeatChanged = frame != heartbeatFrame_;
+  if (heartbeatChanged) heartbeatFrame_ = frame;
 
   if (dirty_) {
     render(settings);
     dirty_ = false;
-  } else if (pulseDue) {
-    renderPulse(settings);
+  } else if (heartbeatChanged) {
+    renderHeartbeat(settings);
   }
 }
