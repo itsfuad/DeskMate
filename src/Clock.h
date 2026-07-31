@@ -13,4 +13,7 @@ bool clockTrusted();
 bool clockNow(struct tm& out);
 bool clockNightActive();
 bool clockNightHeld();
-String clockTimeStr();
+void clockFormatTime(const Settings& settings, const struct tm& value,
+                     char* timeText, size_t timeTextSize,
+                     char* meridiem, size_t meridiemSize);
+String clockTimeStr(const Settings& settings);

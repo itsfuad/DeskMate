@@ -20,6 +20,7 @@ struct ClockSettings {
   String tzAbbr;         // current abbreviation (e.g. BST, CEST)
   String tzPosix;        // optional legacy/manual rule; normally generated from offset
   int32_t utcOffsetSec;  // current UTC offset, refreshed by OpenWeather
+  bool use24Hour;        // true = 23:45, false = 11:45 PM
   bool nightEnabled;
   uint16_t nightStartMin;
   uint16_t nightEndMin;

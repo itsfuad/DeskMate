@@ -25,6 +25,7 @@ void ClockSettings::setDefaults() {
   tzAbbr = "UTC";
   tzPosix = "";
   utcOffsetSec = 0;
+  use24Hour = DEFAULT_24_HOUR;
   nightEnabled = DEFAULT_NIGHT_ENABLED;
   nightStartMin = DEFAULT_NIGHT_START_MIN;
   nightEndMin = DEFAULT_NIGHT_END_MIN;
@@ -36,6 +37,7 @@ void ClockSettings::toJson(JsonObject o) const {
   o["tzAbbr"] = tzAbbr;
   o["tzPosix"] = tzPosix;
   o["utcOffsetSec"] = utcOffsetSec;
+  o["use24Hour"] = use24Hour;
   o["nightEnabled"] = nightEnabled;
   o["nightStart"] = minToHhmm(nightStartMin);
   o["nightEnd"] = minToHhmm(nightEndMin);
@@ -48,6 +50,7 @@ void ClockSettings::fromJson(JsonObjectConst o) {
   if (o["tzPosix"].is<const char*>()) tzPosix = o["tzPosix"].as<String>();
   if (o["utcOffsetSec"].is<long>() || o["utcOffsetSec"].is<int>())
     utcOffsetSec = constrain(o["utcOffsetSec"].as<long>(), -43200L, 50400L);
+  if (o["use24Hour"].is<bool>()) use24Hour = o["use24Hour"];
   if (o["nightEnabled"].is<bool>()) nightEnabled = o["nightEnabled"];
   if (o["nightStart"].is<const char*>())
     nightStartMin = hhmmToMin(o["nightStart"], nightStartMin);

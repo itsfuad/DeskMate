@@ -1,5 +1,6 @@
 #include "Gfx.h"
 #include "Platform.h"
+#include "TileRenderer.h"
 #include <Arduino_GFX_Library.h>
 #include <SPI.h>
 
@@ -40,6 +41,9 @@ class Arduino_ST7789_DeskMate : public Arduino_ST7789 {
 
 static Arduino_DataBus* bus = nullptr;
 static Arduino_GFX*     gfx = nullptr;
+static uint8_t          bootBrightness = DEFAULT_BRIGHTNESS;
+static bool             bootBacklightInverted = false;
+static bool             backlightRevealed = false;
 
 Arduino_GFX* gfxDev() { return gfx; }
 
@@ -51,12 +55,15 @@ void gfxBegin(const Settings& s) {
   pinMode(TFT_PWR_PIN, OUTPUT);
   digitalWrite(TFT_PWR_PIN, TFT_PWR_ON);
 #endif
-  // Backlight FIRST: do it before the panel/SPI init so the screen lights up even
-  // if panel init has trouble. A dark backlight then means the sketch didn't get
-  // this far (early crash / bad flash) — a useful boot indicator.
+  // Keep the backlight dark while the controller is initialized and the first
+  // complete tile-rendered boot frame is composed. Revealing the panel only after
+  // that frame is on-screen removes the power-on clear/draw flash.
+  bootBrightness = s.brightness;
+  bootBacklightInverted = s.backlightInverted;
+  backlightRevealed = false;
   pinMode(TFT_BL, OUTPUT);
   platformAnalogWriteInit(TFT_BL);
-  gfxSetBrightness(s.brightness, s.backlightInverted);
+  gfxSetBrightness(0, s.backlightInverted);
 
 #if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
   // Hardware SPI via the Arduino SPI library (IDF spi_master driver) on explicit
@@ -134,6 +141,12 @@ static_assert(20 + 200 <= TFT_WIDTH && 88 + 101 <= kFooterY,
 static_assert(134 + 28 < 181,
               "Boot status badge must not overlap progress markers");
 
+void revealBacklight() {
+  if (backlightRevealed) return;
+  backlightRevealed = true;
+  gfxSetBrightness(bootBrightness, bootBacklightInverted);
+}
+
 void copyEllipsized(const char* source, char* output, size_t outputSize,
                     int maxPixels, uint8_t size) {
   if (!outputSize) return;
@@ -151,59 +164,61 @@ void copyEllipsized(const char* source, char* output, size_t outputSize,
   if (outputSize - copied > 3) strlcat(output, "...", outputSize);
 }
 
-void drawCenteredBounded(const char* text, int y, int maxW, uint8_t maxSize,
-                         uint16_t color) {
-  if (!gfx || !text) return;
+void drawCenteredBounded(Adafruit_GFX& g, const char* text, int y, int maxW,
+                         uint8_t maxSize, uint16_t color) {
+  if (!text) return;
   uint8_t size = gfxFitSize(text, maxW, maxSize);
   char fitted[48];
   copyEllipsized(text, fitted, sizeof(fitted), maxW, size);
   const int width = gfxTextW(fitted, size);
-  gfx->setTextSize(size);
-  gfx->setTextColor(color);
-  gfx->setCursor(max(0, (TFT_WIDTH - width) / 2), y);
-  gfx->print(fitted);
+  g.setTextWrap(false);
+  g.setTextSize(size);
+  g.setTextColor(color);
+  g.setCursor(max(0, (TFT_WIDTH - width) / 2), y);
+  g.print(fitted);
 }
 
-void drawSystemFrame(uint16_t accent, const char* eyebrow) {
-  gfx->fillScreen(C_UI_BG);
-  gfx->fillRoundRect(kFrameX, kFrameY, kFrameW, kFrameH, 15, C_UI_PANEL);
-  gfx->drawRoundRect(kFrameX, kFrameY, kFrameW, kFrameH, 15, C_UI_LINE);
-  gfx->fillRoundRect(kFrameX, kFrameY, kFrameW, 5, 3, accent);
+void drawSystemFrame(Adafruit_GFX& g, uint16_t accent, const char* eyebrow) {
+  g.fillScreen(C_UI_BG);
+  g.fillRoundRect(kFrameX, kFrameY, kFrameW, kFrameH, 15, C_UI_PANEL);
+  g.drawRoundRect(kFrameX, kFrameY, kFrameW, kFrameH, 15, C_UI_LINE);
+  g.fillRoundRect(kFrameX, kFrameY, kFrameW, 5, 3, accent);
 
-  gfx->fillCircle(24, 28, 4, accent);
-  gfx->drawCircle(24, 28, 8, C_UI_LINE);
-  gfx->setTextSize(1);
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(39, 24);
+  g.fillCircle(24, 28, 4, accent);
+  g.drawCircle(24, 28, 8, C_UI_LINE);
+  g.setTextSize(1);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(39, 24);
   char label[24];
-  copyEllipsized(eyebrow ? eyebrow : "DESKMATE SYSTEM", label, sizeof(label), 124, 1);
-  gfx->print(label);
+  copyEllipsized(eyebrow ? eyebrow : "DESKMATE SYSTEM", label, sizeof(label),
+                 124, 1);
+  g.print(label);
 
-  gfx->fillRoundRect(178, 24, 10, 5, 2, C_UI_CYAN);
-  gfx->fillRoundRect(191, 24, 10, 5, 2, C_UI_VIOLET);
-  gfx->fillRoundRect(204, 24, 10, 5, 2, C_UI_AMBER);
-  gfx->drawFastHLine(kContentLeft, 45, 200, C_UI_LINE);
+  g.fillRoundRect(178, 24, 10, 5, 2, C_UI_CYAN);
+  g.fillRoundRect(191, 24, 10, 5, 2, C_UI_VIOLET);
+  g.fillRoundRect(204, 24, 10, 5, 2, C_UI_AMBER);
+  g.drawFastHLine(kContentLeft, 45, 200, C_UI_LINE);
 
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(kContentLeft, kFooterY);
-  gfx->print("DESKMATE");
-  gfx->setCursor(198, kFooterY);
-  gfx->print("240");
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(kContentLeft, kFooterY);
+  g.print("DESKMATE");
+  g.setCursor(198, kFooterY);
+  g.print("240");
 }
 
-void drawStatusBadge(const char* text, uint16_t accent, int y) {
+void drawStatusBadge(Adafruit_GFX& g, const char* text, uint16_t accent, int y) {
   if (!text || !text[0]) return;
   char fitted[38];
   copyEllipsized(text, fitted, sizeof(fitted), 166, 1);
   const int width = min(190, gfxTextW(fitted, 1) + 30);
   const int x = (TFT_WIDTH - width) / 2;
-  gfx->fillRoundRect(x, y, width, 28, 8, C_UI_PANEL2);
-  gfx->drawRoundRect(x, y, width, 28, 8, C_UI_LINE);
-  gfx->fillCircle(x + 13, y + 14, 3, accent);
-  gfx->setTextSize(1);
-  gfx->setTextColor(C_UI_TEXT);
-  gfx->setCursor(x + 23, y + 10);
-  gfx->print(fitted);
+  g.fillRoundRect(x, y, width, 28, 8, C_UI_PANEL2);
+  g.drawRoundRect(x, y, width, 28, 8, C_UI_LINE);
+  g.fillCircle(x + 13, y + 14, 3, accent);
+  g.setTextSize(1);
+  g.setTextColor(C_UI_TEXT);
+  g.setCursor(x + 23, y + 10);
+  g.print(fitted);
 }
 
 uint16_t bootAccent(const char* line1, const char* line2) {
@@ -214,94 +229,191 @@ uint16_t bootAccent(const char* line1, const char* line2) {
   if (value.indexOf("network") >= 0 || value.indexOf("wifi") >= 0) return C_UI_BLUE;
   return C_UI_VIOLET;
 }
+
+struct BootContext {
+  char line1[48];
+  char line2[64];
+  uint16_t accent;
+};
+
+BootContext lastBoot = {};
+bool lastBootValid = false;
+
+void renderBoot(TileCanvas& g, void* raw) {
+  const BootContext& c = *static_cast<BootContext*>(raw);
+  drawSystemFrame(g, c.accent, "SYSTEM START");
+
+  g.drawCircle(120, 74, 19, C_UI_LINE);
+  g.drawCircle(120, 74, 12, c.accent);
+  g.fillCircle(120, 74, 4, C_UI_CYAN);
+  g.fillCircle(137, 74, 2, C_UI_AMBER);
+
+  drawCenteredBounded(g, c.line1[0] ? c.line1 : "DeskMate",
+                      101, 196, 3, C_UI_TEXT);
+  drawStatusBadge(g, c.line2, c.accent, 134);
+
+  g.fillRoundRect(48, 181, 31, 4, 2, C_UI_CYAN);
+  g.fillRoundRect(85, 181, 31, 4, 2, C_UI_BLUE);
+  g.fillRoundRect(122, 181, 31, 4, 2, C_UI_VIOLET);
+  g.fillRoundRect(159, 181, 31, 4, 2, C_UI_AMBER);
+}
+
+TileMask bootDirtyMask(const BootContext& next) {
+  if (!lastBootValid) return gfxAllTilesMask();
+
+  TileMask mask = 0;
+  if (strcmp(lastBoot.line1, next.line1) != 0)
+    gfxMarkRectTiles(mask, 18, 97, 204, 31, 2);
+  if (strcmp(lastBoot.line2, next.line2) != 0)
+    gfxMarkRectTiles(mask, 18, 132, 204, 34, 2);
+  if (lastBoot.accent != next.accent) {
+    gfxMarkRectTiles(mask, 8, 8, 224, 7, 1);      // frame accent rail
+    gfxMarkRectTiles(mask, 14, 18, 20, 20, 1);    // header status mark
+    gfxMarkRectTiles(mask, 98, 52, 44, 44, 2);    // center glyph
+    gfxMarkRectTiles(mask, 18, 132, 204, 34, 2);  // badge accent dot
+  }
+  return mask;
+}
+
+struct ApContext {
+  char ssid[48];
+  char passwordState[28];
+  char url[48];
+};
+
+void renderAp(TileCanvas& g, void* raw) {
+  const ApContext& c = *static_cast<ApContext*>(raw);
+  drawSystemFrame(g, C_UI_AMBER, "NETWORK SETUP");
+  drawCenteredBounded(g, "SETUP MODE", 55, 196, 3, C_UI_AMBER);
+
+  g.fillRoundRect(20, 88, 200, 101, 11, C_UI_PANEL2);
+  g.drawRoundRect(20, 88, 200, 101, 11, C_UI_LINE);
+  g.setTextSize(1);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(32, 99);
+  g.print("JOIN WIFI");
+  drawCenteredBounded(g, c.ssid, 115, 176, 2, C_UI_TEXT);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(32, 143);
+  g.print(c.passwordState);
+  drawCenteredBounded(g, c.url, 164, 176, 2, C_UI_BLUE);
+}
+
+struct StaContext {
+  char ssid[48];
+  char ip[32];
+  char url[64];
+};
+
+void renderSta(TileCanvas& g, void* raw) {
+  const StaContext& c = *static_cast<StaContext*>(raw);
+  drawSystemFrame(g, C_UI_GREEN, "NETWORK READY");
+  drawCenteredBounded(g, "CONNECTED", 55, 196, 3, C_UI_GREEN);
+
+  g.fillRoundRect(20, 88, 200, 101, 11, C_UI_PANEL2);
+  g.drawRoundRect(20, 88, 200, 101, 11, C_UI_LINE);
+  g.setTextSize(1);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(32, 99);
+  g.print("WIFI");
+  drawCenteredBounded(g, c.ssid, 114, 176, 2, C_UI_TEXT);
+  drawCenteredBounded(g, c.ip, 157, 176, 2, C_UI_BLUE);
+  if (c.url[0]) drawCenteredBounded(g, c.url, 178, 176, 1, C_UI_VIOLET);
+}
+
+struct MessageContext {
+  char title[48];
+  char message[64];
+  uint16_t accent;
+};
+
+void renderMessage(TileCanvas& g, void* raw) {
+  const MessageContext& c = *static_cast<MessageContext*>(raw);
+  drawSystemFrame(g, c.accent, "SYSTEM MESSAGE");
+  drawCenteredBounded(g, c.title, 82, 196, 3, c.accent);
+  drawStatusBadge(g, c.message, c.accent, 127);
+}
+
+struct CrashContext {
+  char epc[24];
+  char addr[24];
+  char ip[32];
+};
+
+void renderCrash(TileCanvas& g, void* raw) {
+  const CrashContext& c = *static_cast<CrashContext*>(raw);
+  drawSystemFrame(g, C_UI_ROSE, "SAFE MODE");
+  drawCenteredBounded(g, "RECOVERY", 54, 196, 3, C_UI_ROSE);
+
+  g.fillRoundRect(20, 87, 200, 103, 11, C_UI_PANEL2);
+  g.drawRoundRect(20, 87, 200, 103, 11, C_UI_LINE);
+  g.setTextSize(1);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(32, 100); g.print("EPC");
+  g.setTextColor(C_UI_TEXT);
+  g.setCursor(75, 100); g.print(c.epc);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(32, 124); g.print("ADDR");
+  g.setTextColor(C_UI_TEXT);
+  g.setCursor(75, 124); g.print(c.addr);
+  g.setTextColor(C_UI_MUTED);
+  g.setCursor(32, 150); g.print("OTA RECOVERY");
+  drawCenteredBounded(g, c.ip, 166, 176, 2, C_UI_BLUE);
+}
 }
 
 void gfxBoot(const char* line1, const char* line2) {
   if (!gfx) return;
-  const uint16_t accent = bootAccent(line1, line2);
-  drawSystemFrame(accent, "SYSTEM START");
+  BootContext next = {};
+  strlcpy(next.line1, line1 && line1[0] ? line1 : "DeskMate",
+          sizeof(next.line1));
+  strlcpy(next.line2, line2 ? line2 : "", sizeof(next.line2));
+  next.accent = bootAccent(next.line1, next.line2);
 
-  gfx->drawCircle(120, 74, 19, C_UI_LINE);
-  gfx->drawCircle(120, 74, 12, accent);
-  gfx->fillCircle(120, 74, 4, C_UI_CYAN);
-  gfx->fillCircle(137, 74, 2, C_UI_AMBER);
-
-  const char* title = line1 && line1[0] ? line1 : "DeskMate";
-  drawCenteredBounded(title, 101, 196, 3, C_UI_TEXT);
-  drawStatusBadge(line2, accent, 134);
-
-  gfx->fillRoundRect(48, 181, 31, 4, 2, C_UI_CYAN);
-  gfx->fillRoundRect(85, 181, 31, 4, 2, C_UI_BLUE);
-  gfx->fillRoundRect(122, 181, 31, 4, 2, C_UI_VIOLET);
-  gfx->fillRoundRect(159, 181, 31, 4, 2, C_UI_AMBER);
+  const TileMask mask = bootDirtyMask(next);
+  if (mask) gfxRenderTileMask(renderBoot, &next, C_UI_BG, mask);
+  lastBoot = next;
+  lastBootValid = true;
+  revealBacklight();
 }
 
 void gfxApInfo(const char* ssid, const char* pass, const char* ip) {
   if (!gfx) return;
-  drawSystemFrame(C_UI_AMBER, "NETWORK SETUP");
-  drawCenteredBounded("SETUP MODE", 55, 196, 3, C_UI_AMBER);
-
-  gfx->fillRoundRect(20, 88, 200, 101, 11, C_UI_PANEL2);
-  gfx->drawRoundRect(20, 88, 200, 101, 11, C_UI_LINE);
-  gfx->setTextSize(1);
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 99);
-  gfx->print("JOIN WIFI");
-  drawCenteredBounded(ssid && ssid[0] ? ssid : "DeskMate-Setup",
-                      115, 176, 2, C_UI_TEXT);
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 143);
-  gfx->print(pass && pass[0] ? "Password configured" : "Open network");
-
-  String url = String("http://") + (ip && ip[0] ? ip : "192.168.4.1");
-  drawCenteredBounded(url.c_str(), 164, 176, 2, C_UI_BLUE);
+  ApContext c = {};
+  strlcpy(c.ssid, ssid && ssid[0] ? ssid : "DeskMate-Setup", sizeof(c.ssid));
+  strlcpy(c.passwordState, pass && pass[0] ? "Password configured" : "Open network",
+          sizeof(c.passwordState));
+  snprintf(c.url, sizeof(c.url), "http://%s", ip && ip[0] ? ip : "192.168.4.1");
+  gfxRenderTiled(renderAp, &c, C_UI_BG);
+  revealBacklight();
 }
 
 void gfxStaInfo(const char* ssid, const char* ip, const char* host) {
   if (!gfx) return;
-  drawSystemFrame(C_UI_GREEN, "NETWORK READY");
-  drawCenteredBounded("CONNECTED", 55, 196, 3, C_UI_GREEN);
-
-  gfx->fillRoundRect(20, 88, 200, 101, 11, C_UI_PANEL2);
-  gfx->drawRoundRect(20, 88, 200, 101, 11, C_UI_LINE);
-  gfx->setTextSize(1);
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 99);
-  gfx->print("WIFI");
-  drawCenteredBounded(ssid && ssid[0] ? ssid : "-", 114, 176, 2, C_UI_TEXT);
-  drawCenteredBounded(ip && ip[0] ? ip : "-", 157, 176, 2, C_UI_BLUE);
-  if (host && host[0]) {
-    String url = String(host) + ".local";
-    drawCenteredBounded(url.c_str(), 178, 176, 1, C_UI_VIOLET);
-  }
+  StaContext c = {};
+  strlcpy(c.ssid, ssid && ssid[0] ? ssid : "-", sizeof(c.ssid));
+  strlcpy(c.ip, ip && ip[0] ? ip : "-", sizeof(c.ip));
+  if (host && host[0]) snprintf(c.url, sizeof(c.url), "%s.local", host);
+  gfxRenderTiled(renderSta, &c, C_UI_BG);
+  revealBacklight();
 }
 
 void gfxMessage(const char* title, const char* msg, uint16_t titleColor) {
   if (!gfx) return;
-  const uint16_t accent = titleColor == C_RED ? C_UI_ROSE : titleColor;
-  drawSystemFrame(accent, "SYSTEM MESSAGE");
-  drawCenteredBounded(title && title[0] ? title : "DeskMate",
-                      82, 196, 3, accent);
-  drawStatusBadge(msg, accent, 127);
+  MessageContext c = {};
+  strlcpy(c.title, title && title[0] ? title : "DeskMate", sizeof(c.title));
+  strlcpy(c.message, msg ? msg : "", sizeof(c.message));
+  c.accent = titleColor == C_RED ? C_UI_ROSE : titleColor;
+  gfxRenderTiled(renderMessage, &c, C_UI_BG);
+  revealBacklight();
 }
 
 void gfxCrash(const char* epc, const char* addr, const char* ip) {
   if (!gfx) return;
-  drawSystemFrame(C_UI_ROSE, "SAFE MODE");
-  drawCenteredBounded("RECOVERY", 54, 196, 3, C_UI_ROSE);
-
-  gfx->fillRoundRect(20, 87, 200, 103, 11, C_UI_PANEL2);
-  gfx->drawRoundRect(20, 87, 200, 103, 11, C_UI_LINE);
-  gfx->setTextSize(1);
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 100); gfx->print("EPC");
-  gfx->setTextColor(C_UI_TEXT);
-  gfx->setCursor(75, 100); gfx->print(epc && epc[0] ? epc : "-");
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 124); gfx->print("ADDR");
-  gfx->setTextColor(C_UI_TEXT);
-  gfx->setCursor(75, 124); gfx->print(addr && addr[0] ? addr : "-");
-  gfx->setTextColor(C_UI_MUTED);
-  gfx->setCursor(32, 150); gfx->print("OTA RECOVERY");
-  drawCenteredBounded(ip && ip[0] ? ip : "-", 166, 176, 2, C_UI_BLUE);
+  CrashContext c = {};
+  strlcpy(c.epc, epc && epc[0] ? epc : "-", sizeof(c.epc));
+  strlcpy(c.addr, addr && addr[0] ? addr : "-", sizeof(c.addr));
+  strlcpy(c.ip, ip && ip[0] ? ip : "-", sizeof(c.ip));
+  gfxRenderTiled(renderCrash, &c, C_UI_BG);
+  revealBacklight();
 }

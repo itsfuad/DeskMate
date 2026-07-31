@@ -130,12 +130,39 @@ void clockService(const Settings& settings) {
 bool clockNightActive() { return s_nightActive; }
 bool clockNightHeld() { return s_nightHeld; }
 
-String clockTimeStr() {
+void clockFormatTime(const Settings& settings, const struct tm& value,
+                     char* timeText, size_t timeTextSize,
+                     char* meridiem, size_t meridiemSize) {
+  if (timeText && timeTextSize) timeText[0] = 0;
+  if (meridiem && meridiemSize) meridiem[0] = 0;
+  if (!timeText || !timeTextSize) return;
+
+  const int minute = constrain(value.tm_min, 0, 59);
+  const int hour24 = constrain(value.tm_hour, 0, 23);
+  if (settings.clock.use24Hour) {
+    snprintf(timeText, timeTextSize, "%02d:%02d", hour24, minute);
+    return;
+  }
+
+  int hour12 = hour24 % 12;
+  if (!hour12) hour12 = 12;
+  snprintf(timeText, timeTextSize, "%d:%02d", hour12, minute);
+  if (meridiem && meridiemSize)
+    strlcpy(meridiem, hour24 < 12 ? "AM" : "PM", meridiemSize);
+}
+
+String clockTimeStr(const Settings& settings) {
   struct tm value;
   if (!clockNow(value)) return String();
-  char text[20];
-  if (strftime(text, sizeof(text), "%Y-%m-%d %H:%M", &value) == 0) {
-    return String();
-  }
-  return String(text);
+  char date[12];
+  if (strftime(date, sizeof(date), "%Y-%m-%d", &value) == 0) return String();
+  char timeText[8];
+  char meridiem[3];
+  clockFormatTime(settings, value, timeText, sizeof(timeText),
+                  meridiem, sizeof(meridiem));
+  String result(date);
+  result += ' ';
+  result += timeText;
+  if (meridiem[0]) { result += ' '; result += meridiem; }
+  return result;
 }

@@ -87,7 +87,7 @@ static void handleStatus() {
   o["uptime"] = millis() / 1000;
   o["reset"] = appResetReason();
   o["synced"] = clockSynced();
-  { String ts = clockTimeStr(); if (ts.length()) o["time"] = ts; }
+  { String ts = clockTimeStr(*S); if (ts.length()) o["time"] = ts; }
   o["tz"]        = S->clock.tz;
   o["night"]     = clockNightActive();   // dimming now
   o["nightHeld"] = clockNightHeld();      // in the window but waiting for a fresh NTP sync
@@ -207,6 +207,9 @@ static bool validateConfigInput(JsonObjectConst root, String& error) {
         !validHhmm(clock["nightEnd"].as<const char*>())) {
       error = F("invalid night end time"); return false;
     }
+    if (!clock["use24Hour"].isNull() && !clock["use24Hour"].is<bool>()) {
+      error = F("invalid time format"); return false;
+    }
     if (clock["nightLevel"].is<int>()) {
       const int value = clock["nightLevel"].as<int>();
       if (value < 0 || value > 100) { error = F("invalid night brightness"); return false; }
@@ -315,6 +318,7 @@ static void handlePostConfig() {
   }
   const String oldNet = netFingerprint(*S);
   const uint8_t oldRot = S->rotation;
+  const bool oldUse24Hour = S->clock.use24Hour;
 
   // Partial POSTs are used by the display tab for instant controls. Detect which
   // subsystems are actually present so moving a brightness slider does not
@@ -343,9 +347,10 @@ static void handlePostConfig() {
   }
   if (hasBrightness || hasClock || hasWeather) appApplyBrightness();
   const bool rotationChanged = hasRotation && S->rotation != oldRot;
+  const bool timeFormatChanged = hasClock && S->clock.use24Hour != oldUse24Hour;
   if (rotationChanged) gfxSetRotation(S->rotation);
   if (hasFeatureConfig) appInvalidate();
-  else if (hasMode || rotationChanged) appWakeActive();
+  else if (hasMode || rotationChanged || timeFormatChanged) appWakeActive();
 
   const bool wifiChanged = netFingerprint(*S) != oldNet;
 

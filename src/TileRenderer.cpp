@@ -89,6 +89,25 @@ void gfxMarkPointTiles(TileMask& mask, int16_t x, int16_t y,
   }
 }
 
+void gfxMarkRectTiles(TileMask& mask, int16_t x, int16_t y,
+                      int16_t w, int16_t h, int16_t padding) {
+  if (w <= 0 || h <= 0) return;
+  int16_t x0 = constrain(x - padding, 0, TFT_WIDTH - 1);
+  int16_t y0 = constrain(y - padding, 0, TFT_HEIGHT - 1);
+  int16_t x1 = constrain(x + w - 1 + padding, 0, TFT_WIDTH - 1);
+  int16_t y1 = constrain(y + h - 1 + padding, 0, TFT_HEIGHT - 1);
+  const int16_t col0 = x0 / TileCanvas::MAX_TILE;
+  const int16_t row0 = y0 / TileCanvas::MAX_TILE;
+  const int16_t col1 = x1 / TileCanvas::MAX_TILE;
+  const int16_t row1 = y1 / TileCanvas::MAX_TILE;
+  for (int16_t row = row0; row <= row1; ++row) {
+    for (int16_t col = col0; col <= col1; ++col) {
+      const int16_t index = row * TileCanvas::COLS + col;
+      mask |= static_cast<TileMask>(1) << index;
+    }
+  }
+}
+
 void gfxMarkLineTiles(TileMask& mask, int16_t x0, int16_t y0,
                       int16_t x1, int16_t y1, int16_t padding) {
   // Bresenham walk: marking every pixel is cheap here (radar rays are <=112 px)

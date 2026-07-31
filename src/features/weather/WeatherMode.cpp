@@ -271,8 +271,9 @@ void drawScreen(TileCanvas& g, void* opaque) {
   struct tm nowTm;
   currentLocalTm(nowTm);
   char timeText[8];
-  snprintf(timeText, sizeof(timeText), "%02d:%02d",
-           constrain(nowTm.tm_hour, 0, 23), constrain(nowTm.tm_min, 0, 59));
+  char meridiem[3];
+  clockFormatTime(s, nowTm, timeText, sizeof(timeText),
+                  meridiem, sizeof(meridiem));
   static const char* dayNames[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
   char dateText[16];
   snprintf(dateText, sizeof(dateText), "%s %02d", dayNames[nowTm.tm_wday % 7],
@@ -291,9 +292,15 @@ void drawScreen(TileCanvas& g, void* opaque) {
   // Time and temperature share visual priority. Both remain readable from
   // across a desk while the icon/condition occupy the right-hand column.
   g.setTextColor(primary);
-  g.setTextSize(5);
+  const uint8_t clockSize = s.clock.use24Hour ? 5 : 4;
+  g.setTextSize(clockSize);
   g.setCursor(8, 24);
   g.print(timeText);
+  if (meridiem[0]) {
+    g.setTextSize(2);
+    g.setCursor(8 + gfxTextW(timeText, clockSize) + 5, 43);
+    g.print(meridiem);
+  }
 
   char tempText[10];
   snprintf(tempText, sizeof(tempText), "%.0f", W.temp);
@@ -352,9 +359,21 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
     struct tm ft;
     localTm(W.forecast[i].stamp, ft);
+    char forecastClock[8];
+    char forecastMeridiem[3];
+    clockFormatTime(s, ft, forecastClock, sizeof(forecastClock),
+                    forecastMeridiem, sizeof(forecastMeridiem));
     char forecastTime[8];
-    snprintf(forecastTime, sizeof(forecastTime), "%02d:%02d",
-             constrain(ft.tm_hour, 0, 23), constrain(ft.tm_min, 0, 59));
+    if (!forecastMeridiem[0]) {
+      strlcpy(forecastTime, forecastClock, sizeof(forecastTime));
+    } else if (ft.tm_min == 0) {
+      const int hour12 = ft.tm_hour % 12 ? ft.tm_hour % 12 : 12;
+      snprintf(forecastTime, sizeof(forecastTime), "%d %s", hour12,
+               forecastMeridiem);
+    } else {
+      snprintf(forecastTime, sizeof(forecastTime), "%s%c", forecastClock,
+               forecastMeridiem[0]);
+    }
     g.setTextColor(panelMuted);
     g.setCursor(left + (52 - gfxTextW(forecastTime, 1)) / 2, 167);
     g.print(forecastTime);

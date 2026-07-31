@@ -55,6 +55,8 @@ constexpr TileMask gfxAllTilesMask() {
 // pixels behind.
 void gfxMarkPointTiles(TileMask& mask, int16_t x, int16_t y,
                        int16_t padding = 0);
+void gfxMarkRectTiles(TileMask& mask, int16_t x, int16_t y,
+                      int16_t w, int16_t h, int16_t padding = 0);
 void gfxMarkLineTiles(TileMask& mask, int16_t x0, int16_t y0,
                       int16_t x1, int16_t y1, int16_t padding = 0);
 

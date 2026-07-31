@@ -5,7 +5,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "deskmate"
-#define FW_VERSION  "4.3.2"
+#define FW_VERSION  "4.3.3"
 
 #define REPO_URL      "https://github.com/itsfuad/deskmate"
 #define REPO_OWNER    "itsfuad"
@@ -92,6 +92,7 @@
 #define DEFAULT_NIGHT_START_MIN 1320
 #define DEFAULT_NIGHT_END_MIN   420
 #define DEFAULT_NIGHT_LEVEL     0
+#define DEFAULT_24_HOUR          true
 #define NIGHT_NTP_TRUST_MS      300000UL
 #define NIGHT_NTP_RESYNC_MS      30000UL
 
