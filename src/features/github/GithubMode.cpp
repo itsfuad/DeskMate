@@ -383,7 +383,7 @@ void drawGithub(TileCanvas& g, void*) {
   g.fillScreen(BG);
   g.setTextWrap(false);
 
-  drawBranchIcon(g, 14, 8);
+  drawBranchIcon(g, 14, 7);
   g.setTextSize(1);
   g.setTextColor(MUTED);
   g.setCursor(37, 9);
