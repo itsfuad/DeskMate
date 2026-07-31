@@ -37,6 +37,8 @@ struct GithubData {
   uint32_t totalContributions = 0;
   uint16_t streak = 0;
   uint16_t weekTotal = 0;
+  uint8_t weekCount = 0;
+  uint8_t rangeMonths = 12;
   uint8_t graph[GITHUB_GRAPH_WEEKS][7] = {{0}};
   uint8_t graphLevel[GITHUB_GRAPH_WEEKS][7] = {{0}};
   uint32_t updatedMs = 0;
@@ -50,11 +52,6 @@ void isoUtc(time_t value, char* out, size_t outSize) {
   strftime(out, outSize, "%Y-%m-%dT%H:%M:%SZ", &t);
 }
 
-void yearStartIso(time_t now, char* out, size_t outSize) {
-  struct tm t;
-  gmtime_r(&now, &t);
-  snprintf(out, outSize, "%04d-01-01T00:00:00Z", t.tm_year + 1900);
-}
 
 void setError(const char* message, int httpCode = 0) {
   // Keep the last good dashboard visible. A transient API/TLS failure is shown
@@ -207,6 +204,9 @@ void commitCalendarDay(GithubData& data, CalendarBuilder& builder) {
 }
 
 void calculateDerived(GithubData& data, const CalendarBuilder& builder) {
+  data.weekCount = builder.sawDay
+      ? min<uint8_t>(static_cast<uint8_t>(builder.week + 1), GITHUB_GRAPH_WEEKS)
+      : 0;
   uint8_t maximum = 0;
   for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
     for (uint8_t day = 0; day < 7; ++day) {
@@ -280,7 +280,7 @@ bool parseGithubResponse(Stream& stream, NetClient& client, int contentLength,
     if (!strcmp(key, "login") && first == '"') {
       if (!reader.readString(output.login, sizeof(output.login))) return false;
       sawLogin = output.login[0] != 0;
-    } else if (!strcmp(key, "yearCommitCount")) {
+    } else if (!strcmp(key, "periodCommitCount")) {
       uint32_t number;
       if (!reader.readUnsigned(first, number)) return false;
       output.commits = number;
@@ -293,7 +293,7 @@ bool parseGithubResponse(Stream& stream, NetClient& client, int contentLength,
       uint32_t number;
       if (!reader.readUnsigned(first, number)) return false;
       output.openPullRequests = number;
-    } else if (!strcmp(key, "recentTotal")) {
+    } else if (!strcmp(key, "periodTotal")) {
       uint32_t number;
       if (!reader.readUnsigned(first, number)) return false;
       output.totalContributions = number;
@@ -322,6 +322,22 @@ bool parseGithubResponse(Stream& stream, NetClient& client, int contentLength,
   if (reader.timedOut()) return false;
   calculateDerived(output, calendar);
   return sawLogin && sawCommitCount && calendar.sawDay;
+}
+
+void copyDisplayLabel(const char* source, char* output, size_t outputSize,
+                      uint8_t maxChars) {
+  if (!outputSize) return;
+  if (!source) source = "";
+  const size_t length = strlen(source);
+  if (length <= maxChars) {
+    strlcpy(output, source, outputSize);
+    return;
+  }
+  const size_t keep = maxChars > 3 ? maxChars - 3 : maxChars;
+  const size_t copied = min<size_t>(keep, outputSize - 1);
+  memcpy(output, source, copied);
+  output[copied] = 0;
+  if (maxChars > 3 && outputSize - copied > 3) strlcat(output, "...", outputSize);
 }
 
 void drawBranchIcon(TileCanvas& g, int x, int y) {
@@ -380,19 +396,21 @@ void drawGithub(TileCanvas& g, void*) {
     return;
   }
 
+  char login[20];
+  copyDisplayLabel(G.login, login, sizeof(login), 16);
   g.setTextSize(2);
   g.setTextColor(TEXT);
-  g.setCursor(10, 32);
+  g.setCursor(10, 29);
   g.print('@');
-  g.print(G.login);
+  g.print(login);
   g.setTextSize(1);
   g.setTextColor(MUTED);
   char pulse[28];
   snprintf(pulse, sizeof(pulse), "%u THIS WEEK", G.weekTotal);
-  g.setCursor(DisplayLayout::Right - gfxTextW(pulse, 1), 40);
+  g.setCursor(DisplayLayout::Right - gfxTextW(pulse, 1), 46);
   g.print(pulse);
 
-  statRow(g, 55, "COMMITS THIS YEAR", G.commits, GREEN_4);
+  statRow(g, 55, "COMMITS IN RANGE", G.commits, GREEN_4);
   statRow(g, 83, "OPEN PULL REQUESTS", G.openPullRequests, BLUE);
   statRow(g, 111, "OPEN ISSUES", G.openIssues, PURPLE);
 
@@ -407,24 +425,33 @@ void drawGithub(TileCanvas& g, void*) {
   g.setCursor(DisplayLayout::Right - gfxTextW(total, 1), 143);
   g.print(total);
 
+  char rangeLabel[30];
+  snprintf(rangeLabel, sizeof(rangeLabel), "%u MONTH CONTRIBUTIONS", G.rangeMonths);
   g.setCursor(10, 171);
-  g.print("52 WEEK CONTRIBUTIONS");
+  g.print(rangeLabel);
 
   const uint16_t levelColors[5] = {PANEL, GREEN_1, GREEN_2, GREEN_3, GREEN_4};
-  constexpr int startX = 12;
-  constexpr int startY = 188;
-  static_assert(DisplayLayout::fitsSafe(startX, startY, 208, 34),
+  constexpr int graphY = 188;
+  constexpr int graphH = 34;
+  constexpr int availableW = 216;
+  static_assert(DisplayLayout::fitsSafe(12, graphY, availableW, graphH),
                 "GitHub contribution graph must fit the safe display area");
-  for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
+  const uint8_t weeks = max<uint8_t>(1, G.weekCount);
+  const int gapX = weeks <= 6 ? 4 : weeks <= 15 ? 2 : 1;
+  const int cellW = constrain((availableW - gapX * (weeks - 1)) / weeks, 3, 24);
+  const int actualW = cellW * weeks + gapX * (weeks - 1);
+  const int graphX = (TFT_WIDTH - actualW) / 2;
+  for (uint8_t week = 0; week < weeks; ++week) {
     for (uint8_t day = 0; day < 7; ++day) {
-      const int x = startX + week * 4;
-      const int y = startY + day * 5;
-      g.fillRect(x, y, 3, 4, levelColors[G.graphLevel[week][day]]);
+      const int x = graphX + week * (cellW + gapX);
+      const int y = graphY + day * 5;
+      g.fillRoundRect(x, y, cellW, 4, cellW > 5 ? 1 : 0,
+                      levelColors[G.graphLevel[week][day]]);
     }
   }
 }
 
-bool fetchGraphql(const Settings& settings) {
+bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
   if (!settings.github.token.length()) {
     setError("TOKEN REQUIRED");
     return false;
@@ -444,37 +471,34 @@ bool fetchGraphql(const Settings& settings) {
   }
 #endif
 
-  char yearStart[24];
-  char recentStart[24];
+  char periodStart[24];
   char nowIso[24];
-  yearStartIso(now, yearStart, sizeof(yearStart));
-  isoUtc(now - static_cast<time_t>(GITHUB_GRAPH_WEEKS * 7 - 1) * 86400,
-         recentStart, sizeof(recentStart));
+  // Keep the 12-month request at or below GitHub's one-year contribution
+  // window. The smaller choices intentionally include a complete final week.
+  const uint16_t rangeDays = settings.github.rangeMonths == 1 ? 31
+      : settings.github.rangeMonths == 3 ? 92
+      : settings.github.rangeMonths == 6 ? 183 : 365;
+  isoUtc(now - static_cast<time_t>(rangeDays) * 86400,
+         periodStart, sizeof(periodStart));
   isoUtc(now, nowIso, sizeof(nowIso));
 
-  // The former query omitted first/last on the user issue/PR connections,
-  // which GitHub rejects as a pagination error. first:1 keeps the response
-  // tiny while totalCount still represents the complete connection.
   static const char QUERY[] PROGMEM =
-      "query($yearStart:DateTime!,$recentStart:DateTime!,$to:DateTime!){"
+      "query($from:DateTime!,$to:DateTime!){"
       "viewer{login "
       "openIssues:issues(first:1,states:[OPEN]){openIssueCount:totalCount} "
       "openPullRequests:pullRequests(first:1,states:[OPEN]){"
       "openPullRequestCount:totalCount} "
-      "year:contributionsCollection(from:$yearStart,to:$to){"
-      "yearCommitCount:totalCommitContributions} "
-      "recent:contributionsCollection(from:$recentStart,to:$to){"
-      "contributionCalendar{recentTotal:totalContributions "
+      "period:contributionsCollection(from:$from,to:$to){"
+      "periodCommitCount:totalCommitContributions "
+      "contributionCalendar{periodTotal:totalContributions "
       "weeks{contributionDays{weekday contributionCount}}}}}}";
 
   String body;
-  body.reserve(900);
+  body.reserve(760);
   body += F("{\"query\":\"");
   body += FPSTR(QUERY);
-  body += F("\",\"variables\":{\"yearStart\":\"");
-  body += yearStart;
-  body += F("\",\"recentStart\":\"");
-  body += recentStart;
+  body += F("\",\"variables\":{\"from\":\"");
+  body += periodStart;
   body += F("\",\"to\":\"");
   body += nowIso;
   body += F("\"}}");
@@ -488,8 +512,8 @@ bool fetchGraphql(const Settings& settings) {
     }
 
     HTTPClient http;
-    const uint16_t timeoutMs = settings.httpTimeout > 8000
-        ? 8000 : settings.httpTimeout;
+    const uint16_t timeoutMs = min<uint16_t>(
+        min<uint16_t>(settings.httpTimeout, 7000), budgetMs);
     http.setTimeout(timeoutMs);
     http.setReuse(false);
     http.useHTTP10(true);
@@ -546,6 +570,7 @@ bool fetchGraphql(const Settings& settings) {
 
     next.valid = true;
     next.error = false;
+    next.rangeMonths = settings.github.rangeMonths;
     next.httpCode = code;
     next.errorText[0] = 0;
     next.updatedMs = millis();
@@ -558,21 +583,32 @@ bool fetchGraphql(const Settings& settings) {
 }
 }  // namespace
 
-void GithubMode::fetch(const Settings& settings) {
-  fetchGraphql(settings);
+uint32_t GithubMode::pollIntervalMs(const Settings& settings) const {
+  return static_cast<uint32_t>(settings.github.pollSec) * 1000UL;
+}
+
+uint16_t GithubMode::pollBudgetMs(const Settings& settings) const {
+  return min<uint16_t>(settings.httpTimeout, 7000);
+}
+
+PollResult GithubMode::poll(const Settings& settings, uint16_t budgetMs) {
+  if (!settings.github.token.length()) {
+    setError("TOKEN REQUIRED");
+    dirty_ = true;
+    return PollResult::Skipped;
+  }
+  const bool ok = fetchGraphql(settings, budgetMs);
+  dirty_ = true;
+  return ok ? PollResult::Success : PollResult::Failed;
+}
+
+void GithubMode::begin(const Settings& settings) {
+  G.rangeMonths = settings.github.rangeMonths;
   dirty_ = true;
 }
 
-void GithubMode::begin(const Settings&) {
-  // Let Wi-Fi, NTP, the web portal, and the first screen settle before the
-  // memory-heavy TLS request. This also prevents an immediate boot-loop if a
-  // broken token/configuration had GitHub selected at startup.
-  nextPoll_ = millis() + 5000UL;
-  dirty_ = true;
-}
-
-void GithubMode::invalidate(const Settings&) {
-  nextPoll_ = millis() + 1000UL;
+void GithubMode::invalidate(const Settings& settings) {
+  G.rangeMonths = settings.github.rangeMonths;
   dirty_ = true;
 }
 
@@ -582,12 +618,8 @@ void GithubMode::render(const Settings&) {
   gfxRenderTiled(drawGithub, nullptr, BG);
 }
 
-void GithubMode::service(const Settings& settings) {
-  const uint32_t now = millis();
-  if (static_cast<int32_t>(now - nextPoll_) >= 0) {
-    nextPoll_ = now + static_cast<uint32_t>(settings.github.pollSec) * 1000UL;
-    fetch(settings);
-  }
+void GithubMode::displayTick(const Settings& settings) {
+  (void)settings;
   if (dirty_) {
     render(settings);
     dirty_ = false;

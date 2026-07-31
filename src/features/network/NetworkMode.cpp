@@ -230,19 +230,26 @@ void drawNetwork(TileCanvas& g, void* opaque) {
 }
 }  // namespace
 
-void NetworkMode::probe(const Settings& settings) {
+void NetworkMode::probe(const Settings& settings, uint16_t budgetMs) {
   Sample sample;
+  const uint16_t halfBudget = max<uint16_t>(250, budgetMs / 2);
 
   IPAddress resolved;
   const uint32_t dnsStart = millis();
+#if defined(DESKMATE_ESP8266)
+  sample.dnsOk = WiFi.hostByName(settings.network.dnsHost.c_str(), resolved,
+                                 halfBudget) == 1;
+#else
   sample.dnsOk = WiFi.hostByName(settings.network.dnsHost.c_str(), resolved) == 1;
+#endif
   const uint32_t dnsElapsed = millis() - dnsStart;
   sample.dnsMs = static_cast<uint16_t>(dnsElapsed > 9999UL ? 9999UL : dnsElapsed);
 
   WiFiClient client;
   const uint32_t tcpStart = millis();
-  sample.tcpOk = client.connect(settings.network.probeHost.c_str(),
-                                settings.network.probePort);
+  sample.tcpOk = platformTcpConnect(client,
+                                    settings.network.probeHost.c_str(),
+                                    settings.network.probePort, halfBudget);
   const uint32_t tcpElapsed = millis() - tcpStart;
   client.stop();
   sample.tcpMs = sample.tcpOk
@@ -275,16 +282,19 @@ void NetworkMode::probe(const Settings& settings) {
   dirty_ = true;
 }
 
-void NetworkMode::begin(const Settings&) {
-  nextProbe_ = 0;
-  dirty_ = true;
+uint32_t NetworkMode::pollIntervalMs(const Settings& settings) const {
+  return static_cast<uint32_t>(settings.network.pollSec) * 1000UL;
 }
 
-void NetworkMode::invalidate(const Settings&) {
-  nextProbe_ = 0;
-  dirty_ = true;
+PollResult NetworkMode::poll(const Settings& settings, uint16_t budgetMs) {
+  probe(settings, budgetMs);
+  // Offline is a valid measurement, not a scheduler failure. Continue at the
+  // configured cadence so outages are sampled rather than exponentially backed off.
+  return PollResult::Success;
 }
 
+void NetworkMode::begin(const Settings&) { dirty_ = true; }
+void NetworkMode::invalidate(const Settings&) { dirty_ = true; }
 void NetworkMode::wake(const Settings&) { dirty_ = true; }
 
 void NetworkMode::render(const Settings& settings) {
@@ -296,12 +306,7 @@ void NetworkMode::render(const Settings& settings) {
   gfxRenderTiled(drawNetwork, &context, BG);
 }
 
-void NetworkMode::service(const Settings& settings) {
-  const uint32_t now = millis();
-  if (static_cast<int32_t>(now - nextProbe_) >= 0) {
-    nextProbe_ = now + static_cast<uint32_t>(settings.network.pollSec) * 1000UL;
-    probe(settings);
-  }
+void NetworkMode::displayTick(const Settings& settings) {
   if (dirty_) {
     render(settings);
     dirty_ = false;

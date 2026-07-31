@@ -15,6 +15,7 @@
 #include "OtaUpdate.h"
 #include "Mode.h"
 #include "Clock.h"
+#include "PollScheduler.h"
 
 #if WITH_WEATHER
 #include "WeatherMode.h"
@@ -47,6 +48,7 @@ static DisplayMode* kModes[] = {
 #endif
 };
 static const size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
+static PollScheduler g_pollScheduler;
 
 // ---- carousel -------------------------------------------------------------
 // MODE_CAROUSEL rotates through the ticked features. Switches call wake() on
@@ -62,6 +64,20 @@ static bool carouselHas(const Settings& s, const DisplayMode* m) {
     case MODE_GITHUB: return s.carouselGithub;
     default: return true;
   }
+}
+
+static bool modePollingEnabled(const Settings& s, const DisplayMode* m) {
+  if (s.mode == MODE_CAROUSEL) return carouselHas(s, m);
+  return m && m->modeConst() == s.mode;
+}
+
+static DisplayMode* upcomingMode(const Settings& s) {
+  if (s.mode != MODE_CAROUSEL || !kModeCount) return nullptr;
+  for (size_t hop = 1; hop <= kModeCount; ++hop) {
+    const size_t candidate = (g_carIdx + hop) % kModeCount;
+    if (carouselHas(s, kModes[candidate])) return kModes[candidate];
+  }
+  return nullptr;
 }
 
 // Advance g_carIdx to the next ticked mode (stays put if none other is ticked).
@@ -135,6 +151,25 @@ const char* appResetReason() { return g_resetReason.c_str(); }
 // force a fresh repaint so a mode/API/location change takes effect immediately.
 void appInvalidate() {
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->invalidate(g_settings);
+  g_pollScheduler.forceAll();
+}
+
+void appForceRefresh() { g_pollScheduler.forceAll(); }
+
+uint32_t appPollCompleted() { return g_pollScheduler.completedJobs(); }
+uint32_t appPollFailed() { return g_pollScheduler.failedJobs(); }
+uint32_t appPollCoalesced() { return g_pollScheduler.coalescedDeadlines(); }
+uint32_t appPollDeferrals() { return g_pollScheduler.budgetDeferrals(); }
+uint32_t appPollLastDuration() { return g_pollScheduler.lastJobDurationMs(); }
+uint32_t appPollAverageDuration() { return g_pollScheduler.averageJobDurationMs(); }
+int32_t appPollCredits() { return g_pollScheduler.networkCreditsMs(); }
+const char* appPollCurrent() { return g_pollScheduler.currentJob(); }
+
+// Lightweight display-only change: repaint the newly selected/current mode from
+// its cached data without forcing every feature to poll its web API again.
+void appWakeActive() {
+  DisplayMode* mode = activeMode(g_settings);
+  if (mode) mode->wake(g_settings);
 }
 
 static void bootProgress(const char* msg) {
@@ -198,6 +233,8 @@ void setup() {
 
   Serial.println("[boot] modes");
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->begin(g_settings);
+  g_pollScheduler.bind(kModes, static_cast<uint8_t>(kModeCount));
+  g_pollScheduler.begin(g_settings);
   Serial.println("[boot] done");
 
   if (netMode() == NET_AP) {
@@ -239,8 +276,18 @@ void loop() {
   clockService(g_settings);
   appApplyBrightness();
 
-  DisplayMode* m = activeMode(g_settings);
-  if (m) m->service(g_settings);
+  DisplayMode* active = activeMode(g_settings);
+  DisplayMode* upcoming = upcomingMode(g_settings);
 
-  delay(5);
+  bool enabled[PollScheduler::MaxModes] = {};
+  for (size_t i = 0; i < kModeCount && i < PollScheduler::MaxModes; ++i) {
+    enabled[i] = modePollingEnabled(g_settings, kModes[i]);
+  }
+
+  // One bounded/coalesced background job at a time. All selected carousel
+  // sources retain independent schedules; only the visible mode touches LCD RAM.
+  g_pollScheduler.service(g_settings, enabled, active, upcoming);
+  if (active) active->displayTick(g_settings);
+
+  delay(2);
 }

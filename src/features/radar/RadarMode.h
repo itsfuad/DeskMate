@@ -7,9 +7,13 @@ class RadarMode : public DisplayMode {
   const char* id() const override { return "radar"; }
   uint8_t modeConst() const override { return MODE_RADAR; }
   void begin(const Settings&) override;
-  void service(const Settings&) override;
   void invalidate(const Settings&) override;
   void wake(const Settings&) override { needRender_ = true; }
+  uint32_t pollIntervalMs(const Settings&) const override;
+  uint16_t pollBudgetMs(const Settings&) const override;
+  uint8_t pollCost() const override { return 3; }
+  PollResult poll(const Settings&, uint16_t budgetMs) override;
+  void displayTick(const Settings&) override;
 
  private:
   void render(const Settings&);

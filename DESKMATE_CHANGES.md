@@ -1,47 +1,45 @@
-# DeskMate 4.1 changes
+# DeskMate 4.3.1 changes
 
-## Display-safe layouts
+## Scalable polling architecture
 
-Every feature is now authored against an 8 px safe inset. The network footer,
-status cards, radar telemetry, weather forecast panel, and GitHub contribution
-graph all end at or above y=231 on the 240 x 240 panel. This prevents the bottom
-row from being clipped by the display viewport.
+- Every feature selected in the carousel keeps polling while hidden.
+- Rendering and data acquisition are separate: hidden modes update cached snapshots, and only the visible mode touches the display.
+- Added one central scheduler for up to ten feature sources.
+- Only one network-heavy operation is admitted at a time, preventing concurrent TLS clients and JSON parsers from exhausting ESP8266 heap.
+- Missed deadlines are coalesced. A slow source never creates a queue of obsolete historical polls; it keeps one obligation to fetch the newest snapshot.
+- Visible, upcoming, forced and continuation jobs receive priority.
+- Added deterministic interval jitter so periodic sources do not remain synchronized.
+- Added per-source duration prediction, a shared network-duty token bucket, dynamic foreground recovery gaps and overload deferral.
+- Added exponential retry backoff and a separate low-frequency path for unconfigured/low-heap skipped work.
+- Added scheduler diagnostics to the web status page: completed/failed jobs, coalesced deadlines, budget deferrals, current job, last/average duration and available network credits.
 
-## Weather
+## Browser-assisted validation
 
-- Larger local time and temperature with equal visual priority.
-- Four upcoming forecast timestamps instead of day-based cards.
-- Uses OpenWeather's 5 day / 3 hour feed, so the forecast row shows the next
-  four available 3-hour points.
-- Static modern scene; no cloud/rain/sun animation.
+- Location search and timezone resolution now happen in the browser through Open-Meteo.
+- The browser verifies OpenWeather current and forecast responses before changed weather configuration can be saved.
+- The device stores canonical city, country, latitude, longitude, IANA timezone, abbreviation and current UTC offset; normal device weather calls use only coordinates.
+- The browser verifies the GitHub token/account and GraphQL contribution access.
+- GitHub contribution range can be selected as 1, 3, 6 or 12 months.
+- Network and radar settings use bounded one-time device test endpoints when browser CORS/raw TCP limitations prevent direct verification.
+- The device repeats cheap structural checks and rejects invalid configuration with HTTP 422.
+- At least one carousel feature is always required both in the browser and device settings.
 
-## Network guardian
+## Reliability and rendering
 
-- Recalculated vertical layout: graph, cards, and footer fit the panel.
-- Existing TCP, DNS, availability, outage, Wi-Fi, best/average/peak metrics are
-  retained.
-- Render callbacks no longer allocate temporary Strings once per tile.
-
-## Aircraft radar
-
-- Removed the sweep animation and its partial-frame updates.
-- The PPI scope is static and redraws only when aircraft data or error state
-  changes, so a synchronous HTTPS poll no longer looks like a frozen animation.
-- Aircraft category/type scaling, heading silhouettes, airports, vectors,
-  callsigns, flight levels, range rings, and rim targets remain.
-- Direct ADS-B requests use a bounded timeout to reduce long UI stalls.
-
-## GitHub
-
-- Fixed the GraphQL issue/PR connection query by supplying `first: 1` while
-  still reading each connection's complete `totalCount`.
-- Replaced the large ArduinoJson contribution-calendar document with a small
-  streaming parser. The 52-week graph is consumed directly from the HTTP stream
-  instead of being expanded into hundreds of JSON objects in ESP8266 heap.
-- Added heap/max-block guards and delayed the first request after boot to avoid
-  GitHub-mode reset loops.
-- Last good data remains visible when a later request fails.
+- Weather and GitHub retain their last successful snapshots through transient failures.
+- Weather current and forecast calls are split into scheduler phases so one feature cannot own two back-to-back provider requests as a single opaque task.
+- Radar remains static between data updates; the scan animation is removed.
+- Boot, setup and recovery screens use measured text, explicit safe regions and compile-time layout assertions for the 240 × 240 panel.
+- Browser requests have explicit abort timeouts.
+- GitHub's 12-month range is bounded to 365 days.
 
 ## Version
 
-Firmware version: 4.1.0
+Firmware version: 4.3.1
+
+
+## 4.3.1 build compatibility fix
+
+- Replaced the unsupported three-argument ESP8266 `WiFiClient::connect` calls.
+- Added `platformTcpConnect()`, which applies `setTimeout()` before using the core's supported two-argument connect API.
+- Removed the `clockTimeStr()` format-truncation warning by using bounded `strftime()`.

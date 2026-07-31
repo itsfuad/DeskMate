@@ -16,8 +16,10 @@ struct WifiCred {
 };
 
 struct ClockSettings {
-  String tz;
-  String tzPosix;
+  String tz;             // IANA label resolved by the browser (e.g. Asia/Dhaka)
+  String tzAbbr;         // current abbreviation (e.g. BST, CEST)
+  String tzPosix;        // optional legacy/manual rule; normally generated from offset
+  int32_t utcOffsetSec;  // current UTC offset, refreshed by OpenWeather
   bool nightEnabled;
   uint16_t nightStartMin;
   uint16_t nightEndMin;
@@ -53,6 +55,11 @@ struct WeatherSettings {
   float lat;
   float lon;
   String city;
+  String country;
+  String timezone;
+  String timezoneAbbr;
+  int32_t utcOffsetSec;
+  bool locationVerified;
   String apiKey;
   bool metric;
   uint16_t pollSec;
@@ -75,6 +82,8 @@ struct NetworkSettings {
 
 struct GithubSettings {
   String token;
+  String login;
+  uint8_t rangeMonths;   // 1, 3, 6 or 12
   uint16_t pollSec;
 
   void setDefaults();

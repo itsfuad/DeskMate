@@ -5,7 +5,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "deskmate"
-#define FW_VERSION  "4.1.0"
+#define FW_VERSION  "4.3.1"
 
 #define REPO_URL      "https://github.com/itsfuad/deskmate"
 #define REPO_OWNER    "itsfuad"
@@ -66,7 +66,7 @@
 #define DEFAULT_RADAR_SRC  RADAR_SRC_DIRECT
 #define ADSB_HOST        "opendata.adsb.fi"
 #define ADSB_PATH        "/api/v3/lat/"
-#define ADSB_USER_AGENT  "DeskMate/4.1"
+#define ADSB_USER_AGENT  "DeskMate/4.3"
 #define MAX_AIRCRAFT     24
 #define MAX_AIRPORTS      6
 #define MAX_ICAO_LEN      8
@@ -85,7 +85,7 @@
 #define DEFAULT_HTTP_TIMEOUT  10000
 
 #define NTP_SERVER1             "pool.ntp.org"
-#define NTP_SERVER2             "time.nist.gov"
+#define NTP_SERVER2             "time.cloudflare.com"
 #define DEFAULT_TZ_NAME         ""
 #define DEFAULT_TZ_POSIX        "UTC0"
 #define DEFAULT_NIGHT_ENABLED   false
@@ -98,4 +98,4 @@
 #define DEFAULT_WEATHER_POLL_SEC 600
 #define DEFAULT_NETWORK_POLL_SEC 10
 #define DEFAULT_GITHUB_POLL_SEC 900
-#define GITHUB_GRAPH_WEEKS       52
+#define GITHUB_GRAPH_WEEKS       53

@@ -25,6 +25,10 @@ constexpr uint16_t AMBER   = rgb565(246, 186, 78);
 constexpr int CX = 120;
 constexpr int CY = 120;
 constexpr int RR = 108;
+static_assert(CX - RR >= DisplayLayout::Left && CY - RR >= DisplayLayout::Top &&
+              CX + RR <= DisplayLayout::Right &&
+              CY + RR <= DisplayLayout::Bottom,
+              "Radar scope must fit the safe display area");
 
 void polar(float radius, float bearing, int& x, int& y) {
   const float angle = bearing * static_cast<float>(PI) / 180.0f;
@@ -304,10 +308,25 @@ void RadarMode::begin(const Settings& settings) {
 
 void RadarMode::invalidate(const Settings& settings) {
   radarInit(settings);
-  radarForceRefresh();
   renderedOk_ = 0xFFFFFFFF;
   renderedError_ = false;
   needRender_ = true;
+}
+
+uint32_t RadarMode::pollIntervalMs(const Settings& settings) const {
+  return static_cast<uint32_t>(settings.radar.pollSec) * 1000UL;
+}
+
+uint16_t RadarMode::pollBudgetMs(const Settings& settings) const {
+  return min<uint16_t>(settings.httpTimeout, 4500);
+}
+
+PollResult RadarMode::poll(const Settings& settings, uint16_t budgetMs) {
+  if (settings.radar.lat == 0.0f && settings.radar.lon == 0.0f)
+    return PollResult::Skipped;
+  const bool ok = radarPoll(settings, budgetMs);
+  needRender_ = true;
+  return ok ? PollResult::Success : PollResult::Failed;
 }
 
 void RadarMode::render(const Settings& settings) {
@@ -318,9 +337,7 @@ void RadarMode::render(const Settings& settings) {
   gfxRenderTiled(drawRadar, const_cast<Settings*>(&settings), BG);
 }
 
-void RadarMode::service(const Settings& settings) {
-  radarService(settings);
-
+void RadarMode::displayTick(const Settings& settings) {
   if (settings.radar.lat == 0.0f && settings.radar.lon == 0.0f) {
     if (needRender_) {
       render(settings);
@@ -336,7 +353,6 @@ void RadarMode::service(const Settings& settings) {
     renderedError_ = error;
     needRender_ = true;
   }
-
   if (needRender_) {
     render(settings);
     needRender_ = false;

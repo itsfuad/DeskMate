@@ -1,115 +1,141 @@
 #include "Clock.h"
 #include "Platform.h"
 #include "config.h"
+#include <limits.h>
 
-static String            s_armedTz;          // last tzPosix armed (clockReapply re-arms only on change)
-static bool              s_ntpStarted = false; // SNTP has been started
-static volatile uint32_t s_lastSyncMs = 0;   // millis() of the last successful SNTP sync
-static volatile bool     s_haveSync   = false;
+static String            s_armedTz;
+static bool              s_ntpStarted = false;
+static volatile uint32_t s_lastSyncMs = 0;
+static volatile bool     s_haveSync = false;
+static int32_t           s_runtimeOffsetSec = INT32_MIN;
 
-// Night-mode state machine (driven by clockService, read by the getters).
-static bool     s_nightLatched = false;      // confirmed this window -> stay dimmed till morning
-static bool     s_nightActive  = false;      // effective "dim the screen now"
-static bool     s_nightHeld    = false;      // in the window but waiting for a fresh NTP sync
-static uint32_t s_lastResyncMs = 0;          // last forced re-arm while held (0 = none this window)
+static bool     s_nightLatched = false;
+static bool     s_nightActive  = false;
+static bool     s_nightHeld    = false;
+static uint32_t s_lastResyncMs = 0;
 
-// Fired from the platform SNTP notification whenever NTP sets the clock. This is
-// the "NTP was just reachable" signal that lets us trust the clock for night mode.
 static void onNtpSync() {
   s_lastSyncMs = millis();
-  s_haveSync   = true;
+  s_haveSync = true;
 }
 
-// Pure window predicate (minutes since local midnight). Handles a window that
-// wraps midnight (start > end). An empty window (start == end) is never active.
-//   start < end : [start, end)              e.g. 09:00..17:00
-//   start > end : [start, 24h) ∪ [0, end)   e.g. 22:00..07:00
 static bool nightWindowContains(int now, int start, int end) {
   if (start == end) return false;
-  if (start < end)  return now >= start && now < end;
+  if (start < end) return now >= start && now < end;
   return now >= start || now < end;
 }
 
-void clockBegin(const Settings& s) {
-  platformOnTimeSync(onNtpSync);            // register before the first sync can land
-  const char* tz = s.clock.tzPosix.length() ? s.clock.tzPosix.c_str() : "UTC0";
-  platformTimeBegin(tz, NTP_SERVER1, NTP_SERVER2);
-  s_armedTz = s.clock.tzPosix;
+// POSIX TZ offsets have the opposite sign to ordinary UTC offsets:
+// UTC+06:00 is expressed as UTC-6. This fixed rule is refreshed from the
+// browser-resolved location and from OpenWeather's current timezone offset.
+static String fixedOffsetPosix(int32_t eastOfUtcSeconds) {
+  eastOfUtcSeconds = constrain(eastOfUtcSeconds, -43200L, 50400L);
+  const char sign = eastOfUtcSeconds >= 0 ? '-' : '+';
+  uint32_t absolute = static_cast<uint32_t>(eastOfUtcSeconds >= 0
+      ? eastOfUtcSeconds : -eastOfUtcSeconds);
+  const uint16_t hours = absolute / 3600UL;
+  const uint8_t minutes = (absolute % 3600UL) / 60UL;
+  char value[20];
+  if (minutes) snprintf(value, sizeof(value), "UTC%c%u:%02u", sign, hours, minutes);
+  else snprintf(value, sizeof(value), "UTC%c%u", sign, hours);
+  return String(value);
+}
+
+static String effectiveTz(const Settings& settings) {
+  if (s_runtimeOffsetSec != INT32_MIN) return fixedOffsetPosix(s_runtimeOffsetSec);
+  if (settings.clock.tz.length() || settings.clock.utcOffsetSec != 0)
+    return fixedOffsetPosix(settings.clock.utcOffsetSec);
+  if (settings.clock.tzPosix.length()) return settings.clock.tzPosix;
+  return String("UTC0");
+}
+
+void clockBegin(const Settings& settings) {
+  platformOnTimeSync(onNtpSync);
+  const String tz = effectiveTz(settings);
+  platformTimeBegin(tz.c_str(), NTP_SERVER1, NTP_SERVER2);
+  s_armedTz = tz;
   s_ntpStarted = true;
 }
 
-void clockReapply(const Settings& s) {
-  // Weather and GitHub both need a valid wall clock, so SNTP is always armed
-  // after Wi-Fi connects. Re-arm only when the POSIX timezone rule changes.
-  if (!s_ntpStarted || s.clock.tzPosix != s_armedTz) clockBegin(s);
+void clockReapply(const Settings& settings) {
+  const String desired = effectiveTz(settings);
+  if (!s_ntpStarted || desired != s_armedTz) clockBegin(settings);
 }
 
-void clockForceResync(const Settings& s) {
-  const char* tz = s.clock.tzPosix.length() ? s.clock.tzPosix.c_str() : "UTC0";
-  platformTimeBegin(tz, NTP_SERVER1, NTP_SERVER2);   // re-arm SNTP -> fresh query
+void clockUpdateUtcOffset(const Settings& settings, int32_t eastOfUtcSeconds) {
+  eastOfUtcSeconds = constrain(eastOfUtcSeconds, -43200L, 50400L);
+  if (s_runtimeOffsetSec == eastOfUtcSeconds) return;
+  s_runtimeOffsetSec = eastOfUtcSeconds;
+  clockReapply(settings);
+}
+
+void clockForceResync(const Settings& settings) {
+  const String tz = effectiveTz(settings);
+  platformTimeBegin(tz.c_str(), NTP_SERVER1, NTP_SERVER2);
+  s_armedTz = tz;
+  s_ntpStarted = true;
 }
 
 bool clockSynced() { return platformTimeValid(); }
 
 bool clockTrusted() {
-  // The clock is believed correct only if NTP set it within the trust window.
   return s_haveSync && platformTimeValid() &&
-         (uint32_t)(millis() - s_lastSyncMs) <= NIGHT_NTP_TRUST_MS;
+         static_cast<uint32_t>(millis() - s_lastSyncMs) <= NIGHT_NTP_TRUST_MS;
 }
 
 bool clockNow(struct tm& out) {
   if (!platformTimeValid()) return false;
-  time_t now = time(nullptr);
+  const time_t now = time(nullptr);
   localtime_r(&now, &out);
   return true;
 }
 
-void clockService(const Settings& s) {
-  if (!s.clock.nightEnabled) {
+void clockService(const Settings& settings) {
+  if (!settings.clock.nightEnabled) {
     s_nightLatched = s_nightActive = s_nightHeld = false;
     s_lastResyncMs = 0;
     return;
   }
-  struct tm t;
-  bool inWindow = clockNow(t) &&
-      nightWindowContains(t.tm_hour * 60 + t.tm_min,
-                          (int)s.clock.nightStartMin, (int)s.clock.nightEndMin);
+  struct tm timeInfo;
+  const bool inWindow = clockNow(timeInfo) &&
+      nightWindowContains(timeInfo.tm_hour * 60 + timeInfo.tm_min,
+                          settings.clock.nightStartMin,
+                          settings.clock.nightEndMin);
   if (!inWindow) {
-    // Out of the window: reset so the next night re-checks trust from scratch.
     s_nightLatched = s_nightActive = s_nightHeld = false;
     s_lastResyncMs = 0;
     return;
   }
-  if (s_nightLatched) {          // already confirmed this window -> stay dimmed till morning
+  if (s_nightLatched) {
     s_nightActive = true;
-    s_nightHeld   = false;
+    s_nightHeld = false;
     return;
   }
-  if (clockTrusted()) {          // fresh, trusted clock -> switch on and latch for the window
+  if (clockTrusted()) {
     s_nightLatched = true;
-    s_nightActive  = true;
-    s_nightHeld    = false;
+    s_nightActive = true;
+    s_nightHeld = false;
     return;
   }
-  // In the window but the clock is not freshly confirmed: assume it may be wrong,
-  // keep the screen on, and re-arm SNTP (immediately on entry, then every
-  // NIGHT_NTP_RESYNC_MS) until a fresh sync lands or the window ends.
+
   s_nightActive = false;
-  s_nightHeld   = true;
-  if (s_lastResyncMs == 0 || (uint32_t)(millis() - s_lastResyncMs) >= NIGHT_NTP_RESYNC_MS) {
-    s_lastResyncMs = millis() | 1;   // never store 0 (0 means "none this window")
-    clockForceResync(s);
+  s_nightHeld = true;
+  if (s_lastResyncMs == 0 ||
+      static_cast<uint32_t>(millis() - s_lastResyncMs) >= NIGHT_NTP_RESYNC_MS) {
+    s_lastResyncMs = millis() | 1;
+    clockForceResync(settings);
   }
 }
 
 bool clockNightActive() { return s_nightActive; }
-bool clockNightHeld()   { return s_nightHeld; }
+bool clockNightHeld() { return s_nightHeld; }
 
 String clockTimeStr() {
-  struct tm t;
-  if (!clockNow(t)) return String();
-  char b[64];
-  snprintf(b, sizeof(b), "%04d-%02d-%02d %02d:%02d",
-           t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min);
-  return String(b);
+  struct tm value;
+  if (!clockNow(value)) return String();
+  char text[20];
+  if (strftime(text, sizeof(text), "%Y-%m-%d %H:%M", &value) == 0) {
+    return String();
+  }
+  return String(text);
 }

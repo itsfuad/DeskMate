@@ -19,6 +19,21 @@ class Arduino_GFX;   // fwd-decl: only the drawing .cpp files pull in the full l
 #define C_YELLOW 0xFFE0
 #define C_BLUE   0x041F
 
+// DeskMate UI palette (RGB565). Feature screens may define additional shades,
+// while boot/status screens use these shared accents for a coherent system look.
+#define C_UI_BG      0x0862
+#define C_UI_PANEL   0x10C4
+#define C_UI_PANEL2  0x10E5
+#define C_UI_LINE    0x2188
+#define C_UI_TEXT    0xEF9F
+#define C_UI_MUTED   0x8D16
+#define C_UI_CYAN    0x66B9
+#define C_UI_BLUE    0x755F
+#define C_UI_AMBER   0xF62A
+#define C_UI_VIOLET  0x9C7F
+#define C_UI_ROSE    0xFBD0
+#define C_UI_GREEN   0x5630
+
 // ---- Device lifecycle -----------------------------------------------------
 void         gfxBegin(const Settings& s);
 void         gfxSetBrightness(uint8_t pct, bool inverted);

@@ -3,6 +3,7 @@
 #include "Gfx.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
+#include "Clock.h"
 #include <ArduinoJson.h>
 #include <Arduino_GFX_Library.h>
 #include <math.h>
@@ -328,11 +329,11 @@ void drawScreen(TileCanvas& g, void* opaque) {
   const uint16_t panel = dark ? PANEL_DARK : PANEL_DAY;
   const uint16_t panelText = dark ? WHITE_SOFT : INK_DARK;
   const uint16_t panelMuted = dark ? rgb565(137, 158, 183) : INK_MUTED;
-  constexpr int panelX = 6;
+  constexpr int panelX = DisplayLayout::Left;
   constexpr int panelY = 145;
-  constexpr int panelW = 228;
+  constexpr int panelW = DisplayLayout::Width;
   constexpr int panelH = 87;  // ends exactly at the 232 px safe bottom
-  static_assert(DisplayLayout::fitsSafe(8, panelY, 224, panelH),
+  static_assert(DisplayLayout::fitsSafe(panelX, panelY, panelW, panelH),
                 "Weather forecast panel must fit the safe display area");
   g.fillRoundRect(panelX, panelY, panelW, panelH, 13, panel);
 
@@ -372,9 +373,11 @@ void drawScreen(TileCanvas& g, void* opaque) {
 }
 
 bool beginGet(const Settings& s, const String& url,
-              std::unique_ptr<SecureClient>& client, HTTPClient& http) {
+              std::unique_ptr<SecureClient>& client, HTTPClient& http,
+              uint16_t budgetMs) {
   client.reset(platformMakeSecureClient(4096, nullptr, 512, false));
-  http.setTimeout(s.httpTimeout);
+  if (!client) return false;
+  http.setTimeout(min<uint16_t>(budgetMs, s.httpTimeout));
   http.setReuse(false);
   http.useHTTP10(true);
   if (!http.begin(*client, url)) return false;
@@ -383,7 +386,7 @@ bool beginGet(const Settings& s, const String& url,
   return true;
 }
 
-bool fetchCurrent(const Settings& s) {
+bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
   String url = F("https://api.openweathermap.org/data/2.5/weather?lat=");
   url += String(s.weather.lat, 5);
   url += F("&lon=");
@@ -395,7 +398,7 @@ bool fetchCurrent(const Settings& s) {
 
   std::unique_ptr<SecureClient> client;
   HTTPClient http;
-  if (!beginGet(s, url, client, http)) {
+  if (!beginGet(s, url, client, http, budgetMs)) {
     strlcpy(W.errorText, "CONNECTION FAILED", sizeof(W.errorText));
     return false;
   }
@@ -449,7 +452,7 @@ bool fetchCurrent(const Settings& s) {
   return true;
 }
 
-bool fetchForecast(const Settings& s) {
+bool fetchForecast(const Settings& s, uint16_t budgetMs) {
   String url = F("https://api.openweathermap.org/data/2.5/forecast?lat=");
   url += String(s.weather.lat, 5);
   url += F("&lon=");
@@ -461,7 +464,7 @@ bool fetchForecast(const Settings& s) {
 
   std::unique_ptr<SecureClient> client;
   HTTPClient http;
-  if (!beginGet(s, url, client, http)) return false;
+  if (!beginGet(s, url, client, http, budgetMs)) return false;
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
     http.end();
@@ -503,62 +506,82 @@ bool fetchForecast(const Settings& s) {
 }
 }  // namespace
 
-void WeatherMode::fetch(const Settings& s) {
-  if (!s.weather.apiKey.length()) {
+uint32_t WeatherMode::pollIntervalMs(const Settings& settings) const {
+  return static_cast<uint32_t>(settings.weather.pollSec) * 1000UL;
+}
+
+uint16_t WeatherMode::pollBudgetMs(const Settings& settings) const {
+  return min<uint16_t>(settings.httpTimeout, 5000);
+}
+
+PollResult WeatherMode::poll(const Settings& settings, uint16_t budgetMs) {
+  if (!settings.weather.locationVerified || !settings.weather.apiKey.length()) {
     W.valid = false;
     W.error = false;
+    pollStage_ = 0;
     dirty_ = true;
-    return;
+    return PollResult::Skipped;
   }
 
   W.errorText[0] = 0;
   W.httpCode = 0;
-  const bool currentOk = fetchCurrent(s);
-  const bool forecastOk = currentOk && fetchForecast(s);
-  W.valid = currentOk;
-  W.error = !currentOk;
-  if (currentOk) {
+  if (pollStage_ == 0) {
+    const bool hadValidSnapshot = W.valid;
+    const bool ok = fetchCurrent(settings, budgetMs);
+    W.error = !ok;
+    dirty_ = true;
+    if (!ok) {
+      // Preserve the last complete dashboard through transient provider/TLS
+      // failures. Only a never-configured device falls back to the error card.
+      W.valid = hadValidSnapshot;
+      return PollResult::Failed;
+    }
+
+    W.valid = true;
     W.updatedMs = millis();
-    if (!forecastOk) W.forecastCount = 0;
+    clockUpdateUtcOffset(settings, W.timezone);
+    pollStage_ = 1;
+    return PollResult::MoreWork;
   }
+
+  const bool forecastOk = fetchForecast(settings, budgetMs);
+  pollStage_ = 0;
+  // fetchForecast commits only after a complete parse, so a failed refresh
+  // naturally leaves the previous forecast cached and visible.
   dirty_ = true;
+  return forecastOk ? PollResult::Success : PollResult::Failed;
 }
 
-void WeatherMode::begin(const Settings&) {
-  nextPoll_ = 0;
+void WeatherMode::begin(const Settings& settings) {
+  pollStage_ = 0;
+  W.timezone = settings.weather.utcOffsetSec;
   renderedMinute_ = -1;
   dirty_ = true;
 }
 
-void WeatherMode::invalidate(const Settings&) {
-  nextPoll_ = 0;
+void WeatherMode::invalidate(const Settings& settings) {
+  pollStage_ = 0;
+  W.timezone = settings.weather.utcOffsetSec;
   dirty_ = true;
 }
 
 void WeatherMode::wake(const Settings&) { dirty_ = true; }
 
-void WeatherMode::render(const Settings& s) {
-  gfxRenderTiled(drawScreen, const_cast<Settings*>(&s), skyColor());
+void WeatherMode::render(const Settings& settings) {
+  gfxRenderTiled(drawScreen, const_cast<Settings*>(&settings), skyColor());
 }
 
-void WeatherMode::service(const Settings& s) {
-  const uint32_t nowMs = millis();
-  if (static_cast<int32_t>(nowMs - nextPoll_) >= 0) {
-    nextPoll_ = nowMs + static_cast<uint32_t>(s.weather.pollSec) * 1000UL;
-    fetch(s);
-  }
-
-  struct tm t;
-  currentLocalTm(t);
-  const int32_t minute = static_cast<int32_t>(t.tm_yday) * 1440L +
-                         static_cast<int32_t>(t.tm_hour) * 60L + t.tm_min;
+void WeatherMode::displayTick(const Settings& settings) {
+  struct tm current;
+  currentLocalTm(current);
+  const int32_t minute = static_cast<int32_t>(current.tm_yday) * 1440L +
+                         static_cast<int32_t>(current.tm_hour) * 60L + current.tm_min;
   if (minute != renderedMinute_) {
     renderedMinute_ = minute;
     dirty_ = true;
   }
-
   if (dirty_) {
-    render(s);
+    render(settings);
     dirty_ = false;
   }
 }

@@ -7,7 +7,6 @@ static Aircraft g_ac[MAX_AIRCRAFT];   // kept sorted nearest-first
 static uint8_t  g_count = 0;
 static uint32_t g_lastOkMs = 0;
 static bool     g_error = false;
-static uint32_t g_nextPollMs = 0;
 
 // TLS receive-buffer size for the adsb.fi handshake, chosen once by probing the
 // server's Maximum Fragment Length support. MFLN at 512/1024 lets BearSSL use a
@@ -21,15 +20,12 @@ const Aircraft& aircraftAt(uint8_t i) { return g_ac[i]; }
 uint32_t        radarLastOkMs()   { return g_lastOkMs; }
 bool            radarError()      { return g_error; }
 
-void radarInit(const Settings& s) {
-  (void)s;
+void radarInit(const Settings& settings) {
+  (void)settings;
   g_count = 0;
   g_error = false;
   g_lastOkMs = 0;
-  g_nextPollMs = millis();
 }
-
-void radarForceRefresh() { g_nextPollMs = millis(); }
 
 // ---- geo: flat-earth projection around home (good enough at radar ranges) --
 static void geo(float homeLat, float homeLon, float lat, float lon,
@@ -147,7 +143,7 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
 }
 
 // ---- one HTTP(S) GET + parse ----------------------------------------------
-static bool fetchUrl(const Settings& s, const String& url) {
+static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, int* responseCode = nullptr) {
   bool https = url.startsWith("https://");
 
   std::unique_ptr<NetClient> client;
@@ -161,7 +157,7 @@ static bool fetchUrl(const Settings& s, const String& url) {
   }
 
   HTTPClient http;
-  const uint16_t timeoutMs = s.httpTimeout > 6000 ? 6000 : s.httpTimeout;
+  const uint16_t timeoutMs = min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
   http.setTimeout(timeoutMs);
   http.setReuse(false);
   http.useHTTP10(true);  // make the streaming JSON body non-chunked
@@ -171,6 +167,7 @@ static bool fetchUrl(const Settings& s, const String& url) {
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
   int code = http.GET();
+  if (responseCode) *responseCode = code;
   if (code != HTTP_CODE_OK) {
     http.end();
     return false;
@@ -184,14 +181,31 @@ static bool fetchUrl(const Settings& s, const String& url) {
 }
 
 // ---------------------------------------------------------------------------
-void radarService(const Settings& s) {
-  // No home set yet -> nothing to fetch (the mode shows a prompt instead).
-  if (s.radar.lat == 0.0f && s.radar.lon == 0.0f) return;
+bool radarPoll(const Settings& settings, uint16_t budgetMs) {
+  if ((settings.radar.lat == 0.0f && settings.radar.lon == 0.0f) ||
+      budgetMs < 250) return false;
 
-  if ((int32_t)(millis() - g_nextPollMs) < 0) return;
-  g_nextPollMs = millis() + (uint32_t)s.radar.pollSec * 1000UL;
+  const bool useWebhook = settings.radar.source == RADAR_SRC_WEBHOOK &&
+                          settings.radar.webhookUrl.length() >= 8;
+  const String url = useWebhook ? buildWebhookUrl(settings) : buildDirectUrl(settings);
+  const bool ok = fetchUrl(settings, url, budgetMs);
+  if (!ok) g_error = true;  // keep the previous snapshot visible
+  return ok;
+}
 
-  bool useWebhook = (s.radar.source == RADAR_SRC_WEBHOOK) && (s.radar.webhookUrl.length() >= 8);
-  String url = useWebhook ? buildWebhookUrl(s) : buildDirectUrl(s);
-  if (!fetchUrl(s, url)) g_error = true;   // keep stale aircraft, flag the error
+bool radarTest(const Settings& settings, uint16_t budgetMs,
+               uint8_t& aircraftCount, int& httpCode) {
+  if (settings.radar.lat < -90.0f || settings.radar.lat > 90.0f ||
+      settings.radar.lon < -180.0f || settings.radar.lon > 180.0f) {
+    httpCode = 0;
+    aircraftCount = 0;
+    return false;
+  }
+  const bool useWebhook = settings.radar.source == RADAR_SRC_WEBHOOK &&
+                          settings.radar.webhookUrl.length() >= 8;
+  const String url = useWebhook ? buildWebhookUrl(settings) : buildDirectUrl(settings);
+  const bool ok = fetchUrl(settings, url, budgetMs, &httpCode);
+  aircraftCount = g_count;
+  if (!ok) g_error = true;
+  return ok;
 }

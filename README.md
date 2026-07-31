@@ -2,27 +2,48 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible GeekMagic-style hardware.
 
+## DeskMate 4.3.1
+
+Version 4.3 separates **data acquisition** from **display rendering**. Every screen selected in the carousel keeps an independent refresh schedule while hidden, but only the visible screen renders. A central cooperative scheduler owns all polling, permits one network-heavy job at a time, and keeps the latest cached snapshot for instant carousel transitions.
+
+When demand exceeds the ESP8266's capacity, DeskMate degrades predictably instead of accumulating work:
+
+- missed deadlines are coalesced into one latest-refresh obligation;
+- visible and upcoming screens receive priority;
+- slow providers consume a shared network-duty budget;
+- low-priority work is deferred under load;
+- failures use exponential backoff;
+- previous successful data remains visible;
+- scheduler load, coalescing and deferrals are exposed in the web status page.
+
 ## Views
 
-- **Weather** — OpenWeather current conditions plus four upcoming 3-hour forecast points, rendered as a static modern scene. Configure the OpenWeather API key, coordinates, label, units and refresh interval from the web UI.
-- **Network guardian** — Internet TCP latency, DNS timing, availability, outage history, Wi-Fi quality and local IP.
-- **Aircraft radar** — Full-screen PPI radar with a static PPI scope, range rings, airports, vectors, callsign/flight-level labels and aircraft silhouettes scaled from ADS-B emitter category when supplied by the feed. It redraws only when target data changes.
-- **GitHub activity** — Authenticated-user current-year commits, open issues and open pull requests, streak, weekly activity and a 52-week contribution graph using GitHub GraphQL.
-- **Carousel** — Rotates through any selected views.
+- **Weather** — OpenWeather current conditions and four upcoming 3-hour forecast points. The browser resolves a city through Open-Meteo, verifies the OpenWeather key, and sends canonical coordinates/timezone data to DeskMate.
+- **Network guardian** — TCP latency, DNS timing, availability, outage history, Wi-Fi quality and local IP.
+- **Aircraft radar** — Static full-screen PPI scope with airports, vectors, labels, range rings and aircraft silhouettes scaled from ADS-B emitter category when the feed provides it.
+- **GitHub activity** — Authenticated-user commits, open issues, open pull requests, streak and a contribution graph. The graph range is configurable as 1, 3, 6 or 12 months.
+- **Carousel** — Rotates through any selected views while all selected data sources continue their background schedules.
 
 All active views use a static 40 × 40 RGB565 tile backbuffer. The visible LCD is never cleared before a replacement tile is fully composed.
 
-## Configure
+## Browser-assisted configuration
 
 Open the device IP address or `http://deskmate-xxxx.local`.
 
-Secrets are entered in the web UI and stored only in LittleFS configuration:
+The browser validates critical user input before saving:
 
-- OpenWeather API key
-- GitHub personal access token
-- Wi-Fi password
+- searches and resolves the weather location;
+- resolves the current timezone offset;
+- verifies the OpenWeather current/forecast calls;
+- verifies the GitHub token and contribution access;
+- tests network and radar targets through bounded one-time device test endpoints when a browser cannot perform the protocol directly;
+- validates ranges, ports, intervals, hostnames, schedules and firmware files.
 
-Leaving a secret field blank keeps the stored value.
+DeskMate repeats inexpensive structural validation on the device. Secrets are write-only from the portal's perspective and are not returned by the configuration API.
+
+## Time
+
+NTP supplies UTC. The browser-resolved location provides an IANA timezone label and current UTC offset, while normal OpenWeather polling refreshes the offset. The cached offset is available immediately after reboot for the clock, forecast timestamps and scheduled night brightness.
 
 ## Build
 
@@ -36,7 +57,7 @@ Firmware output:
 .pio/build/deskmate/firmware.bin
 ```
 
-Upload the binary from the DeskMate System tab, or over UART with:
+Upload the binary from the DeskMate System tab, or over UART:
 
 ```bash
 pio run -e deskmate -t upload --upload-port /dev/ttyUSB0
@@ -52,15 +73,7 @@ pio run -e deskmate_loader
 
 ## Data sources
 
+- Location resolution/timezone: Open-Meteo Geocoding and Forecast APIs
 - Weather: OpenWeather Current Weather and 5 Day / 3 Hour Forecast APIs
 - Radar: adsb.fi open-data API or a configurable webhook/proxy
 - GitHub: GitHub GraphQL API using the configured user token
-
-
-## 4.1 reliability changes
-
-- All feature layouts use an 8 px safe display inset.
-- GitHub contribution JSON is parsed as a stream to protect ESP8266 heap.
-- GitHub issue and pull-request connections use valid pagination arguments.
-- Radar is static between data polls, avoiding a visibly frozen sweep.
-- Weather shows the next four 3-hour forecast points and gives more space to time.

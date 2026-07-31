@@ -141,6 +141,17 @@ static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); 
 
 #endif
 
+// ---- common: bounded plain-TCP connect -----------------------------------
+// ESP8266 core 3.1.x exposes only the two-argument WiFiClient::connect().
+// Its implementation uses the timeout previously set with setTimeout() for
+// both DNS resolution and the underlying TCP connect, so keep that policy in
+// one cross-platform shim instead of calling a non-existent overload.
+static inline bool platformTcpConnect(WiFiClient& client, const char* host,
+                                      uint16_t port, uint32_t timeoutMs) {
+  client.setTimeout(timeoutMs);
+  return client.connect(host, port) == 1;
+}
+
 // ---- common: wall-clock time (SNTP) ---------------------------------------
 // True once SNTP has set the clock (epoch past 2021-01-01). Until then the
 // caller must treat time as unknown (night mode stays off = fail-safe on).

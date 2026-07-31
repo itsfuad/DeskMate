@@ -22,7 +22,9 @@ static String minToHhmm(uint16_t v) {
 
 void ClockSettings::setDefaults() {
   tz = DEFAULT_TZ_NAME;
-  tzPosix = DEFAULT_TZ_POSIX;
+  tzAbbr = "UTC";
+  tzPosix = "";
+  utcOffsetSec = 0;
   nightEnabled = DEFAULT_NIGHT_ENABLED;
   nightStartMin = DEFAULT_NIGHT_START_MIN;
   nightEndMin = DEFAULT_NIGHT_END_MIN;
@@ -31,7 +33,9 @@ void ClockSettings::setDefaults() {
 
 void ClockSettings::toJson(JsonObject o) const {
   o["tz"] = tz;
+  o["tzAbbr"] = tzAbbr;
   o["tzPosix"] = tzPosix;
+  o["utcOffsetSec"] = utcOffsetSec;
   o["nightEnabled"] = nightEnabled;
   o["nightStart"] = minToHhmm(nightStartMin);
   o["nightEnd"] = minToHhmm(nightEndMin);
@@ -40,7 +44,10 @@ void ClockSettings::toJson(JsonObject o) const {
 
 void ClockSettings::fromJson(JsonObjectConst o) {
   if (o["tz"].is<const char*>()) tz = o["tz"].as<String>();
+  if (o["tzAbbr"].is<const char*>()) tzAbbr = o["tzAbbr"].as<String>();
   if (o["tzPosix"].is<const char*>()) tzPosix = o["tzPosix"].as<String>();
+  if (o["utcOffsetSec"].is<long>() || o["utcOffsetSec"].is<int>())
+    utcOffsetSec = constrain(o["utcOffsetSec"].as<long>(), -43200L, 50400L);
   if (o["nightEnabled"].is<bool>()) nightEnabled = o["nightEnabled"];
   if (o["nightStart"].is<const char*>())
     nightStartMin = hhmmToMin(o["nightStart"], nightStartMin);
@@ -129,6 +136,11 @@ void WeatherSettings::setDefaults() {
   lat = 23.8103f;
   lon = 90.4125f;
   city = "Dhaka";
+  country = "Bangladesh";
+  timezone = "Asia/Dhaka";
+  timezoneAbbr = "+06";
+  utcOffsetSec = 21600;
+  locationVerified = true;
   apiKey = "";
   metric = true;
   pollSec = DEFAULT_WEATHER_POLL_SEC;
@@ -138,6 +150,11 @@ void WeatherSettings::toJson(JsonObject o, bool includeSecrets) const {
   o["lat"] = lat;
   o["lon"] = lon;
   o["city"] = city;
+  o["country"] = country;
+  o["timezone"] = timezone;
+  o["timezoneAbbr"] = timezoneAbbr;
+  o["utcOffsetSec"] = utcOffsetSec;
+  o["locationVerified"] = locationVerified;
   o["apiKeySet"] = apiKey.length() > 0;
   if (includeSecrets) o["apiKey"] = apiKey;
   o["metric"] = metric;
@@ -148,6 +165,12 @@ void WeatherSettings::fromJson(JsonObjectConst o) {
   if (o["lat"].is<float>() || o["lat"].is<int>()) lat = o["lat"].as<float>();
   if (o["lon"].is<float>() || o["lon"].is<int>()) lon = o["lon"].as<float>();
   if (o["city"].is<const char*>()) city = o["city"].as<String>();
+  if (o["country"].is<const char*>()) country = o["country"].as<String>();
+  if (o["timezone"].is<const char*>()) timezone = o["timezone"].as<String>();
+  if (o["timezoneAbbr"].is<const char*>()) timezoneAbbr = o["timezoneAbbr"].as<String>();
+  if (o["utcOffsetSec"].is<long>() || o["utcOffsetSec"].is<int>())
+    utcOffsetSec = constrain(o["utcOffsetSec"].as<long>(), -43200L, 50400L);
+  if (o["locationVerified"].is<bool>()) locationVerified = o["locationVerified"];
   if (o["apiKey"].is<const char*>()) {
     const String value = o["apiKey"].as<String>();
     if (value.length()) apiKey = value;
@@ -179,12 +202,16 @@ void NetworkSettings::fromJson(JsonObjectConst o) {
 
 void GithubSettings::setDefaults() {
   token = "";
+  login = "";
+  rangeMonths = 12;
   pollSec = DEFAULT_GITHUB_POLL_SEC;
 }
 
 void GithubSettings::toJson(JsonObject o, bool includeSecrets) const {
   o["tokenSet"] = token.length() > 0;
   if (includeSecrets) o["token"] = token;
+  o["login"] = login;
+  o["rangeMonths"] = rangeMonths;
   o["pollSec"] = pollSec;
 }
 
@@ -192,6 +219,11 @@ void GithubSettings::fromJson(JsonObjectConst o) {
   if (o["token"].is<const char*>()) {
     const String value = o["token"].as<String>();
     if (value.length()) token = value;
+  }
+  if (o["login"].is<const char*>()) login = o["login"].as<String>();
+  if (o["rangeMonths"].is<int>()) {
+    const int m = o["rangeMonths"].as<int>();
+    rangeMonths = (m == 1 || m == 3 || m == 6 || m == 12) ? m : 12;
   }
   if (o["pollSec"].is<int>()) pollSec = constrain(static_cast<int>(o["pollSec"]), 300, 3600);
 }
@@ -225,6 +257,9 @@ void Settings::setDefaults() {
   radar.setDefaults();
   github.setDefaults();
   clock.setDefaults();
+  clock.tz = weather.timezone;
+  clock.tzAbbr = weather.timezoneAbbr;
+  clock.utcOffsetSec = weather.utcOffsetSec;
 }
 
 bool settingsBegin() {
@@ -355,13 +390,25 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
   if (root["carouselNetwork"].is<bool>()) s.carouselNetwork = root["carouselNetwork"];
   if (root["carouselRadar"].is<bool>()) s.carouselRadar = root["carouselRadar"];
   if (root["carouselGithub"].is<bool>()) s.carouselGithub = root["carouselGithub"];
+  if (!s.carouselWeather && !s.carouselNetwork &&
+      !s.carouselRadar && !s.carouselGithub) {
+    // A carousel with no members has no sensible active/upcoming source. Keep
+    // one safe default selected even when a direct API client bypasses the UI.
+    s.carouselWeather = true;
+  }
   if (root["httpTimeout"].is<int>()) s.httpTimeout = constrain(static_cast<int>(root["httpTimeout"]), 1000, 20000);
   if (root["brightness"].is<int>()) s.brightness = constrain(static_cast<int>(root["brightness"]), 0, 100);
   if (root["autoBrightness"].is<bool>()) s.autoBrightness = root["autoBrightness"];
   if (root["backlightInverted"].is<bool>()) s.backlightInverted = root["backlightInverted"];
   if (root["rotation"].is<int>()) s.rotation = static_cast<uint8_t>(static_cast<int>(root["rotation"]) & 3);
 
-  if (root["weather"].is<JsonObjectConst>()) s.weather.fromJson(root["weather"].as<JsonObjectConst>());
+  if (root["weather"].is<JsonObjectConst>()) {
+    s.weather.fromJson(root["weather"].as<JsonObjectConst>());
+    if (s.weather.timezone.length()) s.clock.tz = s.weather.timezone;
+    if (s.weather.timezoneAbbr.length()) s.clock.tzAbbr = s.weather.timezoneAbbr;
+    s.clock.utcOffsetSec = s.weather.utcOffsetSec;
+    s.clock.tzPosix = "";  // browser-resolved fixed offset is the source of truth
+  }
   if (root["network"].is<JsonObjectConst>()) s.network.fromJson(root["network"].as<JsonObjectConst>());
   if (root["radar"].is<JsonObjectConst>()) s.radar.fromJson(root["radar"].as<JsonObjectConst>());
   if (root["github"].is<JsonObjectConst>()) s.github.fromJson(root["github"].as<JsonObjectConst>());
