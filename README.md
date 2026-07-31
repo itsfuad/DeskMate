@@ -2,9 +2,13 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible GeekMagic-style hardware.
 
-## DeskMate 4.3.1
+## DeskMate 4.3.2
 
 Version 4.3 separates **data acquisition** from **display rendering**. Every screen selected in the carousel keeps an independent refresh schedule while hidden, but only the visible screen renders. A central cooperative scheduler owns all polling, permits one network-heavy job at a time, and keeps the latest cached snapshot for instant carousel transitions.
+
+### 4.3.2 contribution-grid correction
+
+The GitHub heatmap now calculates one shared cell dimension from both the available width and height. Every day remains a strict square for 1, 3, 6, and 12-month ranges; shorter grids are enlarged and centered instead of being stretched into horizontal strips.
 
 When demand exceeds the ESP8266's capacity, DeskMate degrades predictably instead of accumulating work:
 

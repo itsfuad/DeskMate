@@ -1,4 +1,11 @@
-# DeskMate 4.3.1 changes
+# DeskMate 4.3.2 changes
+
+## 4.3.2 GitHub heatmap geometry fix
+
+- Contribution cells now use the same width and height.
+- Cell size is chosen from both graph width and graph height.
+- 1, 3, 6, and 12-month grids are centered in a larger calculated graph region.
+- Short ranges no longer render as horizontal strips.
 
 ## Scalable polling architecture
 
@@ -35,7 +42,7 @@
 
 ## Version
 
-Firmware version: 4.3.1
+Firmware version: 4.3.2
 
 
 ## 4.3.1 build compatibility fix

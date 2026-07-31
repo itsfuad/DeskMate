@@ -340,6 +340,21 @@ void copyDisplayLabel(const char* source, char* output, size_t outputSize,
   if (maxChars > 3 && outputSize - copied > 3) strlcat(output, "...", outputSize);
 }
 
+void formatCompactCount(uint32_t value, char* output, size_t outputSize) {
+  if (!outputSize) return;
+  if (value < 1000UL) {
+    snprintf(output, outputSize, "%lu", static_cast<unsigned long>(value));
+  } else if (value < 1000000UL) {
+    snprintf(output, outputSize, "%lu.%luK",
+             static_cast<unsigned long>(value / 1000UL),
+             static_cast<unsigned long>((value % 1000UL) / 100UL));
+  } else {
+    snprintf(output, outputSize, "%lu.%luM",
+             static_cast<unsigned long>(value / 1000000UL),
+             static_cast<unsigned long>((value % 1000000UL) / 100000UL));
+  }
+}
+
 void drawBranchIcon(TileCanvas& g, int x, int y) {
   g.drawCircle(x, y, 3, BLUE);
   g.drawCircle(x, y + 15, 3, BLUE);
@@ -350,16 +365,17 @@ void drawBranchIcon(TileCanvas& g, int x, int y) {
 
 void statRow(TileCanvas& g, int y, const char* label, uint32_t value,
              uint16_t accent) {
-  g.fillRoundRect(8, y, 224, 24, 7, PANEL);
+  constexpr int rowH = 17;
+  g.fillRoundRect(8, y, 224, rowH, 5, PANEL);
   g.setTextSize(1);
-  g.fillCircle(20, y + 12, 3, accent);
+  g.fillCircle(20, y + rowH / 2, 3, accent);
   g.setTextColor(MUTED);
-  g.setCursor(31, y + 8);
+  g.setCursor(31, y + 5);
   g.print(label);
   char number[18];
   snprintf(number, sizeof(number), "%lu", static_cast<unsigned long>(value));
   g.setTextColor(TEXT);
-  g.setCursor(224 - gfxTextW(number, 1), y + 8);
+  g.setCursor(224 - gfxTextW(number, 1), y + 5);
   g.print(number);
 }
 
@@ -411,41 +427,49 @@ void drawGithub(TileCanvas& g, void*) {
   g.print(pulse);
 
   statRow(g, 55, "COMMITS IN RANGE", G.commits, GREEN_4);
-  statRow(g, 83, "OPEN PULL REQUESTS", G.openPullRequests, BLUE);
-  statRow(g, 111, "OPEN ISSUES", G.openIssues, PURPLE);
+  statRow(g, 74, "OPEN PULL REQUESTS", G.openPullRequests, BLUE);
+  statRow(g, 93, "OPEN ISSUES", G.openIssues, PURPLE);
 
-  char streak[28];
-  snprintf(streak, sizeof(streak), "STREAK %u DAYS", G.streak);
+  char compactTotal[12];
+  formatCompactCount(G.totalContributions, compactTotal, sizeof(compactTotal));
+  char graphMeta[38];
+  snprintf(graphMeta, sizeof(graphMeta), "%uM  %s TOTAL  %uD STREAK",
+           G.rangeMonths, compactTotal, G.streak);
   g.setTextColor(MUTED);
-  g.setCursor(10, 143);
-  g.print(streak);
-  char total[24];
-  snprintf(total, sizeof(total), "%lu TOTAL",
-           static_cast<unsigned long>(G.totalContributions));
-  g.setCursor(DisplayLayout::Right - gfxTextW(total, 1), 143);
-  g.print(total);
-
-  char rangeLabel[30];
-  snprintf(rangeLabel, sizeof(rangeLabel), "%u MONTH CONTRIBUTIONS", G.rangeMonths);
-  g.setCursor(10, 171);
-  g.print(rangeLabel);
+  g.setCursor((TFT_WIDTH - gfxTextW(graphMeta, 1)) / 2, 116);
+  g.print(graphMeta);
 
   const uint16_t levelColors[5] = {PANEL, GREEN_1, GREEN_2, GREEN_3, GREEN_4};
-  constexpr int graphY = 188;
-  constexpr int graphH = 34;
-  constexpr int availableW = 216;
-  static_assert(DisplayLayout::fitsSafe(12, graphY, availableW, graphH),
+  constexpr int graphAreaX = 12;
+  constexpr int graphAreaY = 130;
+  constexpr int graphAreaW = 216;
+  constexpr int graphAreaH = 98;
+  constexpr int dayRows = 7;
+  static_assert(DisplayLayout::fitsSafe(
+                    graphAreaX, graphAreaY, graphAreaW, graphAreaH),
                 "GitHub contribution graph must fit the safe display area");
+
   const uint8_t weeks = max<uint8_t>(1, G.weekCount);
-  const int gapX = weeks <= 6 ? 4 : weeks <= 15 ? 2 : 1;
-  const int cellW = constrain((availableW - gapX * (weeks - 1)) / weeks, 3, 24);
-  const int actualW = cellW * weeks + gapX * (weeks - 1);
-  const int graphX = (TFT_WIDTH - actualW) / 2;
+  // A day is always a 1:1 square. Shorter ranges get larger cells; longer
+  // ranges get smaller cells. The grid is centered whenever its week/day
+  // aspect ratio cannot occupy both dimensions at once.
+  const int gap = weeks >= 26 ? 1 : weeks >= 10 ? 2 : 3;
+  const int maxCellByWidth =
+      (graphAreaW - gap * (static_cast<int>(weeks) - 1)) / weeks;
+  const int maxCellByHeight =
+      (graphAreaH - gap * (dayRows - 1)) / dayRows;
+  const int cell = max(1, min(maxCellByWidth, maxCellByHeight));
+  const int actualW = cell * weeks + gap * (weeks - 1);
+  const int actualH = cell * dayRows + gap * (dayRows - 1);
+  const int graphX = graphAreaX + (graphAreaW - actualW) / 2;
+  const int graphY = graphAreaY + (graphAreaH - actualH) / 2;
+  const int radius = cell >= 6 ? 1 : 0;
+
   for (uint8_t week = 0; week < weeks; ++week) {
-    for (uint8_t day = 0; day < 7; ++day) {
-      const int x = graphX + week * (cellW + gapX);
-      const int y = graphY + day * 5;
-      g.fillRoundRect(x, y, cellW, 4, cellW > 5 ? 1 : 0,
+    for (uint8_t day = 0; day < dayRows; ++day) {
+      const int x = graphX + week * (cell + gap);
+      const int y = graphY + day * (cell + gap);
+      g.fillRoundRect(x, y, cell, cell, radius,
                       levelColors[G.graphLevel[week][day]]);
     }
   }
