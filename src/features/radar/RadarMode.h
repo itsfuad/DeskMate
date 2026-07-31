@@ -8,7 +8,7 @@ class RadarMode : public DisplayMode {
   uint8_t modeConst() const override { return MODE_RADAR; }
   void begin(const Settings&) override;
   void invalidate(const Settings&) override;
-  void wake(const Settings&) override { needRender_ = true; }
+  void wake(const Settings&) override;
   uint32_t pollIntervalMs(const Settings&) const override;
   uint16_t pollBudgetMs(const Settings&) const override;
   uint8_t pollCost() const override { return 3; }
@@ -17,9 +17,12 @@ class RadarMode : public DisplayMode {
 
  private:
   void render(const Settings&);
+  void renderPulse(const Settings&);
   uint32_t renderedOk_ = 0xFFFFFFFF;
   bool renderedError_ = false;
   bool needRender_ = true;
+  bool pulseLarge_ = false;
+  uint32_t nextPulseMs_ = 0;
 };
 
 extern RadarMode g_radarMode;

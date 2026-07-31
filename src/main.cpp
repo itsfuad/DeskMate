@@ -222,10 +222,15 @@ void setup() {
   // On success it reboots into the new image; a no-op stub on the ESP32 targets.
   if (otaBootRequested()) {
     Serial.println("[boot] github update");
-    gfxBoot("DeskMate", "updating...");
+    gfxFirmwareUpdate(GfxFirmwareState::Preparing, "GitHub release", 0, 0,
+                      "Checking queued update");
     otaBootUpdate(g_settings);
-    gfxBoot("DeskMate", "update failed");   // still here -> failed; details in the web UI
-    delay(1200);
+    // HTTP_UPDATE_OK reboots inside otaBootUpdate(). Reaching this line means
+    // the attempt failed or the server reported no applicable image.
+    gfxFirmwareUpdate(GfxFirmwareState::Failed, "GitHub release", 0, 0,
+                      "Update did not complete");
+    delay(1400);
+    gfxFirmwareUpdateReset();
   }
 
   Serial.println("[boot] web");
@@ -261,6 +266,14 @@ void loop() {
   if (webPortalRebootDue()) {
     delay(120);
     ESP.restart();
+  }
+
+  // During an OTA write the display is owned by the retained firmware-update
+  // screen. Suspend feature polling and rendering so no carousel tile can
+  // overwrite it and no API request competes for heap or network time.
+  if (webPortalUpdateActive()) {
+    delay(2);
+    return;
   }
 
   if (g_safeMode) {

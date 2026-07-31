@@ -33,10 +33,29 @@ static bool             g_reboot = false;
 static uint32_t         g_rebootAt = 0;
 static bool             g_selfUpdate = false;   // GitHub self-update requested
 static String           g_updateMsg;            // last self-update status/error
+static bool             g_firmwareUpdateActive = false;
+static uint32_t         g_updateScreenUntil = 0;
+static uint32_t         g_uploadExpected = 0;
+static uint32_t         g_uploadWritten = 0;
+static uint32_t         g_uploadLastPaint = 0;
+static uint8_t          g_uploadLastPercent = 0xFF;
+static char             g_uploadName[42] = "";
 
 static void scheduleReboot(uint32_t inMs) {
   g_reboot = true;
   g_rebootAt = millis() + inMs;
+}
+
+static void holdFirmwareScreen(uint32_t durationMs) {
+  g_firmwareUpdateActive = true;
+  g_updateScreenUntil = millis() + durationMs;
+}
+
+static void showFirmwareFailure(const char* artifact, const String& message) {
+  g_updateMsg = message;
+  gfxFirmwareUpdate(GfxFirmwareState::Failed, artifact, g_uploadWritten,
+                    g_uploadExpected, message.c_str());
+  holdFirmwareScreen(2800);
 }
 
 // ---------------------------------------------------------------------------
@@ -509,26 +528,87 @@ static void handleTestRadar() {
 
 // ---- OTA ------------------------------------------------------------------
 static void handleUpdateDone() {
-  bool ok = !Update.hasError();
+  const bool ok = !Update.hasError();
   server.sendHeader("Connection", "close");
-  server.send(ok ? 200 : 500, "text/plain", ok ? "OK" : platformUpdateError().c_str());
-  if (ok) scheduleReboot(1200);
+  if (ok) {
+    gfxFirmwareUpdate(GfxFirmwareState::Complete, g_uploadName,
+                      g_uploadWritten, g_uploadExpected,
+                      "Firmware verified - rebooting");
+    g_firmwareUpdateActive = true;
+    g_updateScreenUntil = 0;
+    server.send(200, "text/plain", "OK");
+    scheduleReboot(1200);
+  } else {
+    const String error = platformUpdateError();
+    server.send(500, "text/plain", error);
+    showFirmwareFailure(g_uploadName, error);
+  }
 }
 
 static void handleUpdateUpload() {
   HTTPUpload& up = server.upload();
   if (up.status == UPLOAD_FILE_START) {
+    g_firmwareUpdateActive = true;
+    g_updateScreenUntil = 0;
+    g_uploadExpected = static_cast<uint32_t>(strtoul(
+        server.arg("size").c_str(), nullptr, 10));
+    g_uploadWritten = 0;
+    g_uploadLastPaint = 0;
+    g_uploadLastPercent = 0xFF;
+    strlcpy(g_uploadName,
+            up.filename.length() ? up.filename.c_str() : "firmware.bin",
+            sizeof(g_uploadName));
+    gfxFirmwareUpdate(GfxFirmwareState::Preparing, g_uploadName, 0,
+                      g_uploadExpected, "Preparing flash storage");
 #if defined(DESKMATE_ESP8266)
     WiFiUDP::stopAll();   // free UDP sockets so the OTA has max contiguous flash/heap
 #endif
-    uint32_t maxSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-    if (!Update.begin(maxSpace)) Update.printError(Serial);
+    const uint32_t maxSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+    if (!Update.begin(maxSpace)) {
+      Update.printError(Serial);
+      showFirmwareFailure(g_uploadName, platformUpdateError());
+    }
   } else if (up.status == UPLOAD_FILE_WRITE) {
-    if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.printError(Serial);
+    if (Update.hasError()) {
+      showFirmwareFailure(g_uploadName, platformUpdateError());
+      yield();
+      return;
+    }
+    const size_t written = Update.write(up.buf, up.currentSize);
+    g_uploadWritten += static_cast<uint32_t>(written);
+    if (written != up.currentSize) Update.printError(Serial);
+
+    const uint8_t percent = g_uploadExpected
+        ? static_cast<uint8_t>(min<uint32_t>(100UL,
+            (static_cast<uint64_t>(g_uploadWritten) * 100ULL) /
+                g_uploadExpected))
+        : 0;
+    const uint32_t now = millis();
+    if (Update.hasError()) {
+      showFirmwareFailure(g_uploadName, platformUpdateError());
+    } else {
+      const bool changedEnough = g_uploadLastPercent == 0xFF ||
+          abs(static_cast<int>(percent) -
+              static_cast<int>(g_uploadLastPercent)) >= 3;
+      if (percent == 100 ||
+          (changedEnough && now - g_uploadLastPaint >= 320UL)) {
+        g_uploadLastPaint = now;
+        g_uploadLastPercent = percent;
+        gfxFirmwareUpdate(GfxFirmwareState::Writing, g_uploadName,
+                          g_uploadWritten, g_uploadExpected);
+      }
+    }
   } else if (up.status == UPLOAD_FILE_END) {
-    if (!Update.end(true)) Update.printError(Serial);
+    gfxFirmwareUpdate(GfxFirmwareState::Verifying, g_uploadName,
+                      g_uploadWritten, g_uploadExpected,
+                      "Checking firmware image");
+    if (!Update.end(true)) {
+      Update.printError(Serial);
+      showFirmwareFailure(g_uploadName, platformUpdateError());
+    }
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     Update.end();
+    showFirmwareFailure(g_uploadName, F("Upload was aborted"));
   }
   yield();
 }
@@ -585,28 +665,54 @@ void webPortalLoop() {
   // response first.
   if (g_selfUpdate) {
     g_selfUpdate = false;
+    g_firmwareUpdateActive = true;
+    g_updateScreenUntil = 0;
+    g_uploadExpected = 0;
+    g_uploadWritten = 0;
+    gfxFirmwareUpdate(GfxFirmwareState::Preparing, "GitHub release", 0, 0,
+                      "Checking latest release");
 #if defined(DESKMATE_ESP8266)
     // RAM-tight chip: verify there is something to install, then queue the
     // download for the next boot (otaBootUpdate in setup(), ~45 KB free) and
     // reboot. A failure there lands back in g_updateMsg via otaTakeBootResult.
     OtaLatest r = otaCheckLatest(*S);
-    if (!r.ok)         g_updateMsg = "check failed: " + r.error;
-    else if (!r.newer) g_updateMsg = "already up to date (" FW_VERSION ")";
-    else if (otaRequestBootUpdate(r.tag.c_str())) {
-      g_updateMsg = "updating...";
-      scheduleReboot(400);
+    if (!r.ok) {
+      showFirmwareFailure("GitHub release", "check failed: " + r.error);
+    } else if (!r.newer) {
+      g_updateMsg = "already up to date (" FW_VERSION ")";
+      gfxFirmwareUpdate(GfxFirmwareState::Current, r.tag.c_str(), 0, 0,
+                        g_updateMsg.c_str());
+      holdFirmwareScreen(1800);
+    } else if (otaRequestBootUpdate(r.tag.c_str())) {
+      g_updateMsg = "restarting for update";
+      gfxFirmwareUpdate(GfxFirmwareState::Preparing, r.tag.c_str(), 0, 0,
+                        "Restarting with free update memory");
+      scheduleReboot(500);
     } else {
-      g_updateMsg = F("could not queue update (storage error)");
+      showFirmwareFailure(r.tag.c_str(),
+                          F("could not queue update (storage error)"));
     }
 #else
     // ESP32 targets: mbedTLS has the RAM to download in place; blocks while it
     // runs and reboots into the new image on success.
     String err = otaUpdateFromGitHub(*S);
-    g_updateMsg = err.length() ? err : "updating...";
+    if (err.length()) showFirmwareFailure("GitHub release", err);
+    else g_updateMsg = "updating...";
 #endif
   }
 }
 
 bool webPortalRebootDue() {
   return g_reboot && (int32_t)(millis() - g_rebootAt) >= 0;
+}
+
+bool webPortalUpdateActive() {
+  if (g_firmwareUpdateActive && g_updateScreenUntil &&
+      static_cast<int32_t>(millis() - g_updateScreenUntil) >= 0) {
+    g_firmwareUpdateActive = false;
+    g_updateScreenUntil = 0;
+    gfxFirmwareUpdateReset();
+    appWakeActive();
+  }
+  return g_firmwareUpdateActive;
 }

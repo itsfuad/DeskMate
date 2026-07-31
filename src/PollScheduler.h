@@ -43,6 +43,7 @@ class PollScheduler {
     bool forced = false;
     bool continuation = false;
     bool wasEnabled = false;
+    bool budgetDeferred = false;
   };
 
   DisplayMode* modes_[MaxModes] = {};

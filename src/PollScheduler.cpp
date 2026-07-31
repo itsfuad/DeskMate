@@ -115,6 +115,7 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
     if (!enabled[i]) {
       r.wasEnabled = false;
       r.continuation = false;
+      r.budgetDeferred = false;
       continue;
     }
     if (!r.wasEnabled) {
@@ -136,7 +137,10 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
 
     const bool due = r.forced || r.continuation ||
                      static_cast<int32_t>(now - r.nextDue) >= 0;
-    if (!due) continue;
+    if (!due) {
+      r.budgetDeferred = false;
+      continue;
+    }
 
     const bool priority = r.continuation || r.forced ||
                           i == activeIndex || i == upcomingIndex;
@@ -144,7 +148,13 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
                                        : kNormalDebtLimitMs;
     const uint32_t predicted = predictedDurationMs(i, settings);
     if (networkCreditsMs_ - static_cast<int32_t>(predicted) < debtLimit) {
-      ++budgetDeferrals_;
+      // Count one hold episode, not every pass through the fast main loop.
+      // The previous counter could grow by tens of thousands while a single
+      // source waited for the same budget refill.
+      if (!r.budgetDeferred) {
+        ++budgetDeferrals_;
+        r.budgetDeferred = true;
+      }
       continue;
     }
 
@@ -169,6 +179,7 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
   if (best < 0) return;
   Runtime& r = runtime_[best];
   DisplayMode* mode = modes_[best];
+  r.budgetDeferred = false;
   r.forced = false;
   r.lastAttempt = now;
   currentJob_ = mode->id();

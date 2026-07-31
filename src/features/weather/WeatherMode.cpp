@@ -363,7 +363,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
     char forecastMeridiem[3];
     clockFormatTime(s, ft, forecastClock, sizeof(forecastClock),
                     forecastMeridiem, sizeof(forecastMeridiem));
-    char forecastTime[8];
+    char forecastTime[12];
     if (!forecastMeridiem[0]) {
       strlcpy(forecastTime, forecastClock, sizeof(forecastTime));
     } else if (ft.tm_min == 0) {

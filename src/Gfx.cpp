@@ -326,6 +326,139 @@ void renderCrash(TileCanvas& g, void* raw) {
   g.setCursor(32, 150); g.print("OTA RECOVERY");
   drawCenteredBounded(g, c.ip, 166, 176, 2, C_UI_BLUE);
 }
+
+struct FirmwareContext {
+  GfxFirmwareState state = GfxFirmwareState::Preparing;
+  char artifact[42] = "";
+  char detail[48] = "";
+  uint32_t written = 0;
+  uint32_t total = 0;
+};
+
+FirmwareContext lastFirmware = {};
+bool lastFirmwareValid = false;
+
+const char* firmwareStateLabel(GfxFirmwareState state) {
+  switch (state) {
+    case GfxFirmwareState::Preparing:   return "PREPARING";
+    case GfxFirmwareState::Downloading: return "DOWNLOADING";
+    case GfxFirmwareState::Writing:     return "WRITING FLASH";
+    case GfxFirmwareState::Verifying:   return "VERIFYING IMAGE";
+    case GfxFirmwareState::Complete:    return "UPDATE COMPLETE";
+    case GfxFirmwareState::Current:     return "ALREADY CURRENT";
+    case GfxFirmwareState::Failed:      return "UPDATE FAILED";
+  }
+  return "FIRMWARE UPDATE";
+}
+
+uint16_t firmwareAccent(GfxFirmwareState state) {
+  switch (state) {
+    case GfxFirmwareState::Preparing:   return C_UI_BLUE;
+    case GfxFirmwareState::Downloading: return C_UI_CYAN;
+    case GfxFirmwareState::Writing:     return C_UI_AMBER;
+    case GfxFirmwareState::Verifying:   return C_UI_VIOLET;
+    case GfxFirmwareState::Complete:    return C_UI_GREEN;
+    case GfxFirmwareState::Current:     return C_UI_GREEN;
+    case GfxFirmwareState::Failed:      return C_UI_ROSE;
+  }
+  return C_UI_BLUE;
+}
+
+void formatFirmwareBytes(uint32_t written, uint32_t total,
+                         char* output, size_t outputSize) {
+  if (!outputSize) return;
+  if (total) {
+    snprintf(output, outputSize, "%lu / %lu KiB",
+             static_cast<unsigned long>((written + 1023UL) / 1024UL),
+             static_cast<unsigned long>((total + 1023UL) / 1024UL));
+  } else if (written) {
+    snprintf(output, outputSize, "%lu KiB received",
+             static_cast<unsigned long>((written + 1023UL) / 1024UL));
+  } else {
+    strlcpy(output, "Waiting for update data", outputSize);
+  }
+}
+
+void renderFirmware(TileCanvas& g, void* raw) {
+  const FirmwareContext& c = *static_cast<FirmwareContext*>(raw);
+  const uint16_t accent = firmwareAccent(c.state);
+  const uint8_t percent = c.total
+      ? static_cast<uint8_t>(min<uint32_t>(100UL,
+          (static_cast<uint64_t>(c.written) * 100ULL) / c.total))
+      : 0;
+
+  g.fillScreen(C_UI_BG);
+  g.setTextWrap(false);
+  drawCenteredBounded(g, "FIRMWARE UPDATE", 24, 216, 2, C_UI_TEXT);
+  drawCenteredBounded(g, firmwareStateLabel(c.state), 53, 208, 1, accent);
+  drawCenteredBounded(g, c.artifact[0] ? c.artifact : "DeskMate firmware",
+                      70, 208, 1, C_UI_MUTED);
+
+  char progress[8];
+  if (c.state == GfxFirmwareState::Current)
+    strlcpy(progress, "OK", sizeof(progress));
+  else if (c.state == GfxFirmwareState::Complete && !c.total)
+    strlcpy(progress, "100%", sizeof(progress));
+  else if (c.total)
+    snprintf(progress, sizeof(progress), "%u%%", percent);
+  else
+    strlcpy(progress, "...", sizeof(progress));
+  drawCenteredBounded(g, progress, 91, 210, 4, C_UI_TEXT);
+
+  constexpr int barX = 20;
+  constexpr int barY = 132;
+  constexpr int barW = 200;
+  constexpr int barH = 10;
+  static_assert(barX + barW <= TFT_WIDTH && barY + barH <= TFT_HEIGHT,
+                "Firmware progress bar must fit the panel");
+  g.fillRoundRect(barX, barY, barW, barH, 5, C_UI_PANEL2);
+  g.drawRoundRect(barX, barY, barW, barH, 5, C_UI_LINE);
+  if (c.state == GfxFirmwareState::Current ||
+      (c.state == GfxFirmwareState::Complete && !c.total)) {
+    g.fillRoundRect(barX + 1, barY + 1, barW - 2, barH - 2, 4, accent);
+  } else if (c.total && percent) {
+    const int fillW = max(4, static_cast<int>((barW - 2) * percent / 100));
+    g.fillRoundRect(barX + 1, barY + 1, fillW, barH - 2, 4, accent);
+  } else if (c.state != GfxFirmwareState::Failed) {
+    g.fillRoundRect(barX + 72, barY + 1, 56, barH - 2, 4, accent);
+  }
+
+  char bytes[36];
+  formatFirmwareBytes(c.written, c.total, bytes, sizeof(bytes));
+  drawCenteredBounded(g, c.detail[0] ? c.detail : bytes,
+                      151, 210, 1, C_UI_MUTED);
+
+  g.fillRoundRect(16, 177, 208, 43, 10, C_UI_PANEL2);
+  g.drawRoundRect(16, 177, 208, 43, 10, accent);
+  if (c.state == GfxFirmwareState::Complete) {
+    drawCenteredBounded(g, "RESTARTING DESKMATE", 187, 190, 1, C_UI_GREEN);
+    drawCenteredBounded(g, "KEEP POWER CONNECTED", 202, 190, 1, C_UI_MUTED);
+  } else if (c.state == GfxFirmwareState::Current) {
+    drawCenteredBounded(g, "NO UPDATE WAS NEEDED", 187, 190, 1, C_UI_GREEN);
+    drawCenteredBounded(g, "RETURNING TO DASHBOARD", 202, 190, 1, C_UI_MUTED);
+  } else if (c.state == GfxFirmwareState::Failed) {
+    drawCenteredBounded(g, "IMAGE WAS NOT INSTALLED", 187, 190, 1, C_UI_ROSE);
+    drawCenteredBounded(g, "CHECK THE WEB PORTAL", 202, 190, 1, C_UI_MUTED);
+  } else {
+    drawCenteredBounded(g, "DO NOT UNPLUG POWER", 187, 190, 1, C_UI_AMBER);
+    drawCenteredBounded(g, "OR RESTART THE DEVICE", 202, 190, 1, C_UI_MUTED);
+  }
+}
+
+TileMask firmwareDirtyMask(const FirmwareContext& next) {
+  if (!lastFirmwareValid) return gfxAllTilesMask();
+  TileMask mask = 0;
+  if (lastFirmware.state != next.state)
+    gfxMarkRectTiles(mask, 12, 48, 216, 22, 2);
+  if (strcmp(lastFirmware.artifact, next.artifact) != 0)
+    gfxMarkRectTiles(mask, 12, 67, 216, 18, 2);
+  if (lastFirmware.written != next.written || lastFirmware.total != next.total ||
+      strcmp(lastFirmware.detail, next.detail) != 0)
+    gfxMarkRectTiles(mask, 12, 88, 216, 72, 0);
+  if (lastFirmware.state != next.state)
+    gfxMarkRectTiles(mask, 12, 174, 216, 50, 2);
+  return mask;
+}
 }
 
 void gfxBoot(const char* line1, const char* line2) {
@@ -372,4 +505,27 @@ void gfxCrash(const char* epc, const char* addr, const char* ip) {
   strlcpy(c.ip, ip && ip[0] ? ip : "-", sizeof(c.ip));
   gfxRenderTiled(renderCrash, &c, C_UI_BG);
   revealBacklight();
+}
+
+void gfxFirmwareUpdate(GfxFirmwareState state, const char* artifact,
+                       uint32_t writtenBytes, uint32_t totalBytes,
+                       const char* detail) {
+  if (!gfx) return;
+  FirmwareContext next = {};
+  next.state = state;
+  next.written = writtenBytes;
+  next.total = totalBytes;
+  strlcpy(next.artifact, artifact && artifact[0] ? artifact : "DeskMate firmware",
+          sizeof(next.artifact));
+  strlcpy(next.detail, detail ? detail : "", sizeof(next.detail));
+
+  const TileMask mask = firmwareDirtyMask(next);
+  if (mask) gfxRenderTileMask(renderFirmware, &next, C_UI_BG, mask);
+  lastFirmware = next;
+  lastFirmwareValid = true;
+  revealBacklight();
+}
+
+void gfxFirmwareUpdateReset() {
+  lastFirmwareValid = false;
 }

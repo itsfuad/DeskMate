@@ -363,19 +363,39 @@ void drawBranchIcon(TileCanvas& g, int x, int y) {
   g.drawLine(x + 3, y + 13, x + 10, y + 9, BLUE);
 }
 
-void statRow(TileCanvas& g, int y, const char* label, uint32_t value,
-             uint16_t accent) {
-  constexpr int rowH = 17;
-  g.fillRoundRect(8, y, 224, rowH, 5, PANEL);
-  g.setTextSize(1);
-  g.fillCircle(20, y + rowH / 2, 3, accent);
-  g.setTextColor(MUTED);
-  g.setCursor(31, y + 5);
-  g.print(label);
-  char number[18];
-  snprintf(number, sizeof(number), "%lu", static_cast<unsigned long>(value));
-  g.setTextColor(TEXT);
-  g.setCursor(224 - gfxTextW(number, 1), y + 5);
+void drawIssueIcon(TileCanvas& g, int x, int y, uint16_t color) {
+  g.drawCircle(x, y, 7, color);
+  g.drawFastVLine(x, y - 3, 5, color);
+  g.fillCircle(x, y + 4, 1, color);
+}
+
+void drawPullRequestIcon(TileCanvas& g, int x, int y, uint16_t color) {
+  g.drawCircle(x - 5, y - 5, 2, color);
+  g.drawCircle(x - 5, y + 5, 2, color);
+  g.drawCircle(x + 5, y - 5, 2, color);
+  g.drawFastVLine(x - 5, y - 3, 6, color);
+  g.drawLine(x - 3, y + 3, x + 2, y - 2, color);
+  g.drawFastHLine(x + 2, y - 5, 2, color);
+}
+
+void drawCommitIcon(TileCanvas& g, int x, int y, uint16_t color) {
+  g.drawFastHLine(x - 10, y, 6, color);
+  g.drawCircle(x, y, 4, color);
+  g.fillCircle(x, y, 1, color);
+  g.drawFastHLine(x + 5, y, 6, color);
+}
+
+void drawStatCount(TileCanvas& g, int centerX, int iconY, uint32_t value,
+                   uint16_t accent, uint8_t icon) {
+  if (icon == 0) drawIssueIcon(g, centerX, iconY, accent);
+  else if (icon == 1) drawPullRequestIcon(g, centerX, iconY, accent);
+  else drawCommitIcon(g, centerX, iconY, accent);
+
+  char number[12];
+  formatCompactCount(value, number, sizeof(number));
+  g.setTextSize(2);
+  g.setTextColor(accent);
+  g.setCursor(centerX - gfxTextW(number, 2) / 2, iconY + 12);
   g.print(number);
 }
 
@@ -426,17 +446,26 @@ void drawGithub(TileCanvas& g, void*) {
   g.setCursor(DisplayLayout::Right - gfxTextW(pulse, 1), 46);
   g.print(pulse);
 
-  statRow(g, 55, "COMMITS IN RANGE", G.commits, GREEN_4);
-  statRow(g, 74, "OPEN PULL REQUESTS", G.openPullRequests, BLUE);
-  statRow(g, 93, "OPEN ISSUES", G.openIssues, PURPLE);
+  constexpr int statsX = 10;
+  constexpr int statsY = 55;
+  constexpr int statsW = 220;
+  constexpr int statsH = 57;
+  static_assert(DisplayLayout::fitsSafe(statsX, statsY, statsW, statsH),
+                "GitHub stats panel must fit the safe display area");
+  g.fillRoundRect(statsX, statsY, statsW, statsH, 10, PANEL);
+  g.drawFastVLine(83, statsY + 8, statsH - 16, rgb565(43, 49, 58));
+  g.drawFastVLine(157, statsY + 8, statsH - 16, rgb565(43, 49, 58));
+  drawStatCount(g, 46, 68, G.openIssues, PURPLE, 0);
+  drawStatCount(g, 120, 68, G.openPullRequests, BLUE, 1);
+  drawStatCount(g, 194, 68, G.commits, GREEN_4, 2);
 
   char compactTotal[12];
   formatCompactCount(G.totalContributions, compactTotal, sizeof(compactTotal));
-  char graphMeta[38];
+  char graphMeta[48];
   snprintf(graphMeta, sizeof(graphMeta), "%uM  %s TOTAL  %uD STREAK",
            G.rangeMonths, compactTotal, G.streak);
   g.setTextColor(MUTED);
-  g.setCursor((TFT_WIDTH - gfxTextW(graphMeta, 1)) / 2, 116);
+  g.setCursor((TFT_WIDTH - gfxTextW(graphMeta, 1)) / 2, 118);
   g.print(graphMeta);
 
   const uint16_t levelColors[5] = {PANEL, GREEN_1, GREEN_2, GREEN_3, GREEN_4};

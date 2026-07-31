@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include "config.h"
+#include "Gfx.h"
 
 #if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 #include <HTTPUpdate.h>
@@ -123,6 +124,8 @@ String otaUpdateFromGitHub(const Settings& s) {
   if (!r.ok) return "check failed: " + r.error;
   if (!r.newer) return "already up to date (" FW_VERSION ")";
   if (ESP.getFreeHeap() < 22000) return F("not enough free heap for a TLS update");
+  gfxFirmwareUpdate(GfxFirmwareState::Downloading, r.tag.c_str(), 0, 0,
+                    "Downloading release asset");
 
   // mbedTLS manages its own buffers; each target pulls its own release asset
   // (UPDATE_ASSET in config.h). The two-slot OTA layout makes this atomic, so a
@@ -143,7 +146,11 @@ String otaUpdateFromGitHub(const Settings& s) {
       case HTTP_UPDATE_NO_UPDATES: return F("server reported no update");
       case HTTP_UPDATE_FAILED:     lastErr = up.getLastErrorString(); break;
     }
-    if (attempt < 2) delay(1000);
+    if (attempt < 2) {
+      gfxFirmwareUpdate(GfxFirmwareState::Downloading, r.tag.c_str(), 0, 0,
+                        "Retrying interrupted download");
+      delay(1000);
+    }
   }
   return "download failed after retry: " + lastErr;
 #else
@@ -193,6 +200,8 @@ void otaBootUpdate(const Settings& s) {
   OtaLatest r = otaCheckLatest(s);          // re-resolve the asset URL fresh
   if (!r.ok)    { otaBootResult("check failed: " + r.error); return; }
   if (!r.newer) { otaBootResult(F("already up to date (" FW_VERSION ")")); return; }
+  gfxFirmwareUpdate(GfxFirmwareState::Downloading, r.tag.c_str(), 0, 0,
+                    "Downloading release asset");
 
   // Honest guard: rx + tx buffers plus BearSSL engine/stack-thunk overhead.
   const uint32_t need = 16384 + 512 + 8000;
@@ -215,7 +224,11 @@ void otaBootUpdate(const Settings& s) {
   for (int attempt = 1; attempt <= 2; attempt++) {
     ret = ESPhttpUpdate.update(client, r.url);
     if (ret == HTTP_UPDATE_OK || ret == HTTP_UPDATE_NO_UPDATES) break;  // OK reboots; NO_UPDATES is final
-    if (attempt < 2) delay(1000);
+    if (attempt < 2) {
+      gfxFirmwareUpdate(GfxFirmwareState::Downloading, r.tag.c_str(), 0, 0,
+                        "Retrying interrupted download");
+      delay(1000);
+    }
   }
   if (ret == HTTP_UPDATE_NO_UPDATES)
     otaBootResult(F("server reported no update"));

@@ -21,7 +21,13 @@ constexpr uint16_t CYAN     = rgb565(67, 205, 199);
 constexpr uint16_t BLUE     = rgb565(91, 150, 230);
 constexpr uint16_t CORAL    = rgb565(244, 103, 112);
 constexpr uint16_t AMBER    = rgb565(244, 186, 82);
+constexpr uint16_t GREEN    = rgb565(80, 204, 127);
 constexpr uint8_t SAMPLE_COUNT = 60;
+static_assert(225 - 6 >= DisplayLayout::Left &&
+              225 + 6 < DisplayLayout::Right &&
+              14 - 6 >= DisplayLayout::Top &&
+              14 + 6 < DisplayLayout::Bottom,
+              "Network pulse must fit the safe display area");
 
 struct Sample {
   uint16_t tcpMs = 0;
@@ -34,6 +40,7 @@ struct NetworkRenderContext {
   const Settings* settings = nullptr;
   char host[20] = "";
   char ip[20] = "";
+  bool pulseLarge = false;
 };
 
 Sample samples[SAMPLE_COUNT];
@@ -84,13 +91,20 @@ uint8_t wifiQuality() {
   return static_cast<uint8_t>(constrain((rssi + 90) * 100 / 45, 0, 100));
 }
 
-void drawPill(TileCanvas& g, int x, int y, int w, const char* label,
-              uint16_t color) {
-  g.fillRoundRect(x, y, w, 18, 9, color);
-  g.setTextSize(1);
-  g.setTextColor(BG);
-  g.setCursor(x + (w - gfxTextW(label, 1)) / 2, y + 5);
-  g.print(label);
+uint16_t networkStatusColor() {
+  if (!haveState || !count) return BLUE;
+  const Sample& last = samples[(head + SAMPLE_COUNT - 1) % SAMPLE_COUNT];
+  if (last.tcpOk && last.dnsOk) return GREEN;
+  if (last.tcpOk || last.dnsOk) return AMBER;
+  return CORAL;
+}
+
+void drawNetworkPulse(TileCanvas& g, bool large) {
+  constexpr int x = 225;
+  constexpr int y = 14;
+  const uint16_t color = networkStatusColor();
+  g.fillCircle(x, y, 2, color);
+  g.drawCircle(x, y, large ? 6 : 4, color);
 }
 
 void drawCardValue(TileCanvas& g, int x, int y, int w, const char* label,
@@ -123,8 +137,7 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   g.setTextColor(MUTED);
   g.setCursor(10, 9);
   g.print("NETWORK GUARDIAN");
-  drawPill(g, 174, 6, 56, online ? "ONLINE" : "OFFLINE",
-           online ? CYAN : CORAL);
+  drawNetworkPulse(g, context.pulseLarge);
 
   g.setTextColor(TEXT);
   g.setTextSize(5);
@@ -293,22 +306,57 @@ PollResult NetworkMode::poll(const Settings& settings, uint16_t budgetMs) {
   return PollResult::Success;
 }
 
-void NetworkMode::begin(const Settings&) { dirty_ = true; }
-void NetworkMode::invalidate(const Settings&) { dirty_ = true; }
-void NetworkMode::wake(const Settings&) { dirty_ = true; }
+void NetworkMode::begin(const Settings&) {
+  dirty_ = true;
+  pulseLarge_ = false;
+  nextPulseMs_ = millis() + 500UL;
+}
+
+void NetworkMode::invalidate(const Settings&) {
+  dirty_ = true;
+  pulseLarge_ = false;
+  nextPulseMs_ = millis() + 500UL;
+}
+
+void NetworkMode::wake(const Settings&) {
+  dirty_ = true;
+  nextPulseMs_ = millis() + 500UL;
+}
 
 void NetworkMode::render(const Settings& settings) {
   NetworkRenderContext context;
   context.settings = &settings;
+  context.pulseLarge = pulseLarge_;
   strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
   const String ip = netIP();
   strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
   gfxRenderTiled(drawNetwork, &context, BG);
 }
 
+void NetworkMode::renderPulse(const Settings& settings) {
+  NetworkRenderContext context;
+  context.settings = &settings;
+  context.pulseLarge = pulseLarge_;
+  strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
+  const String ip = netIP();
+  strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
+  TileMask mask = 0;
+  gfxMarkRectTiles(mask, 217, 5, 18, 18, 1);
+  gfxRenderTileMask(drawNetwork, &context, BG, mask);
+}
+
 void NetworkMode::displayTick(const Settings& settings) {
+  const uint32_t now = millis();
+  const bool pulseDue = static_cast<int32_t>(now - nextPulseMs_) >= 0;
+  if (pulseDue) {
+    pulseLarge_ = !pulseLarge_;
+    nextPulseMs_ = now + 500UL;
+  }
+
   if (dirty_) {
     render(settings);
     dirty_ = false;
+  } else if (pulseDue) {
+    renderPulse(settings);
   }
 }

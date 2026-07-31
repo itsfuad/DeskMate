@@ -16,8 +16,11 @@ class NetworkMode : public DisplayMode {
 
  private:
   bool dirty_ = true;
+  bool pulseLarge_ = false;
+  uint32_t nextPulseMs_ = 0;
   void probe(const Settings&, uint16_t budgetMs);
   void render(const Settings&);
+  void renderPulse(const Settings&);
 };
 
 extern NetworkMode g_networkMode;

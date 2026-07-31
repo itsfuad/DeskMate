@@ -21,6 +21,7 @@ constexpr uint16_t CORAL   = rgb565(255, 91, 102);
 constexpr uint16_t CYAN    = rgb565(66, 211, 205);
 constexpr uint16_t BLUE    = rgb565(69, 145, 210);
 constexpr uint16_t AMBER   = rgb565(246, 186, 78);
+constexpr uint16_t GREEN   = rgb565(79, 205, 128);
 
 constexpr int CX = 120;
 constexpr int CY = 120;
@@ -29,6 +30,11 @@ static_assert(CX - RR >= DisplayLayout::Left && CY - RR >= DisplayLayout::Top &&
               CX + RR <= DisplayLayout::Right &&
               CY + RR <= DisplayLayout::Bottom,
               "Radar scope must fit the safe display area");
+static_assert(226 - 5 >= DisplayLayout::Left &&
+              226 + 5 < DisplayLayout::Right &&
+              226 - 5 >= DisplayLayout::Top &&
+              226 + 5 < DisplayLayout::Bottom,
+              "Radar pulse must fit the safe display area");
 
 void polar(float radius, float bearing, int& x, int& y) {
   const float angle = bearing * static_cast<float>(PI) / 180.0f;
@@ -129,8 +135,33 @@ bool intersects(const LabelBox& a, const LabelBox& b) {
            a.y + a.h <= b.y || b.y + b.h <= a.y);
 }
 
+struct RadarRenderContext {
+  const Settings* settings = nullptr;
+  bool pulseLarge = false;
+};
+
+uint16_t radarStatusColor(const Settings& settings) {
+  if (radarError()) return CORAL;
+  const uint32_t lastOk = radarLastOkMs();
+  if (!lastOk) return BLUE;
+  const uint32_t staleAfter = max<uint32_t>(30000UL,
+      static_cast<uint32_t>(settings.radar.pollSec) * 2500UL);
+  if (millis() - lastOk > staleAfter) return AMBER;
+  return GREEN;
+}
+
+void drawRadarPulse(TileCanvas& g, const Settings& settings, bool large) {
+  constexpr int x = 226;
+  constexpr int y = 226;
+  const uint16_t color = radarStatusColor(settings);
+  g.fillCircle(x, y, 2, color);
+  g.drawCircle(x, y, large ? 5 : 3, color);
+}
+
 void drawRadar(TileCanvas& g, void* opaque) {
-  const Settings& settings = *static_cast<const Settings*>(opaque);
+  const RadarRenderContext& context =
+      *static_cast<const RadarRenderContext*>(opaque);
+  const Settings& settings = *context.settings;
   g.fillScreen(BG);
   g.setTextWrap(false);
 
@@ -294,8 +325,7 @@ void drawRadar(TileCanvas& g, void* opaque) {
     g.print("ADSB.FI  NO TARGETS");
   }
 
-  g.fillCircle(228, 228, radarError() ? 4 : 3,
-               radarError() ? CORAL : CYAN);
+  drawRadarPulse(g, settings, context.pulseLarge);
 }
 }  // namespace
 
@@ -304,6 +334,8 @@ void RadarMode::begin(const Settings& settings) {
   renderedOk_ = 0xFFFFFFFF;
   renderedError_ = false;
   needRender_ = true;
+  pulseLarge_ = false;
+  nextPulseMs_ = millis() + 500UL;
 }
 
 void RadarMode::invalidate(const Settings& settings) {
@@ -311,6 +343,13 @@ void RadarMode::invalidate(const Settings& settings) {
   renderedOk_ = 0xFFFFFFFF;
   renderedError_ = false;
   needRender_ = true;
+  pulseLarge_ = false;
+  nextPulseMs_ = millis() + 500UL;
+}
+
+void RadarMode::wake(const Settings&) {
+  needRender_ = true;
+  nextPulseMs_ = millis() + 500UL;
 }
 
 uint32_t RadarMode::pollIntervalMs(const Settings& settings) const {
@@ -334,7 +373,19 @@ void RadarMode::render(const Settings& settings) {
     gfxMessage("AIRCRAFT RADAR", "SET HOME LOCATION", AMBER);
     return;
   }
-  gfxRenderTiled(drawRadar, const_cast<Settings*>(&settings), BG);
+  RadarRenderContext context;
+  context.settings = &settings;
+  context.pulseLarge = pulseLarge_;
+  gfxRenderTiled(drawRadar, &context, BG);
+}
+
+void RadarMode::renderPulse(const Settings& settings) {
+  RadarRenderContext context;
+  context.settings = &settings;
+  context.pulseLarge = pulseLarge_;
+  TileMask mask = 0;
+  gfxMarkRectTiles(mask, 218, 218, 16, 16, 1);
+  gfxRenderTileMask(drawRadar, &context, BG, mask);
 }
 
 void RadarMode::displayTick(const Settings& settings) {
@@ -344,6 +395,13 @@ void RadarMode::displayTick(const Settings& settings) {
       needRender_ = false;
     }
     return;
+  }
+
+  const uint32_t now = millis();
+  const bool pulseDue = static_cast<int32_t>(now - nextPulseMs_) >= 0;
+  if (pulseDue) {
+    pulseLarge_ = !pulseLarge_;
+    nextPulseMs_ = now + 500UL;
   }
 
   const uint32_t ok = radarLastOkMs();
@@ -356,5 +414,7 @@ void RadarMode::displayTick(const Settings& settings) {
   if (needRender_) {
     render(settings);
     needRender_ = false;
+  } else if (pulseDue) {
+    renderPulse(settings);
   }
 }

@@ -50,3 +50,21 @@ void gfxBoot(const char* line1, const char* line2);
 void gfxApInfo(const char* ssid, const char* pass, const char* ip);
 void gfxMessage(const char* title, const char* msg, uint16_t titleColor);
 void gfxCrash(const char* epc, const char* addr, const char* ip);  // safe-mode diag
+
+enum class GfxFirmwareState : uint8_t {
+  Preparing,
+  Downloading,
+  Writing,
+  Verifying,
+  Complete,
+  Current,
+  Failed,
+};
+
+// Retained, tile-rendered OTA screen. totalBytes may be zero when the upstream
+// update helper does not expose a content length; the screen then shows an
+// indeterminate progress state while still displaying the stage and warning.
+void gfxFirmwareUpdate(GfxFirmwareState state, const char* artifact,
+                       uint32_t writtenBytes = 0, uint32_t totalBytes = 0,
+                       const char* detail = nullptr);
+void gfxFirmwareUpdateReset();
