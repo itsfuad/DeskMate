@@ -53,6 +53,27 @@ struct GithubData {
 GithubData G;
 
 #if !defined(DESKMATE_PREVIEW)
+#if defined(DESKMATE_ESP8266)
+// GitHub supports TLS maximum-fragment-length negotiation. Keeping the
+// receive buffer at 512/1024 bytes avoids reserving a 4 KB contiguous block
+// for a response whose useful fields are streamed one token at a time.
+uint16_t g_githubTlsRx = 0;
+
+uint16_t githubTlsReceiveBuffer() {
+  if (g_githubTlsRx) return g_githubTlsRx;
+  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(
+          "api.github.com", 443, 512)) {
+    g_githubTlsRx = 512;
+  } else if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(
+                 "api.github.com", 443, 1024)) {
+    g_githubTlsRx = 1024;
+  } else {
+    g_githubTlsRx = 4096;
+  }
+  return g_githubTlsRx;
+}
+#endif
+
 void isoUtc(time_t value, char* out, size_t outSize) {
   struct tm t;
   gmtime_r(&value, &t);
@@ -546,12 +567,16 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
   }
 
 #if defined(DESKMATE_ESP8266)
+  const uint16_t tlsRx = githubTlsReceiveBuffer();
+  const uint32_t requiredMaxBlock = tlsRx <= 1024 ? 8000 : 11000;
   // A failed large allocation during BearSSL setup can reset the ESP8266. Skip
   // safely and retry later rather than entering a reboot loop on this screen.
-  if (ESP.getFreeHeap() < 19000 || platformMaxFreeBlock() < 11000) {
+  if (ESP.getFreeHeap() < 18000 || platformMaxFreeBlock() < requiredMaxBlock) {
     setError("LOW HEAP - RETRY LATER");
     return false;
   }
+#else
+  constexpr uint16_t tlsRx = 0;
 #endif
 
   char periodStart[24];
@@ -577,7 +602,7 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
       "weeks{contributionDays{weekday contributionCount}}}}}}";
 
   String body;
-  body.reserve(760);
+  body.reserve(512);
   body += F("{\"query\":\"");
   body += FPSTR(QUERY);
   body += F("\",\"variables\":{\"from\":\"");
@@ -588,7 +613,13 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
 
   for (uint8_t attempt = 0; attempt < 2; ++attempt) {
     std::unique_ptr<SecureClient> client(
-        platformMakeSecureClient(4096, nullptr, 512, false));
+        platformMakeSecureClient(
+#if defined(DESKMATE_ESP8266)
+            tlsRx,
+#else
+            4096,
+#endif
+            nullptr, 512, false));
     if (!client) {
       setError("TLS ALLOCATION FAILED");
       return false;
