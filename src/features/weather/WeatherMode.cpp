@@ -443,9 +443,38 @@ void drawSun(TileCanvas& g, int x, int y, int r, uint16_t color) {
   g.fillCircle(x, y, r, color);
 }
 
-void drawMoon(TileCanvas& g, int x, int y, int r, uint16_t background) {
-  g.fillCircle(x, y, r, WHITE_SOFT);
-  g.fillCircle(x + r / 2, y - r / 3, r, background);
+void drawMoon(TileCanvas& g, int x, int y, int r) {
+  // Draw only the crescent scanlines. Painting a background-colored circle
+  // over a full moon leaves a visible mask when the sky is gradient-filled.
+  const int innerX = x + r / 2;
+  const int innerY = y - r / 3;
+  const int radiusSquared = r * r;
+  for (int dy = -r; dy <= r; ++dy) {
+    const int outerSquared = radiusSquared - dy * dy;
+    if (outerSquared < 0) continue;
+    const int outer = static_cast<int>(sqrtf(static_cast<float>(outerSquared)));
+    const int left = x - outer;
+    const int right = x + outer;
+
+    const int innerDy = y + dy - innerY;
+    const int innerSquared = radiusSquared - innerDy * innerDy;
+    if (innerSquared <= 0) {
+      g.drawFastHLine(left, y + dy, right - left + 1, WHITE_SOFT);
+      continue;
+    }
+
+    const int inner = static_cast<int>(sqrtf(static_cast<float>(innerSquared)));
+    const int cutLeft = innerX - inner;
+    const int cutRight = innerX + inner;
+    if (cutLeft > left) {
+      g.drawFastHLine(left, y + dy, min(right, cutLeft - 1) - left + 1,
+                      WHITE_SOFT);
+    }
+    if (cutRight < right) {
+      g.drawFastHLine(max(left, cutRight + 1), y + dy,
+                      right - max(left, cutRight + 1) + 1, WHITE_SOFT);
+    }
+  }
 }
 
 void drawCloud(TileCanvas& g, int x, int y, uint16_t color) {
@@ -456,15 +485,14 @@ void drawCloud(TileCanvas& g, int x, int y, uint16_t color) {
 }
 
 void drawMainIcon(TileCanvas& g, int id, bool night, int x, int y,
-                  uint16_t background, uint16_t cloudColor,
-                  uint16_t rainColor) {
+                  uint16_t cloudColor, uint16_t rainColor) {
   if (id == 800) {
-    if (night) drawMoon(g, x + 20, y + 20, 17, background);
+    if (night) drawMoon(g, x + 20, y + 20, 17);
     else drawSun(g, x + 20, y + 20, 16, SUN);
     return;
   }
   if (isPartlyCloudy(id)) {
-    if (night) drawMoon(g, x + 12, y + 10, 9, background);
+    if (night) drawMoon(g, x + 12, y + 10, 9);
     else drawSun(g, x + 11, y + 8, 9, SUN);
   }
   drawCloud(g, x + 1, y + 11, cloudColor);
@@ -491,15 +519,14 @@ void drawMainIcon(TileCanvas& g, int id, bool night, int x, int y,
   }
 }
 
-void drawMiniIcon(TileCanvas& g, int id, bool night, int x, int y,
-                  uint16_t panel) {
+void drawMiniIcon(TileCanvas& g, int id, bool night, int x, int y) {
   if (id == 800) {
-    if (night) drawMoon(g, x + 11, y + 10, 7, panel);
+    if (night) drawMoon(g, x + 11, y + 10, 7);
     else drawSun(g, x + 11, y + 10, 5, SUN);
     return;
   }
   if (isPartlyCloudy(id)) {
-    if (night) drawMoon(g, x + 7, y + 6, 5, panel);
+    if (night) drawMoon(g, x + 7, y + 6, 5);
     else g.fillCircle(x + 6, y + 5, 5, SUN);
   }
   g.fillCircle(x + 7, y + 10, 5, CLOUD);
@@ -973,8 +1000,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
   // the current condition, including clear weather after the body has set.
   int iconY = isCloud(W.conditionId) ? 40 : 35;
   if (W.conditionId >= 200 && W.conditionId < 300) iconY = 24;
-  drawMainIcon(g, W.conditionId, night, 181, iconY,
-               skyColorAt(theme, iconY + 25), theme.cloudLight,
+  drawMainIcon(g, W.conditionId, night, 181, iconY, theme.cloudLight,
                theme.rainColor);
 
   const ConditionLabel condition = conditionLabel(W.conditionId);
@@ -1021,9 +1047,6 @@ void drawScreen(TileCanvas& g, void* opaque) {
   g.setCursor(120 - gfxTextW(detail, 1) / 2, 163);
   g.print(detail);
 
-  const uint16_t forecastIconBg =
-      blend565(theme.near, panelOverlay, panelAlpha);
-
   for (uint8_t i = 0; i < 4; ++i) {
     const int left = 9 + i * 56;
     if (i) g.drawFastVLine(left - 3, 178, 47, separator);
@@ -1054,8 +1077,7 @@ void drawScreen(TileCanvas& g, void* opaque) {
     g.setCursor(left + (52 - gfxTextW(forecastTime, 1)) / 2, 177);
     g.print(forecastTime);
 
-    drawMiniIcon(g, W.forecast[i].id, W.forecast[i].night, left + 12, 188,
-                 forecastIconBg);
+    drawMiniIcon(g, W.forecast[i].id, W.forecast[i].night, left + 12, 188);
 
     char forecastTemp[12];
     snprintf(forecastTemp, sizeof(forecastTemp), "%.0f%c",

@@ -169,7 +169,7 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   g.print(value);
   g.setTextSize(2);
   g.setTextColor(MUTED);
-  g.setCursor(141, 58);
+  g.setCursor(70, 50);
   g.print("ms");
 
   char subtitle[48];
