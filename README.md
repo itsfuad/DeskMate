@@ -4,7 +4,7 @@ DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789
 
 [![Weather Cycle Demo](preview/weather-cycle-demo.gif)](preview/weather-cycle-demo.gif)
 
-## DeskMate 4.5.0
+## DeskMate 4.5
 
 Version 4.5 uses a compact palette-indexed alpine scene traced from the supplied reference animation: its mountain contours, lake, forest edge, foreground framing, and tent retain the source composition while runtime colors remain weather- and time-driven. Moving cloud lanes, reference-matched sun and moon paths, sun flare, twinkling stars, and rain/snow motion preserve live conditions and the day/night cycle. Dawn and dusk are transition ranges rather than hard theme switches.
 

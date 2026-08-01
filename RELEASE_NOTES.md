@@ -1,4 +1,8 @@
-# DeskMate 4.5.0 changes
+# 4.5.1
+
+## Removed gradients from webUI
+
+# 4.5.0
 
 ## Scenic Weather renderer
 
@@ -16,7 +20,7 @@
 
 Firmware version: 4.5.0
 
-# DeskMate 4.4.0 changes
+# 4.4.0
 
 ## Native 240 × 240 desktop preview
 
@@ -43,7 +47,7 @@ Firmware version: 4.4.0
 - Tiny status updates now push only an 11x11 retained region instead of a full 40x40 tile.
 - Manual OTA uploads start with an empty left-anchored 0% progress bar; indeterminate center fill is reserved for unknown-length downloads.
 
-# DeskMate 4.3.2 changes
+# 4.3.2
 
 ## 4.3.2 GitHub heatmap geometry fix
 
@@ -90,7 +94,7 @@ Firmware version: 4.4.0
 Firmware version: 4.3.2
 
 
-## 4.3.1 build compatibility fix
+## 4.3.1
 
 - Replaced the unsupported three-argument ESP8266 `WiFiClient::connect` calls.
 - Added `platformTcpConnect()`, which applies `setTimeout()` before using the core's supported two-argument connect API.
