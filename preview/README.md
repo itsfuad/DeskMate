@@ -156,7 +156,7 @@ surface so it cannot cover the lake or become a separate strip.
 
 The preview directly compiles these firmware files:
 
-- `src/TileRenderer.cpp`
+- `src/display/TileRenderer.cpp`
 - `src/features/weather/WeatherMode.cpp`
 - `src/features/weather/WeatherScene.h`
 - `src/features/github/GithubMode.cpp`

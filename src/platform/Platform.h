@@ -121,7 +121,7 @@ using TlsSession = BearSSL::Session;
 // cost, so callers size it for each API payload. A persistent session may be
 // supplied for resumption, and cheapCiphers can be enabled for endpoints that
 // still accept static-RSA suites. Modern API endpoints remain on the full suite
-// list and use the P-256 tuning in BearSslTuning.cpp.
+// list and use the P-256 tuning in platform/BearSslTuning.cpp.
 static inline SecureClient* platformMakeSecureClient(uint16_t rxBuf,
                                                      TlsSession* session = nullptr,
                                                      uint16_t txBuf = 512,

@@ -18,7 +18,7 @@ add_executable(deskmate-preview
   src/PreviewScenarios.cpp
   src/RadarPreview.cpp
   vendor/Adafruit_GFX/Adafruit_GFX.cpp
-  ${DESKMATE_ROOT}/src/TileRenderer.cpp
+  ${DESKMATE_ROOT}/src/display/TileRenderer.cpp
   ${DESKMATE_ROOT}/src/features/weather/WeatherMode.cpp
   ${DESKMATE_ROOT}/src/features/github/GithubMode.cpp
   ${DESKMATE_ROOT}/src/features/network/NetworkMode.cpp
@@ -34,6 +34,14 @@ target_include_directories(deskmate-preview PRIVATE
   include
   vendor/Adafruit_GFX
   ${DESKMATE_ROOT}/src
+  ${DESKMATE_ROOT}/src/app
+  ${DESKMATE_ROOT}/src/boards
+  ${DESKMATE_ROOT}/src/boot
+  ${DESKMATE_ROOT}/src/core
+  ${DESKMATE_ROOT}/src/display
+  ${DESKMATE_ROOT}/src/ota
+  ${DESKMATE_ROOT}/src/platform
+  ${DESKMATE_ROOT}/src/web
   ${DESKMATE_ROOT}/src/features/weather
   ${DESKMATE_ROOT}/src/features/github
   ${DESKMATE_ROOT}/src/features/network

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://zed.dev/schema/settings.json",
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "arguments": [
+          "--query-driver=/home/itsfuad/.platformio/packages/toolchain-xtensa/bin/xtensa-lx106-elf-g++,/home/itsfuad/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-*-elf-g++,/home/itsfuad/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++"
+        ]
+      }
+    }
+  }
+}
