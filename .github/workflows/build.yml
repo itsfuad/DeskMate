@@ -37,4 +37,10 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "release/deskmate-${GITHUB_REF_NAME}-esp8266.bin" --verify-tag --generate-notes --title "DeskMate $GITHUB_REF_NAME"
+        run: |
+          asset="release/deskmate-${GITHUB_REF_NAME}-esp8266.bin"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$asset" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$asset" --verify-tag --generate-notes --title "DeskMate $GITHUB_REF_NAME"
+          fi
