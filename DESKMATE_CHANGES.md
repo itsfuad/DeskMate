@@ -2,14 +2,15 @@
 
 ## Scenic Weather renderer
 
-- Replaced the flat geometric Weather background with a lightweight bridge, skyline, water, and skyscape scene drawn entirely with RGB565 primitives.
+- Replaced the Weather background with a compact 4-bit terrain map traced from the supplied reference GIF, preserving its exact mountain, lake, forest, foreground, and tent silhouette while recoloring it at runtime.
 - Added explicit dawn and dusk transition palettes between Night/Morning and Afternoon/Evening; all transitions use smooth interpolation around the API-provided sunrise and sunset.
-- Added a time-driven sun arc and night-driven moon arc, including subtle horizon reflections.
-- Added moving background cloud lanes with condition-dependent cloud density, plus an independently drifting main weather icon.
+- Added the reference's right-to-left sun arc and optical-axis lens flare, a matching dusk-to-dawn moon arc, and an animated star field.
+- Added moving background cloud lanes with condition-dependent cloud density, plus a dedicated main condition icon that remains visible for clear weather.
 - Added animated rain/snow particles without allocating a second framebuffer.
-- Added stars, city windows, bridge lamps, and water reflections that fade in continuously as darkness increases.
-- Changed Weather panels to adaptive translucent glass: a faint light overlay with dark text by day and a faint dark overlay with light text at dawn/dusk/night.
-- Added partial animation rendering: only rows 0–144 are recomposed every 2.5 seconds on firmware; the forecast card remains retained in LCD RAM.
+- Added stars that fade in and twinkle continuously as darkness increases, while the tent light warms after dark.
+- Changed the Weather card to an adaptive light/dark glass tint on one uniform substrate, preventing the lake from creating a separate telemetry strip.
+- Added larger two-tone pixel typography with opposite face/shadow contrast for day and night.
+- Moved telemetry into the forecast card so the lake remains unobstructed, and limited scenic animation rendering to rows 0–156.
 - Added direct preview keys 1/2/3/4 for Clear/Partly Cloudy/Cloudy/Rain cycles and bundled `preview/weather-cycle-demo.gif`.
 - Kept the existing streamed HTTPS/ArduinoJson weather transport in the default firmware build rather than introducing an unverified whole-response async client dependency.
 
@@ -26,7 +27,7 @@ Firmware version: 4.5.0
 - Added keyboard navigation, pixel-grid inspection, per-screen BMP capture, and batch screenshot generation.
 - Added a headless verification script that builds the preview and validates every generated 240 × 240 screenshot.
 - Refactored OTA rendering into a shared `FirmwareUi` renderer used by both the ESP firmware and desktop preview.
-- Added true per-pixel RGB565 translucency for both Weather telemetry and forecast panels.
+- Added RGB565 glass blending for the unified Weather telemetry and forecast card.
 - Replaced fixed weather colors with sunrise/sunset-aware Morning, Noon, Afternoon, Evening, and Night palettes blended continuously with smooth interpolation.
 - Weather conditions now apply restrained tints instead of replacing the time-of-day palette; partly cloudy and cloudy also have distinct labels/icons.
 - Added animated clear, partly cloudy, cloudy, and rain day-cycle previews, plus pause and 30-minute stepping controls.

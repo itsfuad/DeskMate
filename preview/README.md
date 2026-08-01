@@ -119,6 +119,19 @@ Run the native build and render every fixture into a temporary directory:
 
 A ready-made animation is included at `preview/weather-cycle-demo.gif`. The interactive preview remains the authoritative version because it renders live and lets you pause or step through the cycle.
 
+Regenerate the bundled clear-weather GIF:
+
+```bash
+./preview/generate-weather-gif.sh
+```
+
+Pass a weather-cycle fixture and output path to generate another condition:
+
+```bash
+./preview/generate-weather-gif.sh \
+  weather-cycle-rain \
+  preview/weather-rain-demo.gif
+```
 
 The four animated fixtures keep the condition fixed while time moves through
 morning, noon, afternoon, evening, and night:
@@ -129,11 +142,15 @@ morning, noon, afternoon, evening, and night:
 - `weather-cycle-rain`
 
 The palette is continuously interpolated around the configured sunrise and
-sunset, including dedicated dawn and dusk transition ranges. The same scene
-draws the moving sun/moon, moving cloud lanes, precipitation, bridge/skyline,
-water reflections, stars, and lights after dark. Panels are rendered as true
-per-pixel translucent glass: a faint light wash during bright hours and a faint
-dark wash at dusk/night, so they inherit the current backdrop automatically.
+sunset, including dedicated dawn and dusk transition ranges. A compact 4-bit
+terrain map retains the reference GIF's exact mountain, lake, forest,
+foreground, and tent silhouette while the runtime recolors it for time and
+weather. The right-to-left sun and moon share the same skyline arc, and the
+sun's optical-axis flare follows the reference. A separate sun/moon marker
+keeps clear weather identifiable at every hour; cloud lanes, precipitation,
+and stars remain condition-driven. Two-tone pixel text reverses contrast across
+the day/night boundary, while telemetry shares one uniform forecast-card
+surface so it cannot cover the lake or become a separate strip.
 
 ## Source sharing
 
@@ -141,6 +158,7 @@ The preview directly compiles these firmware files:
 
 - `src/TileRenderer.cpp`
 - `src/features/weather/WeatherMode.cpp`
+- `src/features/weather/WeatherScene.h`
 - `src/features/github/GithubMode.cpp`
 - `src/features/network/NetworkMode.cpp`
 - `src/features/radar/RadarMode.cpp`
