@@ -7,7 +7,7 @@
 #include "RadarClient.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
-#include "StatusHeartbeat.h"
+#include "StatusDot.h"
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 
@@ -163,7 +163,7 @@ void drawRadarHeartbeat(TileCanvas& g, const Settings& settings,
   constexpr int x = 226;
   constexpr int y = 226;
   const uint16_t color = busy ? BLUE : radarStatusColor(settings);
-  StatusHeartbeat::draw(g, x, y, color, on, busy);
+  StatusDot::draw(g, x, y, color, on, busy);
 }
 
 #if !defined(DESKMATE_PREVIEW)
@@ -268,6 +268,23 @@ void drawRadar(TileCanvas& g, void* opaque) {
       vx = x + (vx - CX);
       vy = y + (vy - CY);
       g.drawLine(x, y, vx, vy, i == 0 ? CYAN : AMBER);
+    }
+
+    // Draw fading trail paths
+    if (settings.radar.showTrails) {
+      for (uint8_t j = 0; j < aircraft.trailCount; ++j) {
+        float tDist, tBrg;
+        geo(settings.radar.lat, settings.radar.lon,
+            aircraft.trail[j].lat, aircraft.trail[j].lon,
+            tDist, tBrg);
+        if (tDist > range) continue;
+        int tx, ty;
+        polar(tDist / range * RR, tBrg, tx, ty);
+        const uint8_t scales[] = {180, 130, 90, 60, 35};
+        const uint8_t scale = scales[j > 4 ? 4 : j];
+        const uint16_t trailColor = StatusDot::scaleRgb565(color, scale);
+        g.fillCircle(tx, ty, 1, trailColor);
+      }
     }
 
     drawAircraft(g, aircraft, x, y, ui, color);
@@ -449,7 +466,7 @@ void RadarMode::displayTick(const Settings& settings) {
   }
 
   const bool nextOn = pollBusy_ ? true
-      : StatusHeartbeat::onAt(millis(), heartbeatEpochMs_);
+      : StatusDot::onAt(millis(), heartbeatEpochMs_);
   const bool heartbeatChanged = nextOn != heartbeatOn_;
   if (heartbeatChanged) heartbeatOn_ = nextOn;
 

@@ -47,6 +47,7 @@ struct RadarSettings {
   bool showLabels;
   bool showVectors;
   bool showRimDots;
+  bool showTrails;
   uint8_t uiScale;
   uint16_t minAltFt;
   Airport airports[MAX_AIRPORTS];

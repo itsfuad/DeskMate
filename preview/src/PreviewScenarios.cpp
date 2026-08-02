@@ -2,7 +2,7 @@
 
 #include "PreviewApi.h"
 #include "PreviewFramebuffer.h"
-#include "StatusHeartbeat.h"
+#include "StatusDot.h"
 
 #include <cmath>
 #include <cstdio>
@@ -254,7 +254,7 @@ void renderGithubError(uint32_t) {
 PreviewNetworkState networkState(uint32_t nowMs) {
   PreviewNetworkState state;
   state.sampleCount = 60;
-  state.heartbeatOn = StatusHeartbeat::onAt(nowMs, 0);
+  state.heartbeatOn = StatusDot::onAt(nowMs, 0);
   for (uint8_t i = 0; i < state.sampleCount; ++i) {
     const float wave = 17.0f * std::sin(i * 0.31f) +
                        8.0f * std::sin(i * 0.83f);
@@ -329,7 +329,7 @@ PreviewRadarState radarState(uint32_t nowMs) {
   PreviewRadarState state;
   state.aircraftCount = 6;
   state.lastOkMs = nowMs > 2000 ? nowMs - 2000 : 1;
-  state.heartbeatOn = StatusHeartbeat::onAt(nowMs, 0);
+  state.heartbeatOn = StatusDot::onAt(nowMs, 0);
   setAircraft(state.aircraft[0], "BGD071", 7.4f, 36, 74, 410, 13200, "A3",
               "B738");
   setAircraft(state.aircraft[1], "UAE584", 15.2f, 118, 102, 465, 27500,
@@ -385,7 +385,7 @@ void renderRadarEmpty(uint32_t nowMs) {
   PreviewRadarState state;
   state.aircraftCount = 0;
   state.lastOkMs = nowMs > 1000 ? nowMs - 1000 : 1;
-  state.heartbeatOn = StatusHeartbeat::onAt(nowMs, 0);
+  state.heartbeatOn = StatusDot::onAt(nowMs, 0);
   previewRenderRadar(settings, state);
 }
 

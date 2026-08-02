@@ -1115,10 +1115,11 @@ void renderWeatherAnimatedTop(const Settings& settings) {
 #endif
 
 #if !defined(DESKMATE_PREVIEW)
+static TlsSession g_weatherSession;
 bool beginGet(const Settings& s, const String& url,
               std::unique_ptr<SecureClient>& client, HTTPClient& http,
               uint16_t budgetMs) {
-  client.reset(platformMakeSecureClient(4096, nullptr, 512, false));
+  client.reset(platformMakeSecureClient(4096, &g_weatherSession, 512, false));
   if (!client) return false;
   http.setTimeout(min<uint16_t>(budgetMs, s.httpTimeout));
   http.setReuse(false);

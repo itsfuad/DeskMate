@@ -69,7 +69,7 @@
 #define ADSB_HOST        "opendata.adsb.fi"
 #define ADSB_PATH        "/api/v3/lat/"
 #define ADSB_USER_AGENT  "DeskMate/4.3"
-#define MAX_AIRCRAFT     24
+#define MAX_AIRCRAFT     16
 #define MAX_AIRPORTS      6
 #define MAX_ICAO_LEN      8
 #define DEFAULT_RADAR_LAT       0.0f

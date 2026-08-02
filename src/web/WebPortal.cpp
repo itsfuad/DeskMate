@@ -517,7 +517,7 @@ static void handleTestRadar() {
   candidate.radar.fromJson(wrapper["radar"].as<JsonObjectConst>());
   uint8_t count = 0;
   int httpCode = 0;
-  const bool ok = radarTest(candidate, 4000, count, httpCode);
+  const bool ok = radarTest(candidate, 8000, count, httpCode);
   JsonDocument output;
   output["ok"] = ok;
   output["aircraft"] = count;

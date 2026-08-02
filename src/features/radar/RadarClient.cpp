@@ -14,6 +14,7 @@ static bool     g_error = false;
 // hope the records fit — if they don't in busy airspace, the webhook path is the
 // reliable alternative.
 static uint16_t g_tlsRx = 0;
+static TlsSession g_radarSession;
 
 uint8_t         radarCount()      { return g_count; }
 const Aircraft& aircraftAt(uint8_t i) { return g_ac[i]; }
@@ -54,10 +55,7 @@ static void trimTail(char* s) {
 // ---- probe MFLN once so TLS can use the smallest safe buffer ---------------
 static void probeTls() {
 #if defined(DESKMATE_ESP8266)
-  if (g_tlsRx) return;
-  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(ADSB_HOST, 443, 512))       g_tlsRx = 512;
-  else if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(ADSB_HOST, 443, 1024)) g_tlsRx = 1024;
-  else                                                                              g_tlsRx = 4096;
+  g_tlsRx = 4096;
 #endif
 }
 
@@ -112,6 +110,10 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
   JsonArrayConst ac = doc["ac"].as<JsonArrayConst>();
   if (ac.isNull()) return false;
 
+  static Aircraft old_ac[MAX_AIRCRAFT];
+  uint8_t old_count = g_count;
+  memcpy(old_ac, g_ac, sizeof(g_ac));
+
   g_count = 0;
   for (JsonObjectConst a : ac) {
     if (!a["lat"].is<float>() && !a["lat"].is<int>()) continue;
@@ -133,6 +135,36 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     strlcpy(t.category, a["category"] | "", sizeof(t.category));
     strlcpy(t.type, a["t"] | "", sizeof(t.type));
 
+    // Lookup matching old aircraft to preserve/extend trail points
+    bool found = false;
+    uint8_t old_idx = 0;
+    for (uint8_t j = 0; j < old_count; j++) {
+      if (strcmp(old_ac[j].callsign, t.callsign) == 0 && t.callsign[0] != '\0') {
+        found = true;
+        old_idx = j;
+        break;
+      }
+    }
+    if (found) {
+      t.trailCount = old_ac[old_idx].trailCount;
+      for (uint8_t j = 0; j < t.trailCount; j++) {
+        t.trail[j] = old_ac[old_idx].trail[j];
+      }
+      if (old_ac[old_idx].lat != t.lat || old_ac[old_idx].lon != t.lon) {
+        int limit = t.trailCount > 2 ? 2 : (int)t.trailCount;
+        for (int j = limit; j > 0; j--) {
+          t.trail[j] = t.trail[j - 1];
+        }
+        t.trail[0].lat = old_ac[old_idx].lat;
+        t.trail[0].lon = old_ac[old_idx].lon;
+        if (t.trailCount < 3) {
+          t.trailCount++;
+        }
+      }
+    } else {
+      t.trailCount = 0;
+    }
+
     geo(s.radar.lat, s.radar.lon, t.lat, t.lon, t.distKm, t.bearingDeg);
     insertNearest(t);
   }
@@ -149,9 +181,9 @@ static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, in
   std::unique_ptr<NetClient> client;
   if (https) {
     // TLS needs a big contiguous chunk of heap; skip rather than reset-loop if low.
-    if (ESP.getFreeHeap() < 18000) return false;
+    if (ESP.getFreeHeap() < 14000) return false;
     probeTls();
-    client.reset(platformMakeSecureClient(g_tlsRx));   // no cert validation (public read-only API)
+    client.reset(platformMakeSecureClient(g_tlsRx, &g_radarSession));   // no cert validation (public read-only API)
   } else {
     client.reset(new WiFiClient());
   }

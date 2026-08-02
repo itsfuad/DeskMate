@@ -8,7 +8,7 @@
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
 #include "Net.h"
-#include "StatusHeartbeat.h"
+#include "StatusDot.h"
 #include <Arduino_GFX_Library.h>
 
 #if !defined(DESKMATE_PREVIEW)
@@ -111,7 +111,7 @@ void drawNetworkHeartbeat(TileCanvas& g, bool on, bool busy) {
   constexpr int x = 225;
   constexpr int y = 14;
   const uint16_t color = busy ? BLUE : networkStatusColor();
-  StatusHeartbeat::draw(g, x, y, color, on, busy);
+  StatusDot::draw(g, x, y, color, on, busy);
 }
 
 #if !defined(DESKMATE_PREVIEW)
@@ -410,7 +410,7 @@ void NetworkMode::pollActivityChanged(const Settings& settings, bool busy) {
 
 void NetworkMode::displayTick(const Settings& settings) {
   const bool nextOn = pollBusy_ ? true
-      : StatusHeartbeat::onAt(millis(), heartbeatEpochMs_);
+      : StatusDot::onAt(millis(), heartbeatEpochMs_);
   const bool heartbeatChanged = nextOn != heartbeatOn_;
   if (heartbeatChanged) heartbeatOn_ = nextOn;
 

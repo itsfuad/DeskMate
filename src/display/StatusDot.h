@@ -3,14 +3,8 @@
 #include <Arduino.h>
 #include "TileRenderer.h"
 
-// A tiny time-based double heartbeat LED.
-//
-// There is deliberately no expanding pulse ring. The indicator is simply a
-// colored LED switching between a dim "off" state and a bright "on" state.
-// The phase comes from millis(), so a blocking call may skip a beat but cannot
-// stretch the animation speed. While the scheduler is inside a blocking job,
-// the visible mode paints a solid blue LED before the call begins.
-namespace StatusHeartbeat {
+// A tiny time-based double heartbeat LED status dot.
+namespace StatusDot {
 constexpr uint16_t PERIOD_MS = 1200;
 
 inline bool onAt(uint32_t now, uint32_t epoch) {
@@ -38,4 +32,4 @@ inline void draw(TileCanvas& g, int16_t x, int16_t y, uint16_t color,
   g.fillCircle(x, y, 3, (solidBusy || on) ? color : off);
   if (solidBusy || on) g.drawPixel(x - 1, y - 1, scaleRgb565(color, 245));
 }
-}  // namespace StatusHeartbeat
+}  // namespace StatusDot
