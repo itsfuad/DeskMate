@@ -1,3 +1,17 @@
+# 4.6.0
+
+## Decoupled Trail Pool, Vector Line Trails, and TLS Optimizations
+
+- Decoupled flight trails from the `Aircraft` struct into a relative-offset compressed static pool, supporting up to 30 aircraft with 30-point trails while saving RAM.
+- Replaced the discrete trail dots with continuous fading vector line segments (`drawLine`) mimicking an ATC radar scope.
+- Added a "Flight trails" presentación check-box to the Web UI settings card to toggle trails on/off.
+- Implemented BearSSL TLS Session Resumption for radar and weather clients, reducing subsequent connection latency from 3+ seconds to ~0.3 seconds.
+- Bypassed blocking Maximum Fragment Length Negotiation (MFLN) probing, eliminating 4 seconds of connection latency.
+- Increased radar test timeout budget to 8000 ms to handle first-run BearSSL handshakes safely.
+- Cleaned up status indicators, removing the custom GitHub screen status dot to ensure exclusive and uniform `StatusDot` presentation on the Network and Flight Radar screens.
+
+Firmware version: 4.6.0
+
 # 4.5.1
 
 ## Removed gradients from webUI

@@ -440,7 +440,6 @@ void drawGithub(TileCanvas& g, void*) {
   g.setTextColor(MUTED);
   g.setCursor(37, 9);
   g.print("GITHUB ACTIVITY");
-  g.fillCircle(228, 13, G.error ? 4 : 3, G.error ? ERROR_C : GREEN_4);
 
   if (!G.valid) {
     g.fillRoundRect(10, 40, 220, 184, 14, PANEL);

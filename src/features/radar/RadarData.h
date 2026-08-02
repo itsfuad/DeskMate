@@ -2,11 +2,6 @@
 #include <Arduino.h>
 #include "config.h"
 
-struct TrailPoint {
-  float lat = 0.0f;
-  float lon = 0.0f;
-};
-
 struct Aircraft {
   float lat;
   float lon;
@@ -18,7 +13,5 @@ struct Aircraft {
   char type[5];      // ICAO type designator when supplied
   float distKm;
   float bearingDeg;
-  TrailPoint trail[3] = {};
-  uint8_t trailCount = 0;
 };
 

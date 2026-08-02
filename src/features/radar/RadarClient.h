@@ -12,3 +12,5 @@ uint8_t radarCount();
 const Aircraft& aircraftAt(uint8_t index);
 uint32_t radarLastOkMs();
 bool radarError();
+uint8_t getAircraftTrail(const char* callsign, float originLat, float originLon,
+                         float* lats, float* lons, uint8_t maxPoints);

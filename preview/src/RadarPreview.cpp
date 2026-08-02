@@ -30,3 +30,7 @@ const Aircraft& aircraftAt(uint8_t index) {
 
 uint32_t radarLastOkMs() { return currentState.lastOkMs; }
 bool radarError() { return currentState.error; }
+
+uint8_t getAircraftTrail(const char*, float, float, float*, float*, unsigned char) {
+  return 0;
+}

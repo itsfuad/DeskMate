@@ -16,6 +16,19 @@ static bool     g_error = false;
 static uint16_t g_tlsRx = 0;
 static TlsSession g_radarSession;
 
+struct AircraftTrail {
+  char callsign[9];
+  float lastLat;
+  float lastLon;
+  int16_t dLat[30]; // Relative to origin, scaled by 5000
+  int16_t dLon[30]; // Relative to origin, scaled by 5000
+  uint8_t count;
+  uint32_t lastSeenMs;
+};
+
+#define MAX_TRAILS 12
+static AircraftTrail g_trails[MAX_TRAILS];
+
 uint8_t         radarCount()      { return g_count; }
 const Aircraft& aircraftAt(uint8_t i) { return g_ac[i]; }
 uint32_t        radarLastOkMs()   { return g_lastOkMs; }
@@ -26,6 +39,28 @@ void radarInit(const Settings& settings) {
   g_count = 0;
   g_error = false;
   g_lastOkMs = 0;
+  for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
+    g_trails[i].callsign[0] = '\0';
+    g_trails[i].count = 0;
+    g_trails[i].lastSeenMs = 0;
+  }
+}
+
+uint8_t getAircraftTrail(const char* callsign, float originLat, float originLon,
+                         float* lats, float* lons, uint8_t maxPoints) {
+  if (!callsign || !callsign[0]) return 0;
+  for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
+    if (g_trails[i].callsign[0] != '\0' && strcmp(g_trails[i].callsign, callsign) == 0) {
+      uint8_t count = g_trails[i].count;
+      if (count > maxPoints) count = maxPoints;
+      for (uint8_t j = 0; j < count; ++j) {
+        lats[j] = originLat + (g_trails[i].dLat[j] / 5000.0f);
+        lons[j] = originLon + (g_trails[i].dLon[j] / 5000.0f);
+      }
+      return count;
+    }
+  }
+  return 0;
 }
 
 // ---- geo: flat-earth projection around home (good enough at radar ranges) --
@@ -110,10 +145,6 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
   JsonArrayConst ac = doc["ac"].as<JsonArrayConst>();
   if (ac.isNull()) return false;
 
-  static Aircraft old_ac[MAX_AIRCRAFT];
-  uint8_t old_count = g_count;
-  memcpy(old_ac, g_ac, sizeof(g_ac));
-
   g_count = 0;
   for (JsonObjectConst a : ac) {
     if (!a["lat"].is<float>() && !a["lat"].is<int>()) continue;
@@ -135,34 +166,56 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     strlcpy(t.category, a["category"] | "", sizeof(t.category));
     strlcpy(t.type, a["t"] | "", sizeof(t.type));
 
-    // Lookup matching old aircraft to preserve/extend trail points
-    bool found = false;
-    uint8_t old_idx = 0;
-    for (uint8_t j = 0; j < old_count; j++) {
-      if (strcmp(old_ac[j].callsign, t.callsign) == 0 && t.callsign[0] != '\0') {
-        found = true;
-        old_idx = j;
-        break;
-      }
-    }
-    if (found) {
-      t.trailCount = old_ac[old_idx].trailCount;
-      for (uint8_t j = 0; j < t.trailCount; j++) {
-        t.trail[j] = old_ac[old_idx].trail[j];
-      }
-      if (old_ac[old_idx].lat != t.lat || old_ac[old_idx].lon != t.lon) {
-        int limit = t.trailCount > 2 ? 2 : (int)t.trailCount;
-        for (int j = limit; j > 0; j--) {
-          t.trail[j] = t.trail[j - 1];
-        }
-        t.trail[0].lat = old_ac[old_idx].lat;
-        t.trail[0].lon = old_ac[old_idx].lon;
-        if (t.trailCount < 3) {
-          t.trailCount++;
+    // Update or insert into global trail pool
+    if (t.callsign[0] != '\0') {
+      int foundIdx = -1;
+      for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
+        if (g_trails[i].callsign[0] != '\0' && strcmp(g_trails[i].callsign, t.callsign) == 0) {
+          foundIdx = i;
+          break;
         }
       }
-    } else {
-      t.trailCount = 0;
+
+      if (foundIdx >= 0) {
+        AircraftTrail& trail = g_trails[foundIdx];
+        if (t.lat != trail.lastLat || t.lon != trail.lastLon) {
+          // Shift history
+          for (int j = 29; j > 0; j--) {
+            trail.dLat[j] = trail.dLat[j - 1];
+            trail.dLon[j] = trail.dLon[j - 1];
+          }
+          // Push previous point relative to origin
+          trail.dLat[0] = (int16_t)roundf((trail.lastLat - s.radar.lat) * 5000.0f);
+          trail.dLon[0] = (int16_t)roundf((trail.lastLon - s.radar.lon) * 5000.0f);
+          
+          trail.lastLat = t.lat;
+          trail.lastLon = t.lon;
+          if (trail.count < 30) trail.count++;
+        }
+        trail.lastSeenMs = millis();
+      } else {
+        // Evict least-recently-seen or use empty slot
+        int slot = -1;
+        uint32_t oldestMs = 0xFFFFFFFFUL;
+        for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
+          if (g_trails[i].callsign[0] == '\0') {
+            slot = i;
+            break;
+          }
+          if (g_trails[i].lastSeenMs < oldestMs) {
+            oldestMs = g_trails[i].lastSeenMs;
+            slot = i;
+          }
+        }
+        if (slot >= 0) {
+          AircraftTrail& trail = g_trails[slot];
+          strlcpy(trail.callsign, t.callsign, sizeof(trail.callsign));
+          trail.lastLat = t.lat;
+          trail.lastLon = t.lon;
+          trail.count = 0;
+          trail.lastSeenMs = millis();
+        }
+      }
     }
 
     geo(s.radar.lat, s.radar.lon, t.lat, t.lon, t.distKm, t.bearingDeg);

@@ -272,18 +272,22 @@ void drawRadar(TileCanvas& g, void* opaque) {
 
     // Draw fading trail paths
     if (settings.radar.showTrails) {
-      for (uint8_t j = 0; j < aircraft.trailCount; ++j) {
+      float tLats[30];
+      float tLons[30];
+      uint8_t count = getAircraftTrail(aircraft.callsign, settings.radar.lat, settings.radar.lon, tLats, tLons, 30);
+      int lastX = x;
+      int lastY = y;
+      for (uint8_t j = 0; j < count; ++j) {
         float tDist, tBrg;
-        geo(settings.radar.lat, settings.radar.lon,
-            aircraft.trail[j].lat, aircraft.trail[j].lon,
-            tDist, tBrg);
+        geo(settings.radar.lat, settings.radar.lon, tLats[j], tLons[j], tDist, tBrg);
         if (tDist > range) continue;
         int tx, ty;
         polar(tDist / range * RR, tBrg, tx, ty);
-        const uint8_t scales[] = {180, 130, 90, 60, 35};
-        const uint8_t scale = scales[j > 4 ? 4 : j];
+        const uint8_t scale = 200 - (j * 6);
         const uint16_t trailColor = StatusDot::scaleRgb565(color, scale);
-        g.fillCircle(tx, ty, 1, trailColor);
+        g.drawLine(lastX, lastY, tx, ty, trailColor);
+        lastX = tx;
+        lastY = ty;
       }
     }
 
