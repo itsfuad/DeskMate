@@ -35,6 +35,7 @@ static inline void platformAnalogWriteInit(uint8_t pin) { (void)pin; /* analogWr
 static inline bool platformScanIsOpen(int i) { return WiFi.encryptionType(i) == WIFI_AUTH_OPEN; }
 static inline String platformUpdateError() { return String(Update.errorString()); }
 static inline uint32_t platformChipId() { return (uint32_t)ESP.getEfuseMac(); }
+static inline uint32_t platformCpuFreqMhz() { return getCpuFrequencyMhz(); }
 
 // Reset / crash info. The ESP32 Arduino API exposes no exception PC (on the C2
 // or the classic ESP32), so epc/addr stay empty; panics/WDTs still flag crashes.
@@ -100,6 +101,7 @@ static inline void platformAnalogWriteInit(uint8_t pin) { (void)pin; analogWrite
 static inline bool platformScanIsOpen(int i) { return WiFi.encryptionType(i) == ENC_TYPE_NONE; }
 static inline String platformUpdateError() { return Update.getErrorString(); }
 static inline uint32_t platformChipId() { return ESP.getChipId(); }
+static inline uint32_t platformCpuFreqMhz() { return ESP.getCpuFreqMHz(); }
 
 // Reset / crash info from the ESP8266 boot ROM (Xtensa exception PC + fault addr).
 struct PlatformReset { String reason; bool wasCrash; char epc[16]; char addr[16]; };

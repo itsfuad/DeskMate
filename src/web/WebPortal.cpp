@@ -101,6 +101,7 @@ static void handleStatus() {
   o["ip"] = netIP();
   o["rssi"] = netRSSI();
   o["heap"] = ESP.getFreeHeap();
+  o["cpuMhz"] = platformCpuFreqMhz();
   o["maxblk"] = platformMaxFreeBlock();     // largest contiguous block (TLS handshake needs one)
   o["contstk"] = platformFreeContStack();   // primary stack headroom (ESP8266)
   o["uptime"] = millis() / 1000;
