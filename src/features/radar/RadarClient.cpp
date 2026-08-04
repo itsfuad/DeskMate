@@ -240,6 +240,7 @@ static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, in
   } else {
     client.reset(new WiFiClient());
   }
+  if (!client) return false;
 
   HTTPClient http;
   const uint16_t timeoutMs = min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);

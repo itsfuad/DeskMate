@@ -129,6 +129,7 @@ static inline SecureClient* platformMakeSecureClient(uint16_t rxBuf,
                                                      uint16_t txBuf = 512,
                                                      bool cheapCiphers = false) {
   SecureClient* sc = new SecureClient();
+  if (!sc) return nullptr;
   sc->setInsecure();
   sc->setBufferSizes(rxBuf, txBuf);
   if (session) sc->setSession(session);
