@@ -1,3 +1,6 @@
+# 4.6.1
+Patch both Platform.h and RadarClient.cpp with null guards.
+
 # 4.6.0
 
 ## Decoupled Trail Pool, Vector Line Trails, and TLS Optimizations
