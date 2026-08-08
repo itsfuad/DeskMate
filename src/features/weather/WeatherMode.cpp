@@ -1115,18 +1115,19 @@ void renderWeatherAnimatedTop(const Settings& settings) {
 #endif
 
 #if !defined(DESKMATE_PREVIEW)
+#include "HttpRequest.h"
 static TlsSession g_weatherSession;
-bool beginGet(const Settings& s, const String& url,
-              std::unique_ptr<SecureClient>& client, HTTPClient& http,
+bool beginGet(const Settings& s, const String& url, HttpRequest& request,
               uint16_t budgetMs) {
-  client.reset(platformMakeSecureClient(4096, &g_weatherSession, 512, false));
-  if (!client) return false;
-  http.setTimeout(min<uint16_t>(budgetMs, s.httpTimeout));
-  http.setReuse(false);
-  http.useHTTP10(true);
-  if (!http.begin(*client, url)) return false;
-  http.addHeader("Accept", "application/json");
-  http.setUserAgent(FW_NAME);
+  HttpRequestOptions options;
+  options.host = "api.openweathermap.org";
+  options.timeoutMs = min<uint16_t>(budgetMs, s.httpTimeout);
+  options.workingSetBytes = 6000;
+  options.responseLimitBytes = 24576;
+  options.session = &g_weatherSession;
+  if (!request.begin(url, options)) return false;
+  request.http().addHeader("Accept", "application/json");
+  request.http().setUserAgent(FW_NAME);
   return true;
 }
 
@@ -1140,17 +1141,17 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
   url += F("&appid=");
   url += s.weather.apiKey;
 
-  std::unique_ptr<SecureClient> client;
-  HTTPClient http;
-  if (!beginGet(s, url, client, http, budgetMs)) {
+  HttpRequest request;
+  if (!beginGet(s, url, request, budgetMs)) {
     strlcpy(W.errorText, "CONNECTION FAILED", sizeof(W.errorText));
     return false;
   }
 
+  HTTPClient& http = request.http();
   const int code = http.GET();
   W.httpCode = code;
   if (code != HTTP_CODE_OK) {
-    http.end();
+    request.end();
     strlcpy(W.errorText, code == 401 ? "INVALID API KEY" : "CURRENT API ERROR",
             sizeof(W.errorText));
     return false;
@@ -1172,8 +1173,8 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
-      doc, http.getStream(), DeserializationOption::Filter(filter));
-  http.end();
+      doc, request.stream(), DeserializationOption::Filter(filter));
+  request.end();
   if (err) {
     strlcpy(W.errorText, "BAD CURRENT DATA", sizeof(W.errorText));
     return false;
@@ -1206,12 +1207,12 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
   url += F("&appid=");
   url += s.weather.apiKey;
 
-  std::unique_ptr<SecureClient> client;
-  HTTPClient http;
-  if (!beginGet(s, url, client, http, budgetMs)) return false;
+  HttpRequest request;
+  if (!beginGet(s, url, request, budgetMs)) return false;
+  HTTPClient& http = request.http();
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
-    http.end();
+    request.end();
     return false;
   }
 
@@ -1224,8 +1225,8 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
-      doc, http.getStream(), DeserializationOption::Filter(filter));
-  http.end();
+      doc, request.stream(), DeserializationOption::Filter(filter));
+  request.end();
   if (err) return false;
 
   if (doc["city"]["timezone"].is<int>()) W.timezone = doc["city"]["timezone"];

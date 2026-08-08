@@ -4,18 +4,10 @@
 #include <LittleFS.h>
 #include "config.h"
 #include "Gfx.h"
+#include "HttpRequest.h"
 
 #if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 #include <HTTPUpdate.h>
-#endif
-
-#if defined(DESKMATE_ESP8266)
-// Prefer MFLN so BearSSL can run with a tiny buffer; fall back to 4 KB.
-static uint16_t probeMfln(const char* host) {
-  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 512))  return 512;
-  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 1024)) return 1024;
-  return 4096;
-}
 #endif
 
 // "a.b.c" -> a*10000 + b*100 + c, for a simple newer-than comparison.
@@ -27,8 +19,6 @@ static long verNum(const char* v) {
 
 OtaLatest otaCheckLatest(const Settings& s) {
   OtaLatest r;
-  if (ESP.getFreeHeap() < 20000) { r.error = F("low heap"); return r; }
-
   String url = F("https://");
   url += F(GH_API_HOST);
   url += F("/repos/");
@@ -47,13 +37,19 @@ OtaLatest otaCheckLatest(const Settings& s) {
     r.tag = ""; r.url = ""; r.newer = false;   // clear partial state from any prior attempt
     bool retryable = false;
 
-    SecureClient client;
-    client.setInsecure();
-#if defined(DESKMATE_ESP8266)
-    client.setBufferSizes(probeMfln(GH_API_HOST), 512);
-#endif
-
-    HTTPClient http;
+    HttpRequest request;
+    HttpRequestOptions options;
+    options.host = GH_API_HOST;
+    options.timeoutMs = s.httpTimeout;
+    options.workingSetBytes = 6000;
+    options.responseLimitBytes = 24576;
+    if (!request.begin(url, options)) {
+      r.error = F("low heap or connect failed");
+      retryable = true;
+      if (attempt < kAttempts) delay(500);
+      continue;
+    }
+    HTTPClient& http = request.http();
     // A stalled stream truncates into a "parse failed"; the retries below clear
     // that, so keep the per-attempt timeout modest to stay responsive (this runs
     // in the ESP32 web handler) rather than blocking long on each failing try.
@@ -67,9 +63,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
     const char* hdrKeys[] = { "x-ratelimit-remaining" };
     http.collectHeaders(hdrKeys, 1);
 
-    if (!http.begin(client, url)) {
-      r.error = F("connect failed"); retryable = true;
-    } else {
+    {
       http.addHeader("Accept", "application/vnd.github+json");
       int code = http.GET();
       if (code == 403 && http.header("x-ratelimit-remaining") == "0") {
@@ -87,7 +81,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
 
         JsonDocument doc;
         DeserializationError err =
-            deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+            deserializeJson(doc, request.stream(), DeserializationOption::Filter(filter));
         if (err) {
           r.error = F("parse failed"); retryable = true;      // truncated/stalled stream
         } else {
@@ -109,7 +103,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
           }
         }
       }
-      http.end();
+      request.end();
     }
 
     if (r.ok || !retryable) return r;
@@ -204,8 +198,8 @@ void otaBootUpdate(const Settings& s) {
                     "Downloading release asset");
 
   // Honest guard: rx + tx buffers plus BearSSL engine/stack-thunk overhead.
-  const uint32_t need = 16384 + 512 + 8000;
-  if (ESP.getFreeHeap() < need || ESP.getMaxFreeBlockSize() < 16384 + 1024) {
+  const uint32_t need = 12000 + 16384 + 8000;
+  if (!networkMemoryReady(16384, 8000)) {
     otaBootResult("not enough heap even at boot (" + String(ESP.getFreeHeap()) +
                   " free, need " + String(need) + ")");
     return;

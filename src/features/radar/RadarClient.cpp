@@ -1,5 +1,6 @@
 #include "RadarClient.h"
 #include "Platform.h"
+#include "HttpRequest.h"
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -13,7 +14,6 @@ static bool     g_error = false;
 // tiny buffer (a big heap win on the ESP8266); otherwise we fall back to 4 KB and
 // hope the records fit — if they don't in busy airspace, the webhook path is the
 // reliable alternative.
-static uint16_t g_tlsRx = 0;
 static TlsSession g_radarSession;
 
 struct AircraftTrail {
@@ -85,13 +85,6 @@ static void insertNearest(const Aircraft& t) {
 static void trimTail(char* s) {
   int n = strlen(s);
   while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t')) s[--n] = 0;
-}
-
-// ---- probe MFLN once so TLS can use the smallest safe buffer ---------------
-static void probeTls() {
-#if defined(DESKMATE_ESP8266)
-  g_tlsRx = 4096;
-#endif
 }
 
 // ---- URL builders ----------------------------------------------------------
@@ -229,25 +222,17 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
 
 // ---- one HTTP(S) GET + parse ----------------------------------------------
 static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, int* responseCode = nullptr) {
-  bool https = url.startsWith("https://");
+  const bool https = url.startsWith("https://");
+  HttpRequest request;
+  HttpRequestOptions options;
+  options.host = https ? ADSB_HOST : nullptr;
+  options.timeoutMs = min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
+  options.workingSetBytes = 6000;
+  options.responseLimitBytes = 49152;
+  options.session = https ? &g_radarSession : nullptr;
+  if (!request.begin(url, options)) return false;
 
-  std::unique_ptr<NetClient> client;
-  if (https) {
-    // TLS needs a big contiguous chunk of heap; skip rather than reset-loop if low.
-    if (ESP.getFreeHeap() < 14000) return false;
-    probeTls();
-    client.reset(platformMakeSecureClient(g_tlsRx, &g_radarSession));   // no cert validation (public read-only API)
-  } else {
-    client.reset(new WiFiClient());
-  }
-  if (!client) return false;
-
-  HTTPClient http;
-  const uint16_t timeoutMs = min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
-  http.setTimeout(timeoutMs);
-  http.setReuse(false);
-  http.useHTTP10(true);  // make the streaming JSON body non-chunked
-  if (!http.begin(*client, url)) return false;
+  HTTPClient& http = request.http();
   http.addHeader("Accept", "application/json");
   http.setUserAgent(F(ADSB_USER_AGENT));
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -255,14 +240,14 @@ static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, in
   int code = http.GET();
   if (responseCode) *responseCode = code;
   if (code != HTTP_CODE_OK) {
-    http.end();
+    request.end();
     return false;
   }
 
   yield();
-  bool ok = parseAdsb(s, http.getStream());
+  bool ok = parseAdsb(s, request.stream());
   yield();
-  http.end();
+  request.end();
   return ok;
 }
 
