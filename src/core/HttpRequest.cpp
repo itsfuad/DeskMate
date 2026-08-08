@@ -31,14 +31,6 @@ bool headerNameIs(const char* line, const char* name) {
 }
 }
 
-bool httpResponseReady(HTTPClient& http, int code, size_t maximumBytes,
-                       int* contentLength, int expectedCode) {
-  const int length = http.getSize();
-  if (contentLength) *contentLength = length;
-  return code == expectedCode && length >= 0 &&
-         static_cast<size_t>(length) <= maximumBytes;
-}
-
 bool httpReadResponseHeaders(NetClient& client, uint32_t timeoutMs,
                              size_t maximumBytes, int* code,
                              int* contentLength, bool* chunked) {
@@ -71,4 +63,45 @@ bool httpReadResponseHeaders(NetClient& client, uint32_t timeoutMs,
     }
   }
   return (contentLength && *contentLength >= 0) || (chunked && *chunked);
+}
+
+bool httpGet(NetClient& client, const char* url, const char* userAgent,
+             const char* accept, uint32_t timeoutMs, size_t maximumBytes,
+             int* code, int* contentLength, bool* chunked) {
+  if (!url || !url[0]) return false;
+  const char* hostStart = nullptr;
+  uint16_t port = 0;
+  if (!strncmp(url, "https://", 8)) {
+    hostStart = url + 8;
+    port = 443;
+  } else if (!strncmp(url, "http://", 7)) {
+    hostStart = url + 7;
+    port = 80;
+  } else {
+    return false;
+  }
+
+  const char* path = strchr(hostStart, '/');
+  if (!path) path = "/";
+  const size_t hostLength = static_cast<size_t>(path - hostStart);
+  char host[128];
+  if (!hostLength || hostLength >= sizeof(host)) return false;
+  memcpy(host, hostStart, hostLength);
+  host[hostLength] = 0;
+
+  client.setTimeout(timeoutMs);
+  if (!client.connect(host, port)) return false;
+
+  client.print(F("GET "));
+  client.print(path);
+  client.print(F(" HTTP/1.0\r\nHost: "));
+  client.print(host);
+  client.print(F("\r\nAccept: "));
+  client.print(accept && accept[0] ? accept : "*/*");
+  client.print(F("\r\nUser-Agent: "));
+  client.print(userAgent && userAgent[0] ? userAgent : "DeskMate");
+  client.print(F("\r\nConnection: close\r\n\r\n"));
+
+  return httpReadResponseHeaders(client, timeoutMs, maximumBytes, code,
+                                 contentLength, chunked);
 }

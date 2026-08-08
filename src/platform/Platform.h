@@ -20,7 +20,6 @@ static constexpr uint16_t PLATFORM_TLS_HEAP_OVERHEAD_BYTES = 7000;
 // ================== ESP32 family (C2/ESP8684 + classic ESP32) ==================
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -85,7 +84,6 @@ static inline uint32_t platformFreeContStack() { return 0; }   // N/A on ESP32
 // ================================= ESP8266 =================================
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266httpUpdate.h>

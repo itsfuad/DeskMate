@@ -1160,22 +1160,15 @@ static bool buildWeatherUrl(const Settings& s, bool forecast,
 }
 
 bool beginGet(const Settings& s, const char* url,
-              std::unique_ptr<SecureClient>& client, HTTPClient& http,
-              uint16_t budgetMs) {
+              std::unique_ptr<SecureClient>& client, uint16_t budgetMs,
+              int& code, int& contentLength, bool& chunked) {
   if (!platformTlsMemoryReady()) return false;
   client.reset(platformMakeSecureClient(PLATFORM_TLS_RX_BYTES,
                                         &g_weatherSession));
   if (!client) return false;
-  http.setTimeout(min<uint16_t>(budgetMs, s.httpTimeout));
-  http.setReuse(false);
-  http.useHTTP10(true);
-  // ESP8266HTTPClient accepts only String URLs; keep this as the one bounded
-  // allocation at the library boundary instead of growing a URL piecemeal.
-  const String requestUrl(url);
-  if (!http.begin(*client, requestUrl)) return false;
-  http.addHeader("Accept", "application/json");
-  http.setUserAgent(FW_NAME);
-  return true;
+  const uint16_t timeoutMs = min<uint16_t>(budgetMs, s.httpTimeout);
+  return httpGet(*client, url, FW_NAME, "application/json", timeoutMs,
+                 24576, &code, &contentLength, &chunked);
 }
 
 bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
@@ -1186,16 +1179,17 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
   }
 
   std::unique_ptr<SecureClient> client;
-  HTTPClient http;
-  if (!beginGet(s, url, client, http, budgetMs)) {
+  int code = 0;
+  int contentLength = -1;
+  bool chunked = false;
+  if (!beginGet(s, url, client, budgetMs, code, contentLength, chunked)) {
     strlcpy(W.errorText, "CONNECTION FAILED", sizeof(W.errorText));
     return false;
   }
 
-  const int code = http.GET();
   W.httpCode = code;
-  if (!httpResponseReady(http, code, 24576)) {
-    http.end();
+  if (code != 200 || chunked || contentLength < 0) {
+    client->stop();
     strlcpy(W.errorText, code == 401 ? "INVALID API KEY" : "CURRENT API ERROR",
             sizeof(W.errorText));
     return false;
@@ -1217,8 +1211,8 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
-      doc, http.getStream(), DeserializationOption::Filter(filter));
-  http.end();
+      doc, *client, DeserializationOption::Filter(filter));
+  client->stop();
   if (err) {
     strlcpy(W.errorText, "BAD CURRENT DATA", sizeof(W.errorText));
     return false;
@@ -1249,11 +1243,12 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
   }
 
   std::unique_ptr<SecureClient> client;
-  HTTPClient http;
-  if (!beginGet(s, url, client, http, budgetMs)) return false;
-  const int code = http.GET();
-  if (!httpResponseReady(http, code, 24576)) {
-    http.end();
+  int code = 0;
+  int contentLength = -1;
+  bool chunked = false;
+  if (!beginGet(s, url, client, budgetMs, code, contentLength, chunked)) return false;
+  if (code != 200 || chunked || contentLength < 0) {
+    client->stop();
     return false;
   }
 
@@ -1266,8 +1261,8 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
-      doc, http.getStream(), DeserializationOption::Filter(filter));
-  http.end();
+      doc, *client, DeserializationOption::Filter(filter));
+  client->stop();
   if (err) return false;
 
   if (doc["city"]["timezone"].is<int>()) W.timezone = doc["city"]["timezone"];

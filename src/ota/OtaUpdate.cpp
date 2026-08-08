@@ -45,30 +45,22 @@ OtaLatest otaCheckLatest(const Settings& s) {
     client.setBufferSizes(PLATFORM_TLS_RX_BYTES, PLATFORM_TLS_TX_BYTES);
 #endif
 
-    HTTPClient http;
     // A stalled stream truncates into a "parse failed"; the retries below clear
     // that, so keep the per-attempt timeout modest to stay responsive (this runs
     // in the ESP32 web handler) rather than blocking long on each failing try.
-    http.setTimeout(s.httpTimeout);
-    http.setReuse(false);
-    http.setUserAgent(F(FW_NAME));                 // GitHub rejects requests with no UA
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    // HTTP/1.0 forbids chunked responses. The body is parsed straight off
-    // getStream(), which neither core reliably de-chunks in this streaming path.
-    http.useHTTP10(true);
-    const char* hdrKeys[] = { "x-ratelimit-remaining" };
-    http.collectHeaders(hdrKeys, 1);
-
-    const String requestUrl(url);
-    if (!http.begin(client, requestUrl)) {
+    int code = 0;
+    int contentLength = -1;
+    bool chunked = false;
+    if (!httpGet(client, url, FW_NAME, "application/vnd.github+json",
+                 s.httpTimeout, 24576, &code, &contentLength, &chunked)) {
       r.error = F("connect failed"); retryable = true;
     } else {
-      http.addHeader("Accept", "application/vnd.github+json");
-      int code = http.GET();
-      if (code == 403 && http.header("x-ratelimit-remaining") == "0") {
-        r.error = F("GitHub rate limit, try again later");   // not retryable
-      } else if (!httpResponseReady(http, code, 24576)) {
-        r.error = "HTTP " + String(code);
+      if (code == 403) {
+        r.error = F("GitHub API denied");                    // not retryable
+      } else if (code != 200 || chunked || contentLength < 0) {
+        char status[24];
+        snprintf(status, sizeof(status), "HTTP %d", code);
+        r.error = status;
         retryable = (code >= 500);                            // server-side -> transient
       } else {
         // Keep only the fields we need; the releases payload is large.
@@ -80,7 +72,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
 
         JsonDocument doc;
         DeserializationError err =
-            deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+            deserializeJson(doc, client, DeserializationOption::Filter(filter));
         if (err) {
           r.error = F("parse failed"); retryable = true;      // truncated/stalled stream
         } else {
@@ -94,15 +86,15 @@ OtaLatest otaCheckLatest(const Settings& s) {
           if (r.tag.length() == 0 || r.url.length() == 0) {
             r.error = F("no matching asset");                 // not retryable
           } else {
-            String latest = r.tag;
-            if (latest.startsWith("v")) latest.remove(0, 1);
-            r.newer = verNum(latest.c_str()) > verNum(FW_VERSION);
+            const char* latest = r.tag.c_str();
+            if (latest[0] == 'v') ++latest;
+            r.newer = verNum(latest) > verNum(FW_VERSION);
             r.error = "";
             r.ok = true;
           }
         }
       }
-      http.end();
+      client.stop();
     }
 
     if (r.ok || !retryable) return r;

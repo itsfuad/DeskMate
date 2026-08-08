@@ -245,29 +245,23 @@ static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int*
   }
   if (!client) return false;
 
-  HTTPClient http;
   const uint16_t timeoutMs =
       min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
-  http.setTimeout(timeoutMs);
-  http.setReuse(false);
-  http.useHTTP10(true);
-  const String requestUrl(url);
-  if (!http.begin(*client, requestUrl)) return false;
-  http.addHeader("Accept", "application/json");
-  http.setUserAgent(F(ADSB_USER_AGENT));
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-
-  int code = http.GET();
+  int code = 0;
+  int contentLength = -1;
+  bool chunked = false;
+  if (!httpGet(*client, url, ADSB_USER_AGENT, "application/json", timeoutMs,
+               49152, &code, &contentLength, &chunked)) return false;
   if (responseCode) *responseCode = code;
-  if (!httpResponseReady(http, code, 49152)) {
-    http.end();
+  if (code != 200 || chunked || contentLength < 0) {
+    client->stop();
     return false;
   }
 
   yield();
-  bool ok = parseAdsb(s, http.getStream());
+  bool ok = parseAdsb(s, *client);
   yield();
-  http.end();
+  client->stop();
   return ok;
 }
 
