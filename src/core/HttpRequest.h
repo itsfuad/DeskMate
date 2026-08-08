@@ -19,6 +19,7 @@ struct HttpRequestOptions {
 // admission policy.
 class HttpRequest {
  public:
+  HttpRequest();
   ~HttpRequest();
 
   bool begin(const String& url, const HttpRequestOptions& options);

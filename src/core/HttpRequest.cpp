@@ -87,6 +87,7 @@ class HttpRequest::LimitedStream : public LimitedStreamImpl {
   LimitedStream(Stream& source, size_t limit) : LimitedStreamImpl(source, limit) {}
 };
 
+HttpRequest::HttpRequest() = default;
 HttpRequest::~HttpRequest() { end(); }
 
 bool HttpRequest::begin(const String& url, const HttpRequestOptions& options) {

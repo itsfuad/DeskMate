@@ -3,6 +3,7 @@
 #else
 #include "WeatherMode.h"
 #include "Platform.h"
+#include "HttpRequest.h"
 #include <ArduinoJson.h>
 #endif
 #include "Gfx.h"
@@ -1117,7 +1118,6 @@ void renderWeatherAnimatedTop(const Settings& settings) {
 #endif
 
 #if !defined(DESKMATE_PREVIEW)
-#include "HttpRequest.h"
 static TlsSession g_weatherSession;
 bool beginGet(const Settings& s, const String& url, HttpRequest& request,
               uint16_t budgetMs) {
