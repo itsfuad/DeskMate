@@ -812,7 +812,9 @@ void drawAlpineValley(TileCanvas& g, const WeatherTheme& theme) {
 void drawPrecipitation(TileCanvas& g, const WeatherTheme& theme,
                        uint32_t animationMs) {
   if (!theme.precipitation) return;
-  const uint32_t tick = animationMs / 160UL;
+  // Rain was visually crawling because both its simulation step and the
+  // retained upper-screen redraw were too slow for a 240x240 panel.
+  const uint32_t tick = animationMs / 80UL;
   if (theme.precipitation == 2) {
     static const uint8_t rainSeeds[][2] = {
         {4, 12},   {19, 91},  {31, 45},  {47, 132}, {58, 19},
@@ -1369,15 +1371,16 @@ void WeatherMode::displayTick(const Settings& settings) {
   if (dirty_) {
     render(settings);
     dirty_ = false;
-    nextAnimationMs_ = nowMs + 2500UL;
+    nextAnimationMs_ = nowMs + (isRain(W.conditionId) ? 1000UL : 2500UL);
     return;
   }
 
-  // The ESP8266 does not redraw the whole 240x240 display for cloud motion.
-  // Every 2.5 seconds only the upper 145 rows are recomposed tile-by-tile.
+  // The ESP8266 does not redraw the whole 240x240 display for weather motion.
+  // Rain gets a 1-second upper-region redraw; slower cloud/snow motion keeps
+  // the cheaper 2.5-second cadence.
   if (W.valid && static_cast<int32_t>(nowMs - nextAnimationMs_) >= 0) {
     renderWeatherAnimatedTop(settings);
-    nextAnimationMs_ = nowMs + 2500UL;
+    nextAnimationMs_ = nowMs + (isRain(W.conditionId) ? 1000UL : 2500UL);
   }
 }
 

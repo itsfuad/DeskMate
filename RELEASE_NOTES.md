@@ -1,6 +1,12 @@
 # 4.6.1
 Patch both Platform.h and RadarClient.cpp with null guards.
 
+- Centralized guarded HTTP(S) requests with cached TLS sizing, heap admission,
+  bounded response streams, and shared client cleanup across provider and OTA
+  metadata requests.
+- Increased rain particle motion and redraw cadence for visibly faster realtime
+  precipitation animation.
+
 # 4.6.0
 
 ## Decoupled Trail Pool, Vector Line Trails, and TLS Optimizations
