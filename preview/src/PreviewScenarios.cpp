@@ -409,7 +409,7 @@ void renderBootWifi(uint32_t) {
 }
 
 void renderBootReady(uint32_t) {
-  previewRenderBoot("DeskMate", "4.6.1");
+  previewRenderBoot("DeskMate", "4.7.0");
 }
 
 void renderSetupOpen(uint32_t) {

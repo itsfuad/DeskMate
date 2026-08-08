@@ -1,4 +1,4 @@
-# 4.6.1
+# 4.7.0
 
 ## Network and recovery reliability
 
@@ -36,7 +36,7 @@
 - Replaced straight trail segments with short faded curves and added preview
   fixtures for full trail and minimal radar combinations.
 
-Firmware version: 4.6.1
+Firmware version: 4.7.0
 
 # 4.6.0
 
