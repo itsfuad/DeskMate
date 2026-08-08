@@ -320,6 +320,7 @@ void setAircraft(Aircraft& aircraft, const char* callsign, float distance,
   strlcpy(aircraft.type, type, sizeof(aircraft.type));
   aircraft.distKm = distance;
   aircraft.bearingDeg = bearing;
+  aircraft.headingDeg = bearing;
   aircraft.altFt = altitude;
 }
 

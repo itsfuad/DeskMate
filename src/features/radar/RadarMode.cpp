@@ -129,7 +129,7 @@ bool isRotorcraft(const Aircraft& aircraft) {
 void drawAircraft(TileCanvas& g, const Aircraft& aircraft, int x, int y,
                   float uiScale, uint16_t color) {
   const float scale = uiScale * categoryScale(aircraft);
-  const float heading = aircraft.bearingDeg;
+  const float heading = aircraft.headingDeg;
 
   if (isRotorcraft(aircraft)) {
     const int arm = max(3, static_cast<int>(5 * scale));

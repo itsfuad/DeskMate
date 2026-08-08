@@ -9,4 +9,5 @@ struct Aircraft {
   char type[5];      // ICAO type designator when supplied
   float distKm;
   float bearingDeg;
+  float headingDeg;   // ground track, degrees clockwise from north
 };

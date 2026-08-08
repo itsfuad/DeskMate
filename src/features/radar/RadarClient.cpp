@@ -116,6 +116,7 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
   JsonObject fe = filter["ac"][0].to<JsonObject>();
   fe["lat"] = true;
   fe["lon"] = true;
+  fe["track"] = true;
   fe["flight"] = true;
   fe["hex"] = true;
   fe["alt_baro"] = true;
@@ -223,6 +224,10 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     }
 
     geo(s.radar.lat, s.radar.lon, lat, lon, t.distKm, t.bearingDeg);
+    const float track = (a["track"].is<float>() || a["track"].is<int>())
+        ? a["track"].as<float>() : -1.0f;
+    t.headingDeg = track >= 0.0f && track <= 360.0f
+        ? track : t.bearingDeg;
     insertNearest(t);
   }
 
