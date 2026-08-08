@@ -10,14 +10,6 @@
 #include <HTTPUpdate.h>
 #endif
 
-#if defined(DESKMATE_ESP8266)
-static uint16_t probeMfln(const char* host) {
-  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 512)) return 512;
-  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(host, 443, 1024)) return 1024;
-  return 4096;
-}
-#endif
-
 // "a.b.c" -> a*10000 + b*100 + c, for a simple newer-than comparison.
 static long verNum(const char* v) {
   int a = 0, b = 0, c = 0;
@@ -27,14 +19,15 @@ static long verNum(const char* v) {
 
 OtaLatest otaCheckLatest(const Settings& s) {
   OtaLatest r;
-  if (ESP.getFreeHeap() < 20000) { r.error = F("low heap"); return r; }
-  String url = F("https://");
-  url += F(GH_API_HOST);
-  url += F("/repos/");
-  url += F(REPO_OWNER);
-  url += "/";
-  url += F(REPO_NAME);
-  url += F("/releases/latest");
+  if (!platformTlsMemoryReady()) { r.error = F("low heap"); return r; }
+  char url[192];
+  const int urlLength = snprintf(url, sizeof(url),
+                                 "https://%s/repos/%s/%s/releases/latest",
+                                 GH_API_HOST, REPO_OWNER, REPO_NAME);
+  if (urlLength <= 0 || static_cast<size_t>(urlLength) >= sizeof(url)) {
+    r.error = F("release URL too long");
+    return r;
+  }
 
   // GitHub over TLS on this chip occasionally stalls a stream read (truncated
   // JSON -> "parse failed") or drops the connection; a couple of quick retries
@@ -49,7 +42,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
     SecureClient client;
     client.setInsecure();
 #if defined(DESKMATE_ESP8266)
-    client.setBufferSizes(probeMfln(GH_API_HOST), 512);
+    client.setBufferSizes(PLATFORM_TLS_RX_BYTES, PLATFORM_TLS_TX_BYTES);
 #endif
 
     HTTPClient http;
@@ -66,7 +59,8 @@ OtaLatest otaCheckLatest(const Settings& s) {
     const char* hdrKeys[] = { "x-ratelimit-remaining" };
     http.collectHeaders(hdrKeys, 1);
 
-    if (!http.begin(client, url)) {
+    const String requestUrl(url);
+    if (!http.begin(client, requestUrl)) {
       r.error = F("connect failed"); retryable = true;
     } else {
       http.addHeader("Accept", "application/vnd.github+json");
@@ -159,11 +153,9 @@ String otaUpdateFromGitHub(const Settings& s) {
 }
 
 // ---- update-at-boot (ESP8266) ----------------------------------------------
-// The asset download needs a full 16 KB BearSSL receive buffer (github.com and
-// release-assets.githubusercontent.com offer no MFLN), which does not fit next
-// to the running features. The web UI queues the request in LittleFS and
-// reboots; this runs early in setup() with the heap still free. The request is
-// consumed BEFORE the attempt, so a crash or failure can never boot-loop.
+// The web UI queues the request in LittleFS and reboots; this runs early in
+// setup() with the heap still free. The request is consumed BEFORE the attempt,
+// so a crash or failure can never boot-loop.
 #if defined(DESKMATE_ESP8266)
 static const char* OTA_REQ_PATH = "/ota.req";
 static const char* OTA_MSG_PATH = "/ota.msg";
@@ -203,8 +195,9 @@ void otaBootUpdate(const Settings& s) {
                     "Downloading release asset");
 
   // Honest guard: rx + tx buffers plus BearSSL engine/stack-thunk overhead.
-  const uint32_t need = 16384 + 512 + 8000;
-  if (ESP.getFreeHeap() < need || ESP.getMaxFreeBlockSize() < 16384 + 1024) {
+  const uint32_t need = PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
+                        PLATFORM_TLS_HEAP_OVERHEAD_BYTES;
+  if (!platformTlsMemoryReady()) {
     otaBootResult("not enough heap even at boot (" + String(ESP.getFreeHeap()) +
                   " free, need " + String(need) + ")");
     return;
@@ -212,7 +205,7 @@ void otaBootUpdate(const Settings& s) {
 
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
-  client.setBufferSizes(16384, 512);        // no MFLN on the CDN -> full-size records
+  client.setBufferSizes(PLATFORM_TLS_RX_BYTES, PLATFORM_TLS_TX_BYTES);
 
   ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   ESPhttpUpdate.setClientTimeout(s.httpTimeout);

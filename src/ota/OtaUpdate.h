@@ -6,13 +6,9 @@
 // ESP8266, HTTPUpdate on the ESP32 targets. The write is atomic: a failed
 // download leaves the running firmware untouched, so this cannot brick the device.
 //
-// HTTPS on the ESP8266 is RAM-tight: github.com and its asset CDN do not
-// negotiate small TLS fragments, so the download needs a full 16 KB BearSSL
-// receive buffer that does not fit next to the running features (~26 KB free).
-// The ESP8266 therefore updates AT BOOT: the web UI queues the request in
-// LittleFS and reboots, otaBootUpdate() runs early in setup() with ~45 KB
-// free, and the device reboots again into the new image. Manual OTA (upload
-// the .bin in the Update tab) stays as the fallback.
+// HTTPS on the ESP8266 is RAM-tight, so the firmware uses the shared low-RAM
+// TLS buffer policy. Some GitHub responses may fail if their TLS records are
+// larger than that buffer; manual OTA upload remains the fallback.
 #pragma once
 #include <Arduino.h>
 #include "Settings.h"

@@ -1145,29 +1145,45 @@ void renderWeatherAnimatedTop(const Settings& settings) {
 
 #if !defined(DESKMATE_PREVIEW)
 static TlsSession g_weatherSession;
-bool beginGet(const Settings& s, const String& url,
+constexpr size_t kWeatherUrlCapacity = 320;
+
+static bool buildWeatherUrl(const Settings& s, bool forecast,
+                            char* out, size_t outSize) {
+  const char* path = forecast ? "forecast" : "weather";
+  const char* count = forecast ? "&cnt=8" : "";
+  const int written = snprintf(
+      out, outSize,
+      "https://api.openweathermap.org/data/2.5/%s?lat=%.5f&lon=%.5f%s&units=%s&appid=%s",
+      path, s.weather.lat, s.weather.lon, count,
+      s.weather.metric ? "metric" : "imperial", s.weather.apiKey.c_str());
+  return written > 0 && static_cast<size_t>(written) < outSize;
+}
+
+bool beginGet(const Settings& s, const char* url,
               std::unique_ptr<SecureClient>& client, HTTPClient& http,
               uint16_t budgetMs) {
-  client.reset(platformMakeSecureClient(4096, &g_weatherSession, 512, false));
+  if (!platformTlsMemoryReady()) return false;
+  client.reset(platformMakeSecureClient(PLATFORM_TLS_RX_BYTES,
+                                        &g_weatherSession));
   if (!client) return false;
   http.setTimeout(min<uint16_t>(budgetMs, s.httpTimeout));
   http.setReuse(false);
   http.useHTTP10(true);
-  if (!http.begin(*client, url)) return false;
+  // ESP8266HTTPClient accepts only String URLs; keep this as the one bounded
+  // allocation at the library boundary instead of growing a URL piecemeal.
+  const String requestUrl(url);
+  if (!http.begin(*client, requestUrl)) return false;
   http.addHeader("Accept", "application/json");
   http.setUserAgent(FW_NAME);
   return true;
 }
 
 bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
-  String url = F("https://api.openweathermap.org/data/2.5/weather?lat=");
-  url += String(s.weather.lat, 5);
-  url += F("&lon=");
-  url += String(s.weather.lon, 5);
-  url += F("&units=");
-  url += s.weather.metric ? F("metric") : F("imperial");
-  url += F("&appid=");
-  url += s.weather.apiKey;
+  char url[kWeatherUrlCapacity];
+  if (!buildWeatherUrl(s, false, url, sizeof(url))) {
+    strlcpy(W.errorText, "URL TOO LONG", sizeof(W.errorText));
+    return false;
+  }
 
   std::unique_ptr<SecureClient> client;
   HTTPClient http;
@@ -1226,14 +1242,11 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
 }
 
 bool fetchForecast(const Settings& s, uint16_t budgetMs) {
-  String url = F("https://api.openweathermap.org/data/2.5/forecast?lat=");
-  url += String(s.weather.lat, 5);
-  url += F("&lon=");
-  url += String(s.weather.lon, 5);
-  url += F("&cnt=8&units=");
-  url += s.weather.metric ? F("metric") : F("imperial");
-  url += F("&appid=");
-  url += s.weather.apiKey;
+  char url[kWeatherUrlCapacity];
+  if (!buildWeatherUrl(s, true, url, sizeof(url))) {
+    strlcpy(W.errorText, "URL TOO LONG", sizeof(W.errorText));
+    return false;
+  }
 
   std::unique_ptr<SecureClient> client;
   HTTPClient http;

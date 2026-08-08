@@ -69,7 +69,6 @@ void RadarSettings::setDefaults() {
   pollSec = DEFAULT_RADAR_POLL_SEC;
   unitsMi = false;
   showLabels = true;
-  showVectors = true;
   showRimDots = true;
   showTrails = true;
   uiScale = 1;
@@ -91,7 +90,6 @@ void RadarSettings::toJson(JsonObject o) const {
   o["pollSec"] = pollSec;
   o["unitsMi"] = unitsMi;
   o["showLabels"] = showLabels;
-  o["showVectors"] = showVectors;
   o["showRimDots"] = showRimDots;
   o["showTrails"] = showTrails;
   o["uiScale"] = uiScale;
@@ -118,7 +116,6 @@ void RadarSettings::fromJson(JsonObjectConst o) {
   if (o["pollSec"].is<int>()) pollSec = max(3, static_cast<int>(o["pollSec"]));
   if (o["unitsMi"].is<bool>()) unitsMi = o["unitsMi"];
   if (o["showLabels"].is<bool>()) showLabels = o["showLabels"];
-  if (o["showVectors"].is<bool>()) showVectors = o["showVectors"];
   if (o["showRimDots"].is<bool>()) showRimDots = o["showRimDots"];
   if (o["showTrails"].is<bool>()) showTrails = o["showTrails"];
   if (o["uiScale"].is<int>()) uiScale = constrain(static_cast<int>(o["uiScale"]), 0, 2);
@@ -209,7 +206,7 @@ void NetworkSettings::fromJson(JsonObjectConst o) {
 void GithubSettings::setDefaults() {
   token = "";
   login = "";
-  rangeMonths = 12;
+  rangeMonths = 3;
   pollSec = DEFAULT_GITHUB_POLL_SEC;
 }
 
@@ -227,10 +224,9 @@ void GithubSettings::fromJson(JsonObjectConst o) {
     if (value.length()) token = value;
   }
   if (o["login"].is<const char*>()) login = o["login"].as<String>();
-  if (o["rangeMonths"].is<int>()) {
-    const int m = o["rangeMonths"].as<int>();
-    rangeMonths = (m == 1 || m == 3 || m == 6 || m == 12) ? m : 12;
-  }
+  // Keep old configuration files compatible, but make the request window
+  // fixed so a large historical graph cannot reintroduce TLS pressure.
+  rangeMonths = 3;
   if (o["pollSec"].is<int>()) pollSec = constrain(static_cast<int>(o["pollSec"]), 300, 3600);
 }
 

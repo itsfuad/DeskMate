@@ -294,9 +294,9 @@ static bool validateConfigInput(JsonObjectConst root, String& error) {
 
   if (root["github"].is<JsonObjectConst>()) {
     const JsonObjectConst github = root["github"].as<JsonObjectConst>();
-    const int months = github["rangeMonths"] | 12;
+    const int months = github["rangeMonths"] | 3;
     const int interval = github["pollSec"] | 0;
-    if (!(months == 1 || months == 3 || months == 6 || months == 12) ||
+    if (months != 3 ||
         interval < 300 || interval > 3600) {
       error = F("invalid GitHub range or interval"); return false;
     }

@@ -3,10 +3,6 @@
 #include "config.h"
 
 struct Aircraft {
-  float lat;
-  float lon;
-  float track;
-  float gs;
   int32_t altFt;
   char callsign[9];
   char category[3];  // ADS-B emitter class, e.g. A1..A7
@@ -14,4 +10,3 @@ struct Aircraft {
   float distKm;
   float bearingDeg;
 };
-

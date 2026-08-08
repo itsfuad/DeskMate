@@ -45,33 +45,13 @@ struct GithubData {
   uint16_t streak = 0;
   uint16_t weekTotal = 0;
   uint8_t weekCount = 0;
-  uint8_t rangeMonths = 12;
+  uint8_t rangeMonths = 3;
   uint8_t graph[GITHUB_GRAPH_WEEKS][7] = {{0}};
-  uint8_t graphLevel[GITHUB_GRAPH_WEEKS][7] = {{0}};
-  uint32_t updatedMs = 0;
 };
 
 GithubData G;
 
 #if !defined(DESKMATE_PREVIEW)
-#if defined(DESKMATE_ESP8266)
-uint16_t g_githubTlsRx = 0;
-
-uint16_t githubTlsReceiveBuffer() {
-  if (g_githubTlsRx) return g_githubTlsRx;
-  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(
-          "api.github.com", 443, 512)) {
-    g_githubTlsRx = 512;
-  } else if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(
-                 "api.github.com", 443, 1024)) {
-    g_githubTlsRx = 1024;
-  } else {
-    g_githubTlsRx = 4096;
-  }
-  return g_githubTlsRx;
-}
-#endif
-
 void isoUtc(time_t value, char* out, size_t outSize) {
   struct tm t;
   gmtime_r(&value, &t);
@@ -240,19 +220,6 @@ void calculateDerived(GithubData& data, const CalendarBuilder& builder) {
     }
   }
 
-  for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
-    for (uint8_t day = 0; day < 7; ++day) {
-      const uint8_t value = data.graph[week][day];
-      if (!value) data.graphLevel[week][day] = 0;
-      else if (maximum <= 4) data.graphLevel[week][day] = value > 4 ? 4 : value;
-      else {
-        const uint8_t level = static_cast<uint8_t>(
-            (value * 4UL + maximum - 1) / maximum);
-        data.graphLevel[week][day] = constrain(level, 1, 4);
-      }
-    }
-  }
-
   data.weekTotal = 0;
   if (builder.sawDay) {
     for (uint8_t day = 0; day < 7; ++day) {
@@ -276,6 +243,23 @@ void calculateDerived(GithubData& data, const CalendarBuilder& builder) {
     if (--day < 0) {
       day = 6;
       --week;
+    }
+  }
+
+  // The renderer only needs five levels. Convert the raw contribution counts
+  // in place after totals and streak have been calculated, avoiding a second
+  // 53-week grid in the retained dashboard state.
+  for (uint8_t weekIndex = 0; weekIndex < GITHUB_GRAPH_WEEKS; ++weekIndex) {
+    for (uint8_t dayIndex = 0; dayIndex < 7; ++dayIndex) {
+      const uint8_t value = data.graph[weekIndex][dayIndex];
+      if (!value) data.graph[weekIndex][dayIndex] = 0;
+      else if (maximum <= 4) {
+        data.graph[weekIndex][dayIndex] = value > 4 ? 4 : value;
+      } else {
+        const uint8_t level = static_cast<uint8_t>(
+            (value * 4UL + maximum - 1) / maximum);
+        data.graph[weekIndex][dayIndex] = constrain(level, 1, 4);
+      }
     }
   }
 }
@@ -546,7 +530,7 @@ void drawGithub(TileCanvas& g, void*) {
       const int x = graphX + week * (cell + gap);
       const int y = graphY + day * (cell + gap);
       g.fillRoundRect(x, y, cell, cell, radius,
-                      levelColors[G.graphLevel[week][day]]);
+                      levelColors[G.graph[week][day]]);
     }
   }
 }
@@ -564,23 +548,17 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
   }
 
 #if defined(DESKMATE_ESP8266)
-  const uint16_t tlsRx = githubTlsReceiveBuffer();
-  const uint32_t requiredMaxBlock = tlsRx <= 1024 ? 8000 : 11000;
-  if (ESP.getFreeHeap() < 18000 || platformMaxFreeBlock() < requiredMaxBlock) {
+  if (!platformTlsMemoryReady()) {
     setError("LOW HEAP - RETRY LATER");
     return false;
   }
-#else
-  constexpr uint16_t tlsRx = 0;
 #endif
 
   char periodStart[24];
   char nowIso[24];
-  // Keep the 12-month request at or below GitHub's one-year contribution
-  // window. The smaller choices intentionally include a complete final week.
-  const uint16_t rangeDays = settings.github.rangeMonths == 1 ? 31
-      : settings.github.rangeMonths == 3 ? 92
-      : settings.github.rangeMonths == 6 ? 183 : 365;
+  // Keep the response to one fixed three-month contribution window. This is
+  // enough for the display and materially reduces TLS transfer/parser pressure.
+  constexpr uint16_t rangeDays = 92;
   isoUtc(now - static_cast<time_t>(rangeDays) * 86400,
          periodStart, sizeof(periodStart));
   isoUtc(now, nowIso, sizeof(nowIso));
@@ -596,37 +574,49 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
       "contributionCalendar{periodTotal:totalContributions "
       "weeks{contributionDays{weekday contributionCount}}}}}}";
 
-  String body;
-  body.reserve(512);
-  body += F("{\"query\":\"");
-  body += FPSTR(QUERY);
-  body += F("\",\"variables\":{\"from\":\"");
-  body += periodStart;
-  body += F("\",\"to\":\"");
-  body += nowIso;
-  body += F("\"}}");
+  char body[640];
+  static_assert(sizeof(QUERY) + sizeof(periodStart) + sizeof(nowIso) + 80 <
+                    sizeof(body),
+                "GitHub request body capacity is too small");
+
+  // Build the POST body in fixed storage. This request is assembled every poll;
+  // keeping it off the heap prevents a long-lived sequence of String growth and
+  // release operations from fragmenting the space needed by the next TLS job.
+  size_t bodyLength = 0;
+  const auto appendText = [&](const char* text) {
+    const size_t length = strlen(text);
+    if (bodyLength + length >= sizeof(body)) return false;
+    memcpy(body + bodyLength, text, length);
+    bodyLength += length;
+    return true;
+  };
+  const auto appendFlash = [&](const char* text) {
+    const size_t length = strlen_P(text);
+    if (bodyLength + length >= sizeof(body)) return false;
+    memcpy_P(body + bodyLength, text, length);
+    bodyLength += length;
+    return true;
+  };
+  if (!appendText("{\"query\":\"") || !appendFlash(QUERY) ||
+      !appendText("\",\"variables\":{\"from\":\"") ||
+      !appendText(periodStart) || !appendText("\",\"to\":\"") ||
+      !appendText(nowIso) || !appendText("\"}}")) {
+    setError("REQUEST TOO LARGE");
+    return false;
+  }
+  body[bodyLength] = '\0';
 
   for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-    std::unique_ptr<SecureClient> client(
-        platformMakeSecureClient(
-#if defined(DESKMATE_ESP8266)
-            tlsRx,
-#else
-            4096,
-#endif
-            nullptr, 512, false));
+    std::unique_ptr<SecureClient> client(platformMakeSecureClient());
     if (!client) {
       setError("TLS ALLOCATION FAILED");
       return false;
     }
 
-    HTTPClient http;
     const uint16_t timeoutMs = min<uint16_t>(
         min<uint16_t>(settings.httpTimeout, 7000), budgetMs);
-    http.setTimeout(timeoutMs);
-    http.setReuse(false);
-    http.useHTTP10(true);
-    if (!http.begin(*client, F("https://api.github.com/graphql"))) {
+    client->setTimeout(timeoutMs);
+    if (!client->connect("api.github.com", 443)) {
       if (attempt == 0) {
         delay(100);
         continue;
@@ -634,17 +624,28 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
       setError("CONNECTION FAILED");
       return false;
     }
-    http.addHeader("Accept", "application/vnd.github+json");
-    http.addHeader("Authorization", "Bearer " + settings.github.token);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-GitHub-Api-Version", "2022-11-28");
-    http.addHeader("Connection", "close");
-    http.setUserAgent(FW_NAME);
 
-    const int code = http.POST(body);
+    client->print(F("POST /graphql HTTP/1.0\r\nHost: api.github.com\r\n"));
+    client->print(F("Accept: application/vnd.github+json\r\nAuthorization: Bearer "));
+    client->print(settings.github.token.c_str());
+    client->print(F("\r\nContent-Type: application/json\r\n"));
+    client->print(F("X-GitHub-Api-Version: 2022-11-28\r\nUser-Agent: "));
+    client->print(FW_NAME);
+    client->print(F("\r\nContent-Length: "));
+    client->print(static_cast<unsigned long>(bodyLength));
+    client->print(F("\r\nConnection: close\r\n\r\n"));
+    if (client->write(reinterpret_cast<const uint8_t*>(body), bodyLength) != bodyLength) {
+      client->stop();
+      setError("REQUEST SEND FAILED");
+      return false;
+    }
+
+    int code = 0;
     int contentLength = -1;
-    if (!httpResponseReady(http, code, 24576, &contentLength)) {
-      http.end();
+    bool chunked = false;
+    if (!httpReadResponseHeaders(*client, timeoutMs, 24576, &code,
+                                 &contentLength, &chunked)) {
+      client->stop();
       if (code == 401 || code == 403) {
         setError(code == 401 ? "INVALID TOKEN" : "TOKEN PERMISSION", code);
         return false;
@@ -656,14 +657,19 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
       setError("GITHUB HTTP ERROR", code);
       return false;
     }
+    if (chunked) {
+      client->stop();
+      setError("CHUNKED RESPONSE");
+      return false;
+    }
 
     GithubData next;
     char graphError[72] = "";
-    Stream& stream = http.getStream();
+    Stream& stream = *client;
     const bool parsed = parseGithubResponse(
         stream, *client, contentLength, timeoutMs, next,
         graphError, sizeof(graphError));
-    http.end();
+    client->stop();
 
     if (graphError[0]) {
       setError(graphError, code);
@@ -680,10 +686,9 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
 
     next.valid = true;
     next.error = false;
-    next.rangeMonths = settings.github.rangeMonths;
+    next.rangeMonths = 3;
     next.httpCode = code;
     next.errorText[0] = 0;
-    next.updatedMs = millis();
     G = next;
     return true;
   }
@@ -713,7 +718,7 @@ void previewRenderGithub(const PreviewGithubState& state) {
   G.rangeMonths = state.rangeMonths;
   for (uint8_t week = 0; week < GITHUB_GRAPH_WEEKS; ++week) {
     for (uint8_t day = 0; day < 7; ++day) {
-      G.graphLevel[week][day] = constrain(state.graphLevel[week][day], 0, 4);
+      G.graph[week][day] = constrain(state.graphLevel[week][day], 0, 4);
     }
   }
   gfxRenderTiled(drawGithub, nullptr, BG);
@@ -739,13 +744,13 @@ PollResult GithubMode::poll(const Settings& settings, uint16_t budgetMs) {
   return ok ? PollResult::Success : PollResult::Failed;
 }
 
-void GithubMode::begin(const Settings& settings) {
-  G.rangeMonths = settings.github.rangeMonths;
+void GithubMode::begin(const Settings&) {
+  G.rangeMonths = 3;
   dirty_ = true;
 }
 
-void GithubMode::invalidate(const Settings& settings) {
-  G.rangeMonths = settings.github.rangeMonths;
+void GithubMode::invalidate(const Settings&) {
+  G.rangeMonths = 3;
   dirty_ = true;
 }
 

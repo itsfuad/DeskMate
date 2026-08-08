@@ -388,8 +388,7 @@ void NetworkMode::render(const Settings& settings) {
   context.heartbeatOn = heartbeatOn_;
   context.pollBusy = pollBusy_;
   strlcpy(context.host, settings.network.probeHost.c_str(), sizeof(context.host));
-  const String ip = netIP();
-  strlcpy(context.ip, ip.c_str(), sizeof(context.ip));
+  netIP(context.ip, sizeof(context.ip));
   gfxRenderTiled(drawNetwork, &context, BG);
 }
 

@@ -9,12 +9,6 @@ static uint8_t  g_count = 0;
 static uint32_t g_lastOkMs = 0;
 static bool     g_error = false;
 
-// TLS receive-buffer size for the adsb.fi handshake, chosen once by probing the
-// server's Maximum Fragment Length support. MFLN at 512/1024 lets BearSSL use a
-// tiny buffer (a big heap win on the ESP8266); otherwise we fall back to 4 KB and
-// hope the records fit — if they don't in busy airspace, the webhook path is the
-// reliable alternative.
-static uint16_t g_tlsRx = 0;
 static TlsSession g_radarSession;
 
 struct AircraftTrail {
@@ -91,38 +85,28 @@ static void trimTail(char* s) {
   while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t')) s[--n] = 0;
 }
 
-static void probeTls() {
-#if defined(DESKMATE_ESP8266)
-  g_tlsRx = 4096;
-#endif
-}
-
 // ---- URL builders ----------------------------------------------------------
+constexpr size_t kRadarUrlCapacity = 512;
+
 static uint16_t rangeNm(uint16_t km) {
   uint16_t nm = (uint16_t)lroundf(km / 1.852f) + 1;   // +1 so the ring edge is covered
   return nm < 1 ? 1 : nm;
 }
 
-static String buildDirectUrl(const Settings& s) {
-  String u = F("https://");
-  u += F(ADSB_HOST);
-  u += F(ADSB_PATH);
-  u += String(s.radar.lat, 4);
-  u += F("/lon/");
-  u += String(s.radar.lon, 4);
-  u += F("/dist/");
-  u += String(rangeNm(s.radar.rangeKm));
-  return u;
+static bool buildDirectUrl(const Settings& s, char* out, size_t outSize) {
+  const int written = snprintf(
+      out, outSize, "https://%s%s%.4f/lon/%.4f/dist/%u", ADSB_HOST,
+      ADSB_PATH, s.radar.lat, s.radar.lon, rangeNm(s.radar.rangeKm));
+  return written > 0 && static_cast<size_t>(written) < outSize;
 }
 
-static String buildWebhookUrl(const Settings& s) {
-  String u = s.radar.webhookUrl;
-  char sep = (u.indexOf('?') >= 0) ? '&' : '?';
-  u += sep;
-  u += "lat=" + String(s.radar.lat, 4);
-  u += "&lon=" + String(s.radar.lon, 4);
-  u += "&dist=" + String(s.radar.rangeKm);   // webhook works in km
-  return u;
+static bool buildWebhookUrl(const Settings& s, char* out, size_t outSize) {
+  const char* base = s.radar.webhookUrl.c_str();
+  const char sep = strchr(base, '?') ? '&' : '?';
+  const int written = snprintf(
+      out, outSize, "%s%clat=%.4f&lon=%.4f&dist=%u", base, sep,
+      s.radar.lat, s.radar.lon, s.radar.rangeKm);  // webhook uses km
+  return written > 0 && static_cast<size_t>(written) < outSize;
 }
 
 // ---- parse the adsb.fi / webhook "ac" array --------------------------------
@@ -132,8 +116,6 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
   JsonObject fe = filter["ac"][0].to<JsonObject>();
   fe["lat"] = true;
   fe["lon"] = true;
-  fe["track"] = true;
-  fe["gs"] = true;
   fe["flight"] = true;
   fe["hex"] = true;
   fe["alt_baro"] = true;
@@ -153,11 +135,9 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     if (!a["lat"].is<float>() && !a["lat"].is<int>()) continue;
     if (!a["lon"].is<float>() && !a["lon"].is<int>()) continue;
 
+    const float lat = a["lat"].as<float>();
+    const float lon = a["lon"].as<float>();
     Aircraft t{};
-    t.lat = a["lat"].as<float>();
-    t.lon = a["lon"].as<float>();
-    t.track = (a["track"].is<float>() || a["track"].is<int>()) ? a["track"].as<float>() : NAN;
-    t.gs    = (a["gs"].is<float>()    || a["gs"].is<int>())    ? a["gs"].as<float>()    : NAN;
     t.altFt = a["alt_baro"].is<int>() ? a["alt_baro"].as<int>() : 0;  // "ground" => 0
 
     // Optional: drop ground/low traffic below the configured altitude threshold.
@@ -183,7 +163,7 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
         AircraftTrail& trail = g_trails[foundIdx];
         float movementKm = 0;
         float unusedBearing = 0;
-        geo(trail.lastLat, trail.lastLon, t.lat, t.lon,
+        geo(trail.lastLat, trail.lastLon, lat, lon,
             movementKm, unusedBearing);
         if (movementKm >= kTrailMinimumGapKm) {
           // Keep only meaningful movement. This avoids storing near-identical
@@ -196,8 +176,8 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
           }
           trail.dLat[0] = (int16_t)roundf((trail.lastLat - s.radar.lat) * 5000.0f);
           trail.dLon[0] = (int16_t)roundf((trail.lastLon - s.radar.lon) * 5000.0f);
-          trail.lastLat = t.lat;
-          trail.lastLon = t.lon;
+          trail.lastLat = lat;
+          trail.lastLon = lon;
           if (trail.count < kTrailMaxPoints) trail.count++;
 
           // Trim old points by geographic radius, not by poll count. The
@@ -207,7 +187,7 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
           for (uint8_t j = 0; j < trail.count; ++j) {
             const float pointLat = s.radar.lat + trail.dLat[j] / 5000.0f;
             const float pointLon = s.radar.lon + trail.dLon[j] / 5000.0f;
-            geo(t.lat, t.lon, pointLat, pointLon, movementKm, unusedBearing);
+            geo(lat, lon, pointLat, pointLon, movementKm, unusedBearing);
             if (movementKm <= kTrailMaximumRadiusKm) {
               trail.dLat[kept] = trail.dLat[j];
               trail.dLon[kept] = trail.dLon[j];
@@ -234,15 +214,15 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
         if (slot >= 0) {
           AircraftTrail& trail = g_trails[slot];
           strlcpy(trail.callsign, t.callsign, sizeof(trail.callsign));
-          trail.lastLat = t.lat;
-          trail.lastLon = t.lon;
+          trail.lastLat = lat;
+          trail.lastLon = lon;
           trail.count = 0;
           trail.lastSeenMs = millis();
         }
       }
     }
 
-    geo(s.radar.lat, s.radar.lon, t.lat, t.lon, t.distKm, t.bearingDeg);
+    geo(s.radar.lat, s.radar.lon, lat, lon, t.distKm, t.bearingDeg);
     insertNearest(t);
   }
 
@@ -252,14 +232,14 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
 }
 
 // ---- one HTTP(S) GET + parse ----------------------------------------------
-static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, int* responseCode = nullptr) {
-  const bool https = url.startsWith("https://");
+static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int* responseCode = nullptr) {
+  const bool https = strncmp(url, "https://", 8) == 0;
 
   std::unique_ptr<NetClient> client;
   if (https) {
-    if (ESP.getFreeHeap() < 14000) return false;
-    probeTls();
-    client.reset(platformMakeSecureClient(g_tlsRx, &g_radarSession));
+    if (!platformTlsMemoryReady()) return false;
+    client.reset(platformMakeSecureClient(PLATFORM_TLS_RX_BYTES,
+                                          &g_radarSession));
   } else {
     client.reset(new WiFiClient());
   }
@@ -271,7 +251,8 @@ static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, in
   http.setTimeout(timeoutMs);
   http.setReuse(false);
   http.useHTTP10(true);
-  if (!http.begin(*client, url)) return false;
+  const String requestUrl(url);
+  if (!http.begin(*client, requestUrl)) return false;
   http.addHeader("Accept", "application/json");
   http.setUserAgent(F(ADSB_USER_AGENT));
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -297,7 +278,11 @@ bool radarPoll(const Settings& settings, uint16_t budgetMs) {
 
   const bool useWebhook = settings.radar.source == RADAR_SRC_WEBHOOK &&
                           settings.radar.webhookUrl.length() >= 8;
-  const String url = useWebhook ? buildWebhookUrl(settings) : buildDirectUrl(settings);
+  char url[kRadarUrlCapacity];
+  const bool urlOk = useWebhook
+      ? buildWebhookUrl(settings, url, sizeof(url))
+      : buildDirectUrl(settings, url, sizeof(url));
+  if (!urlOk) return false;
   const bool ok = fetchUrl(settings, url, budgetMs);
   if (!ok) g_error = true;  // keep the previous snapshot visible
   return ok;
@@ -313,7 +298,15 @@ bool radarTest(const Settings& settings, uint16_t budgetMs,
   }
   const bool useWebhook = settings.radar.source == RADAR_SRC_WEBHOOK &&
                           settings.radar.webhookUrl.length() >= 8;
-  const String url = useWebhook ? buildWebhookUrl(settings) : buildDirectUrl(settings);
+  char url[kRadarUrlCapacity];
+  const bool urlOk = useWebhook
+      ? buildWebhookUrl(settings, url, sizeof(url))
+      : buildDirectUrl(settings, url, sizeof(url));
+  if (!urlOk) {
+    httpCode = 0;
+    aircraftCount = 0;
+    return false;
+  }
   const bool ok = fetchUrl(settings, url, budgetMs, &httpCode);
   aircraftCount = g_count;
   if (!ok) g_error = true;

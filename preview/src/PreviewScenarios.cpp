@@ -24,7 +24,6 @@ Settings baseSettings() {
   settings.radar.rangeKm = 40;
   settings.radar.pollSec = 10;
   settings.radar.showLabels = true;
-  settings.radar.showVectors = true;
   settings.radar.showRimDots = true;
   settings.radar.showTrails = true;
   settings.radar.uiScale = 1;
@@ -229,17 +228,17 @@ void renderGithub3m(uint32_t) {
   previewRenderGithub(state);
 }
 
-void renderGithub12m(uint32_t) {
+void renderGithubLargeValues(uint32_t) {
   PreviewGithubState state;
   state.login = "very-long-login-name";
-  state.rangeMonths = 12;
+  state.rangeMonths = 3;
   state.openIssues = 1284;
   state.openPullRequests = 984;
   state.commits = 28429;
   state.totalContributions = 128532;
   state.weekTotal = 142;
   state.streak = 365;
-  fillGithubGraph(state, 53);
+  fillGithubGraph(state, 14);
   previewRenderGithub(state);
 }
 
@@ -313,7 +312,7 @@ void renderNetworkBusy(uint32_t nowMs) {
 }
 
 void setAircraft(Aircraft& aircraft, const char* callsign, float distance,
-                 float bearing, float track, float speed, int altitude,
+                 float bearing, int altitude,
                  const char* category, const char* type) {
   aircraft = Aircraft{};
   strlcpy(aircraft.callsign, callsign, sizeof(aircraft.callsign));
@@ -321,8 +320,6 @@ void setAircraft(Aircraft& aircraft, const char* callsign, float distance,
   strlcpy(aircraft.type, type, sizeof(aircraft.type));
   aircraft.distKm = distance;
   aircraft.bearingDeg = bearing;
-  aircraft.track = track;
-  aircraft.gs = speed;
   aircraft.altFt = altitude;
 }
 
@@ -331,17 +328,17 @@ PreviewRadarState radarState(uint32_t nowMs) {
   state.aircraftCount = 6;
   state.lastOkMs = nowMs > 2000 ? nowMs - 2000 : 1;
   state.heartbeatOn = StatusDot::onAt(nowMs, 0);
-  setAircraft(state.aircraft[0], "BGD071", 7.4f, 36, 74, 410, 13200, "A3",
+  setAircraft(state.aircraft[0], "BGD071", 7.4f, 36, 13200, "A3",
               "B738");
-  setAircraft(state.aircraft[1], "UAE584", 15.2f, 118, 102, 465, 27500,
+  setAircraft(state.aircraft[1], "UAE584", 15.2f, 118, 27500,
               "A5", "B77W");
-  setAircraft(state.aircraft[2], "NOVOAIR", 22.8f, 224, 192, 280, 9100,
+  setAircraft(state.aircraft[2], "NOVOAIR", 22.8f, 224, 9100,
               "A2", "AT76");
-  setAircraft(state.aircraft[3], "HELI01", 11.0f, 310, 15, 95, 1800, "A7",
+  setAircraft(state.aircraft[3], "HELI01", 11.0f, 310, 1800, "A7",
               "EC35");
-  setAircraft(state.aircraft[4], "CPA098", 34.5f, 170, 154, 490, 34000,
+  setAircraft(state.aircraft[4], "CPA098", 34.5f, 170, 34000,
               "A5", "A359");
-  setAircraft(state.aircraft[5], "RIMDOT", 52.0f, 274, 260, 430, 31000,
+  setAircraft(state.aircraft[5], "RIMDOT", 52.0f, 274, 31000,
               "A3", "A320");
   return state;
 }
@@ -369,7 +366,6 @@ void renderRadarTargets(uint32_t nowMs) {
 void renderRadarMinimal(uint32_t nowMs) {
   Settings settings = radarSettings();
   settings.radar.showLabels = false;
-  settings.radar.showVectors = false;
   settings.radar.showRimDots = false;
   settings.radar.showTrails = false;
   PreviewRadarState state = radarState(nowMs);
@@ -507,8 +503,8 @@ const std::vector<PreviewScenario> scenarios = {
     {"weather-loading", "Weather / loading", false, renderWeatherLoading},
     {"weather-error", "Weather / API error", false, renderWeatherError},
     {"github-3m", "GitHub / three months", false, renderGithub3m},
-    {"github-12m", "GitHub / twelve months and large values", false,
-     renderGithub12m},
+    {"github-3m-large", "GitHub / three months and large values", false,
+     renderGithubLargeValues},
     {"github-error", "GitHub / API error", false, renderGithubError},
     {"network-healthy", "Network / healthy", true, renderNetworkHealthy},
     {"network-degraded", "Network / degraded", true, renderNetworkDegraded},

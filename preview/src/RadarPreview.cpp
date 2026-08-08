@@ -52,7 +52,7 @@ uint8_t getAircraftTrail(const char* callsign, float originLat, float originLon,
   // behind each target so the trails presentation is still testable.
   const uint8_t count = std::min<uint8_t>(maxPoints, 6);
   constexpr float kPi = 3.14159265f;
-  const float bearing = target->track * kPi / 180.0f;
+  const float bearing = target->bearingDeg * kPi / 180.0f;
   const float latitudeScale = 111.0f;
   const float longitudeScale = 111.0f * std::max(0.2f, std::cos(originLat * kPi / 180.0f));
   for (uint8_t point = 0; point < count; ++point) {

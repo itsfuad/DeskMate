@@ -129,8 +129,7 @@ bool isRotorcraft(const Aircraft& aircraft) {
 void drawAircraft(TileCanvas& g, const Aircraft& aircraft, int x, int y,
                   float uiScale, uint16_t color) {
   const float scale = uiScale * categoryScale(aircraft);
-  const float heading = isnan(aircraft.track)
-      ? aircraft.bearingDeg : aircraft.track;
+  const float heading = aircraft.bearingDeg;
 
   if (isRotorcraft(aircraft)) {
     const int arm = max(3, static_cast<int>(5 * scale));
@@ -292,16 +291,6 @@ void drawRadar(TileCanvas& g, void* opaque) {
     int x, y;
     polar(aircraft.distKm / range * RR, aircraft.bearingDeg, x, y);
     const uint16_t color = i == 0 ? CYAN : CORAL;
-
-    if (settings.radar.showVectors && !isnan(aircraft.track) &&
-        !isnan(aircraft.gs)) {
-      const float length = constrain(aircraft.gs * 0.045f, 5.0f, 18.0f);
-      int vx, vy;
-      polar(length, aircraft.track, vx, vy);
-      vx = x + (vx - CX);
-      vy = y + (vy - CY);
-      g.drawLine(x, y, vx, vy, i == 0 ? CYAN : AMBER);
-    }
 
     // Draw fading trail paths
     if (settings.radar.showTrails) {

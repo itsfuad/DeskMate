@@ -9,7 +9,7 @@
 #include "config.h"
 
 namespace {
-// One shared 3.2 KiB RGB565 backbuffer for full tiles and tiny dirty regions.
+// One shared 2 KiB RGB565 backbuffer for full tiles and tiny dirty regions.
 // Keeping this at file scope avoids allocating a second buffer for LED updates.
 TileCanvas g_tileCanvas;
 }

@@ -150,6 +150,12 @@ String netIP() {
                             : WiFi.localIP().toString();
 }
 
+void netIP(char* out, size_t outSize) {
+  if (!out || !outSize) return;
+  const IPAddress ip = g_mode == NET_AP ? WiFi.softAPIP() : WiFi.localIP();
+  snprintf(out, outSize, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
 String netSSID() {
   return (g_mode == NET_AP) ? g_apSsid : WiFi.SSID();
 }

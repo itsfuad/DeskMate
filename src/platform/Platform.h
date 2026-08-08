@@ -9,6 +9,13 @@
 #include <Arduino.h>
 #include <time.h>
 
+// Deliberately use the low-RAM BearSSL receive buffer. This is not a security
+// downgrade; it is a protocol-compatibility risk because an endpoint may send
+// a TLS record larger than this buffer and fail the request.
+static constexpr uint16_t PLATFORM_TLS_RX_BYTES = 4096;
+static constexpr uint16_t PLATFORM_TLS_TX_BYTES = 512;
+static constexpr uint16_t PLATFORM_TLS_HEAP_OVERHEAD_BYTES = 7000;
+
 #if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 // ================== ESP32 family (C2/ESP8684 + classic ESP32) ==================
 #include <WiFi.h>
@@ -61,9 +68,10 @@ static inline PlatformReset platformResetInfo() {
 // extra args exist only so the shared ESP8266 call sites compile here too.
 struct DummySession {};
 using TlsSession = DummySession;
-static inline SecureClient* platformMakeSecureClient(uint16_t rxBuf,
+static inline SecureClient* platformMakeSecureClient(
+                                                     uint16_t rxBuf = PLATFORM_TLS_RX_BYTES,
                                                      TlsSession* session = nullptr,
-                                                     uint16_t txBuf = 512,
+                                                     uint16_t txBuf = PLATFORM_TLS_TX_BYTES,
                                                      bool cheapCiphers = false) {
   (void)rxBuf; (void)session; (void)txBuf; (void)cheapCiphers;
   SecureClient* sc = new SecureClient();
@@ -120,13 +128,13 @@ static inline PlatformReset platformResetInfo() {
 using TlsSession = BearSSL::Session;
 
 // TLS client factory. On the ESP8266 the BearSSL receive buffer is a real heap
-// cost, so callers size it for each API payload. A persistent session may be
-// supplied for resumption, and cheapCiphers can be enabled for endpoints that
-// still accept static-RSA suites. Modern API endpoints remain on the full suite
-// list and use the P-256 tuning in platform/BearSslTuning.cpp.
-static inline SecureClient* platformMakeSecureClient(uint16_t rxBuf,
+// cost, so the shared low-RAM policy intentionally favors fitting the request
+// over accepting every possible server record size. A persistent session may
+// be supplied for resumption.
+static inline SecureClient* platformMakeSecureClient(
+                                                     uint16_t rxBuf = PLATFORM_TLS_RX_BYTES,
                                                      TlsSession* session = nullptr,
-                                                     uint16_t txBuf = 512,
+                                                     uint16_t txBuf = PLATFORM_TLS_TX_BYTES,
                                                      bool cheapCiphers = false) {
   SecureClient* sc = new SecureClient();
   if (!sc) return nullptr;
@@ -143,6 +151,21 @@ static inline uint32_t platformMaxFreeBlock() { return ESP.getMaxFreeBlockSize()
 static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); }
 
 #endif
+
+// Every direct HTTPS caller uses this same low-RAM admission test. The values
+// are intentionally optimistic; a server record larger than the receive buffer
+// can still make an individual request fail.
+static inline bool platformTlsMemoryReady() {
+#if defined(DESKMATE_ESP8266)
+  constexpr uint32_t requiredFree =
+      PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
+      PLATFORM_TLS_HEAP_OVERHEAD_BYTES;
+  return ESP.getFreeHeap() >= requiredFree &&
+         platformMaxFreeBlock() >= PLATFORM_TLS_RX_BYTES + 1024UL;
+#else
+  return true;
+#endif
+}
 
 // ---- common: bounded plain-TCP connect -----------------------------------
 // ESP8266 core 3.1.x exposes only the two-argument WiFiClient::connect().

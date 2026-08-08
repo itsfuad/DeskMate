@@ -101,4 +101,4 @@
 #define DEFAULT_WEATHER_POLL_SEC 600
 #define DEFAULT_NETWORK_POLL_SEC 10
 #define DEFAULT_GITHUB_POLL_SEC 900
-#define GITHUB_GRAPH_WEEKS       53
+#define GITHUB_GRAPH_WEEKS       14  // fixed three-month contribution window

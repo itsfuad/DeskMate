@@ -45,7 +45,6 @@ struct RadarSettings {
   uint16_t pollSec;
   bool unitsMi;
   bool showLabels;
-  bool showVectors;
   bool showRimDots;
   bool showTrails;
   uint8_t uiScale;
@@ -90,7 +89,7 @@ struct NetworkSettings {
 struct GithubSettings {
   String token;
   String login;
-  uint8_t rangeMonths;   // 1, 3, 6 or 12
+  uint8_t rangeMonths;   // fixed at 3 months
   uint16_t pollSec;
 
   void setDefaults();

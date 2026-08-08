@@ -14,5 +14,6 @@ void netLoop();           // pump DNS (AP) / mDNS (STA) / reconnect
 NetMode  netMode();
 bool     netConnected();  // STA associated with an IP
 String   netIP();         // current IP (STA or AP)
+void     netIP(char* out, size_t outSize);  // allocation-free display form
 String   netSSID();       // joined SSID (STA) or AP SSID
 int      netRSSI();       // STA signal, 0 in AP mode

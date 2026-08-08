@@ -9,7 +9,7 @@
 // pixels, so the user never sees an intermediate clear/draw state.
 class TileCanvas : public Adafruit_GFX {
  public:
-  static constexpr int16_t MAX_TILE = 40;
+  static constexpr int16_t MAX_TILE = 32;
   static constexpr int16_t COLS = (240 + MAX_TILE - 1) / MAX_TILE;
   static constexpr int16_t ROWS = (240 + MAX_TILE - 1) / MAX_TILE;
   static constexpr int16_t COUNT = COLS * ROWS;
@@ -41,7 +41,7 @@ class TileCanvas : public Adafruit_GFX {
   uint16_t pixels_[MAX_TILE * MAX_TILE];
 };
 
-using TileMask = uint64_t;  // 6 x 6 = 36 tiles on the 240 x 240 panel.
+using TileMask = uint64_t;  // 8 x 8 = 64 tiles on the 240 x 240 panel.
 using TileRenderCallback = void (*)(TileCanvas& canvas, void* context);
 
 constexpr TileMask gfxAllTilesMask() {
@@ -68,7 +68,7 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
 // Compose and push only the requested rectangle. This shares the same static
 // tile buffer as full-screen rendering and is intended for tiny retained UI
 // elements such as status LEDs. Width/height may exceed one tile; the helper
-// splits the rectangle into <=40x40 chunks without allocating another buffer.
+// splits the rectangle into <=32x32 chunks without allocating another buffer.
 void gfxRenderRegion(TileRenderCallback render, void* context,
                      uint16_t clearColor, int16_t x, int16_t y,
                      int16_t w, int16_t h);
