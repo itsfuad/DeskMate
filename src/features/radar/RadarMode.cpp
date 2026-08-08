@@ -49,6 +49,39 @@ void polar(float radius, float bearing, int& x, int& y) {
   y = CY - static_cast<int>(lroundf(radius * cosf(angle)));
 }
 
+void drawTrailCurve(TileCanvas& g, const int* xs, const int* ys,
+                    uint8_t pointCount, uint8_t segment,
+                    uint16_t color) {
+  if (pointCount < 2 || segment + 1 >= pointCount) return;
+  const uint8_t i = segment;
+  const int previousX = i == 0 ? xs[i] : xs[i - 1];
+  const int previousY = i == 0 ? ys[i] : ys[i - 1];
+  const int nextX = i + 2 < pointCount ? xs[i + 2] : xs[i + 1];
+  const int nextY = i + 2 < pointCount ? ys[i + 2] : ys[i + 1];
+  const float c1x = xs[i] + (xs[i + 1] - previousX) / 6.0f;
+  const float c1y = ys[i] + (ys[i + 1] - previousY) / 6.0f;
+  const float c2x = xs[i + 1] - (nextX - xs[i]) / 6.0f;
+  const float c2y = ys[i + 1] - (nextY - ys[i]) / 6.0f;
+
+  int lastX = xs[i];
+  int lastY = ys[i];
+  for (uint8_t step = 1; step <= 4; ++step) {
+    const float t = step / 4.0f;
+    const float inverse = 1.0f - t;
+    const float x = inverse * inverse * inverse * xs[i] +
+                    3.0f * inverse * inverse * t * c1x +
+                    3.0f * inverse * t * t * c2x + t * t * t * xs[i + 1];
+    const float y = inverse * inverse * inverse * ys[i] +
+                    3.0f * inverse * inverse * t * c1y +
+                    3.0f * inverse * t * t * c2y + t * t * t * ys[i + 1];
+    const int currentX = static_cast<int>(lroundf(x));
+    const int currentY = static_cast<int>(lroundf(y));
+    g.drawLine(lastX, lastY, currentX, currentY, color);
+    lastX = currentX;
+    lastY = currentY;
+  }
+}
+
 void geo(float homeLat, float homeLon, float lat, float lon,
          float& distanceKm, float& bearing) {
   const float north = (lat - homeLat) * 111.0f;
@@ -275,19 +308,23 @@ void drawRadar(TileCanvas& g, void* opaque) {
       float tLats[30];
       float tLons[30];
       uint8_t count = getAircraftTrail(aircraft.callsign, settings.radar.lat, settings.radar.lon, tLats, tLons, 30);
-      int lastX = x;
-      int lastY = y;
+      int trailX[31] = {x};
+      int trailY[31] = {y};
+      uint8_t pointCount = 1;
       for (uint8_t j = 0; j < count; ++j) {
         float tDist, tBrg;
         geo(settings.radar.lat, settings.radar.lon, tLats[j], tLons[j], tDist, tBrg);
         if (tDist > range) continue;
         int tx, ty;
         polar(tDist / range * RR, tBrg, tx, ty);
-        const uint8_t scale = 200 - (j * 6);
-        const uint16_t trailColor = StatusDot::scaleRgb565(color, scale);
-        g.drawLine(lastX, lastY, tx, ty, trailColor);
-        lastX = tx;
-        lastY = ty;
+        trailX[pointCount] = tx;
+        trailY[pointCount] = ty;
+        ++pointCount;
+      }
+      for (uint8_t j = 0; j + 1 < pointCount; ++j) {
+        const uint8_t scale = max<uint8_t>(24, 200 - (j * 10));
+        drawTrailCurve(g, trailX, trailY, pointCount, j,
+                       StatusDot::scaleRgb565(color, scale));
       }
     }
 

@@ -208,8 +208,12 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   int previousY = 0;
   for (uint8_t i = 0; i < count; ++i) {
     const Sample& sample = samples[ringIndex(i)];
+    // Keep the newest probe anchored at the right edge. Before the history
+    // fills, older samples grow leftward into the available chart space; once
+    // full, the ring buffer naturally scrolls the oldest sample off the left.
+    const int slot = SAMPLE_COUNT - count + i;
     const int x = graphX + 7 +
-                  static_cast<int>(i * (graphW - 14) / (SAMPLE_COUNT - 1));
+                  static_cast<int>(slot * (graphW - 14) / (SAMPLE_COUNT - 1));
     if (!sample.tcpOk || !sample.dnsOk) {
       g.drawFastVLine(x, graphY + 6, graphH - 12, CORAL);
       havePrevious = false;

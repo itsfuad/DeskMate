@@ -54,6 +54,24 @@ struct GithubData {
 GithubData G;
 
 #if !defined(DESKMATE_PREVIEW)
+#if defined(DESKMATE_ESP8266)
+uint16_t g_githubTlsRx = 0;
+
+uint16_t githubTlsReceiveBuffer() {
+  if (g_githubTlsRx) return g_githubTlsRx;
+  if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(
+          "api.github.com", 443, 512)) {
+    g_githubTlsRx = 512;
+  } else if (BearSSL::WiFiClientSecure::probeMaxFragmentLength(
+                 "api.github.com", 443, 1024)) {
+    g_githubTlsRx = 1024;
+  } else {
+    g_githubTlsRx = 4096;
+  }
+  return g_githubTlsRx;
+}
+#endif
+
 void isoUtc(time_t value, char* out, size_t outSize) {
   struct tm t;
   gmtime_r(&value, &t);
@@ -545,6 +563,17 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
     return false;
   }
 
+#if defined(DESKMATE_ESP8266)
+  const uint16_t tlsRx = githubTlsReceiveBuffer();
+  const uint32_t requiredMaxBlock = tlsRx <= 1024 ? 8000 : 11000;
+  if (ESP.getFreeHeap() < 18000 || platformMaxFreeBlock() < requiredMaxBlock) {
+    setError("LOW HEAP - RETRY LATER");
+    return false;
+  }
+#else
+  constexpr uint16_t tlsRx = 0;
+#endif
+
   char periodStart[24];
   char nowIso[24];
   // Keep the 12-month request at or below GitHub's one-year contribution
@@ -578,15 +607,26 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
   body += F("\"}}");
 
   for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-    HttpRequest request;
+    std::unique_ptr<SecureClient> client(
+        platformMakeSecureClient(
+#if defined(DESKMATE_ESP8266)
+            tlsRx,
+#else
+            4096,
+#endif
+            nullptr, 512, false));
+    if (!client) {
+      setError("TLS ALLOCATION FAILED");
+      return false;
+    }
+
+    HTTPClient http;
     const uint16_t timeoutMs = min<uint16_t>(
         min<uint16_t>(settings.httpTimeout, 7000), budgetMs);
-    HttpRequestOptions options;
-    options.host = "api.github.com";
-    options.timeoutMs = timeoutMs;
-    options.workingSetBytes = 7000;
-    options.responseLimitBytes = 24576;
-    if (!request.begin(F("https://api.github.com/graphql"), options)) {
+    http.setTimeout(timeoutMs);
+    http.setReuse(false);
+    http.useHTTP10(true);
+    if (!http.begin(*client, F("https://api.github.com/graphql"))) {
       if (attempt == 0) {
         delay(100);
         continue;
@@ -594,7 +634,6 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
       setError("CONNECTION FAILED");
       return false;
     }
-    HTTPClient& http = request.http();
     http.addHeader("Accept", "application/vnd.github+json");
     http.addHeader("Authorization", "Bearer " + settings.github.token);
     http.addHeader("Content-Type", "application/json");
@@ -603,8 +642,9 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
     http.setUserAgent(FW_NAME);
 
     const int code = http.POST(body);
-    if (code != HTTP_CODE_OK) {
-      request.end();
+    int contentLength = -1;
+    if (!httpResponseReady(http, code, 24576, &contentLength)) {
+      http.end();
       if (code == 401 || code == 403) {
         setError(code == 401 ? "INVALID TOKEN" : "TOKEN PERMISSION", code);
         return false;
@@ -619,11 +659,11 @@ bool fetchGraphql(const Settings& settings, uint16_t budgetMs) {
 
     GithubData next;
     char graphError[72] = "";
-    Stream& stream = request.stream();
+    Stream& stream = http.getStream();
     const bool parsed = parseGithubResponse(
-        stream, request.client(), http.getSize(), timeoutMs, next,
+        stream, *client, contentLength, timeoutMs, next,
         graphError, sizeof(graphError));
-    request.end();
+    http.end();
 
     if (graphError[0]) {
       setError(graphError, code);

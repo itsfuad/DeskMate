@@ -26,6 +26,7 @@ Settings baseSettings() {
   settings.radar.showLabels = true;
   settings.radar.showVectors = true;
   settings.radar.showRimDots = true;
+  settings.radar.showTrails = true;
   settings.radar.uiScale = 1;
   return settings;
 }
@@ -365,6 +366,16 @@ void renderRadarTargets(uint32_t nowMs) {
   previewRenderRadar(settings, state);
 }
 
+void renderRadarMinimal(uint32_t nowMs) {
+  Settings settings = radarSettings();
+  settings.radar.showLabels = false;
+  settings.radar.showVectors = false;
+  settings.radar.showRimDots = false;
+  settings.radar.showTrails = false;
+  PreviewRadarState state = radarState(nowMs);
+  previewRenderRadar(settings, state);
+}
+
 void renderRadarBusy(uint32_t nowMs) {
   Settings settings = radarSettings();
   PreviewRadarState state = radarState(nowMs);
@@ -387,6 +398,57 @@ void renderRadarEmpty(uint32_t nowMs) {
   state.lastOkMs = nowMs > 1000 ? nowMs - 1000 : 1;
   state.heartbeatOn = StatusDot::onAt(nowMs, 0);
   previewRenderRadar(settings, state);
+}
+
+void renderBootStarting(uint32_t) {
+  previewRenderBoot("DeskMate", "Starting firmware");
+}
+
+void renderBootWifi(uint32_t) {
+  previewRenderBoot("DeskMate", "WiFi: Finch_IOT");
+}
+
+void renderBootReady(uint32_t) {
+  previewRenderBoot("DeskMate", "4.6.1");
+}
+
+void renderSetupOpen(uint32_t) {
+  previewRenderAp("DeskMate-Setup", "", "192.168.4.1");
+}
+
+void renderSetupPassword(uint32_t) {
+  previewRenderAp("DeskMate-Setup", "configured", "192.168.4.1");
+}
+
+void renderSystemMessage(uint32_t) {
+  previewRenderMessage("NETWORK ERROR", "WiFi unavailable", C_UI_ROSE);
+}
+
+void renderCrashRecovery(uint32_t) {
+  previewRenderCrash("0x4000df64", "0x00000000", "192.168.1.42");
+}
+
+void renderOtaPreparing(uint32_t) {
+  previewRenderFirmware(GfxFirmwareState::Preparing,
+                        "deskmate-firmware.bin", 0, 1048576,
+                        "Checking latest release");
+}
+
+void renderOtaDownloading(uint32_t) {
+  previewRenderFirmware(GfxFirmwareState::Downloading,
+                        "deskmate-firmware.bin", 188416, 1048576);
+}
+
+void renderOtaVerifying(uint32_t) {
+  previewRenderFirmware(GfxFirmwareState::Verifying,
+                        "deskmate-firmware.bin", 1048576, 1048576,
+                        "Checking image integrity");
+}
+
+void renderOtaCurrent(uint32_t) {
+  previewRenderFirmware(GfxFirmwareState::Current,
+                        "deskmate-firmware.bin", 0, 0,
+                        "Already running the latest firmware");
 }
 
 void renderOta0(uint32_t) {
@@ -422,6 +484,13 @@ void renderOtaComplete(uint32_t) {
 }
 
 const std::vector<PreviewScenario> scenarios = {
+    {"boot-starting", "Boot / starting", false, renderBootStarting},
+    {"boot-wifi", "Boot / connecting to WiFi", false, renderBootWifi},
+    {"boot-ready", "Boot / ready", false, renderBootReady},
+    {"setup-open", "Setup / open access point", false, renderSetupOpen},
+    {"setup-password", "Setup / password configured", false, renderSetupPassword},
+    {"system-message", "System / message", false, renderSystemMessage},
+    {"recovery-crash", "Recovery / crash diagnostics", false, renderCrashRecovery},
     {"weather-cycle-clear", "Weather / animated day cycle / clear", true,
      renderWeatherCycleClear},
     {"weather-cycle-partly",
@@ -446,14 +515,20 @@ const std::vector<PreviewScenario> scenarios = {
     {"network-offline", "Network / outage", true, renderNetworkOffline},
     {"network-busy", "Network / API request busy", false, renderNetworkBusy},
     {"radar-targets", "Radar / targets", true, renderRadarTargets},
+    {"radar-trails", "Radar / targets + trails", true, renderRadarTargets},
+    {"radar-minimal", "Radar / targets only", true, renderRadarMinimal},
     {"radar-busy", "Radar / API request busy", false, renderRadarBusy},
     {"radar-error", "Radar / stale API error", true, renderRadarError},
     {"radar-empty", "Radar / no targets", true, renderRadarEmpty},
+    {"ota-preparing", "Firmware update / preparing", false, renderOtaPreparing},
+    {"ota-downloading", "Firmware update / downloading", false, renderOtaDownloading},
     {"ota-0", "Firmware update / zero percent", false, renderOta0},
     {"ota-1", "Firmware update / one percent", false, renderOta1},
     {"ota-50", "Firmware update / fifty percent", false, renderOta50},
     {"ota-unknown", "Firmware update / unknown total", false,
      renderOtaUnknown},
+    {"ota-verifying", "Firmware update / verifying", false, renderOtaVerifying},
+    {"ota-current", "Firmware update / already current", false, renderOtaCurrent},
     {"ota-failed", "Firmware update / failure", false, renderOtaFailed},
     {"ota-complete", "Firmware update / complete", false,
      renderOtaComplete},

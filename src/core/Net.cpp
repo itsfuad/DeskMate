@@ -16,12 +16,16 @@ static void startAP(const Settings& s) {
   WiFi.mode(WIFI_AP);
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  // AP mode is the recovery/setup surface. Always expose the current
+  // DeskMate setup identity, even when an older config still contains the
+  // SmallTV name or saved STA credentials caused a failed fallback.
+  const char* setupSsid = DEFAULT_AP_SSID;
   if (s.apPass.length() >= 8) {
-    WiFi.softAP(s.apSsid.c_str(), s.apPass.c_str());
+    WiFi.softAP(setupSsid, s.apPass.c_str());
   } else {
-    WiFi.softAP(s.apSsid.c_str());           // open AP (WPA2 needs >=8 chars)
+    WiFi.softAP(setupSsid);                  // open AP (WPA2 needs >=8 chars)
   }
-  g_apSsid = s.apSsid;
+  g_apSsid = setupSsid;
   // Captive portal: answer every DNS query with our own IP.
   g_dns.setErrorReplyCode(DNSReplyCode::NoError);
   g_dns.start(53, "*", apIP);

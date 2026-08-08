@@ -17,6 +17,7 @@ extern void appInvalidate();
 extern void appForceRefresh();
 extern void appWakeActive();
 extern const char* appResetReason();   // last reset reason (diagnostics)
+extern const char* appCrashLog();
 extern void appApplyBrightness();
 extern uint32_t appPollCompleted();
 extern uint32_t appPollFailed();
@@ -68,6 +69,11 @@ static void sendJson(JsonDocument& doc, int code = 200) {
 static void handleRoot() {
   server.sendHeader("Cache-Control", "no-cache");
   server.send_P(200, "text/html", WEBUI_HTML);
+}
+
+static void handleCrashLog() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/plain; charset=utf-8", appCrashLog());
 }
 
 static void handleGetConfig() {
@@ -528,6 +534,17 @@ static void handleTestRadar() {
 }
 
 // ---- OTA ------------------------------------------------------------------
+static void handleUpdateForm() {
+  server.send(200, "text/html",
+              "<!doctype html><meta name=viewport content='width=device-width'>"
+              "<title>DeskMate firmware recovery</title>"
+              "<h1>DeskMate firmware recovery</h1>"
+              "<p>Keep this device powered while the firmware is uploaded.</p>"
+              "<form method=post action=/update enctype=multipart/form-data>"
+              "<input type=file name=update accept='.bin,application/octet-stream' required>"
+              "<button type=submit>Upload firmware</button></form>");
+}
+
 static void handleUpdateDone() {
   const bool ok = !Update.hasError();
   server.sendHeader("Connection", "close");
@@ -634,6 +651,7 @@ void webPortalBegin(Settings& settings) {
   g_updateMsg = otaTakeBootResult();
 
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/crashlog", HTTP_GET, handleCrashLog);
   server.on("/api/config", HTTP_GET, handleGetConfig);
   server.on("/api/config", HTTP_POST, handlePostConfig);
   server.on("/api/status", HTTP_GET, handleStatus);
@@ -647,6 +665,7 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/import", HTTP_POST, handleImport);
   server.on("/api/checkupdate", HTTP_GET, handleCheckUpdate);
   server.on("/api/selfupdate", HTTP_POST, handleSelfUpdate);
+  server.on("/update", HTTP_GET, handleUpdateForm);
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
 
   // Common captive-portal probe endpoints

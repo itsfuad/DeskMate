@@ -32,7 +32,7 @@ Open a specific weather cycle or another fixture:
 ./preview/run.sh --screen ota-0
 ```
 
-The default scale is 4×, so each display pixel appears as a 4 × 4 desktop block. Choose another integer scale from 1 through 10:
+The interactive preview starts at the device's physical 240×240 size. Drag any window corner to resize it; the square device image scales to fit while preserving its aspect ratio. Use `--scale N` to choose a larger initial window size:
 
 ```bash
 ./preview/run.sh --scale 6
@@ -102,10 +102,15 @@ sudo dnf install inotify-tools
 Then run:
 
 ```bash
-./preview/watch.sh weather-clear
+./preview/run.sh --watch weather-clear
 ```
 
-The script rebuilds and reopens the selected fixture whenever a source file changes.
+(`./preview/watch.sh weather-clear` remains equivalent.)
+
+The script rebuilds and reopens the selected fixture whenever firmware or preview
+source changes. It watches all `src/` files, preview sources, CMake configuration,
+and `platformio.ini`; if `inotifywait` is unavailable it uses a portable polling
+fallback. Failed rebuilds are retried instead of terminating the watcher.
 
 ## Verification
 
@@ -163,8 +168,14 @@ The preview directly compiles these firmware files:
 - `src/features/network/NetworkMode.cpp`
 - `src/features/radar/RadarMode.cpp`
 - `src/FirmwareUi.h`
+- `src/display/SystemUi.h`
 
 `DESKMATE_PREVIEW` excludes ESP-specific API clients and provides mock state, but the actual layout and drawing functions remain shared. Changes to coordinates, colors, typography, panels, icons, and clipping therefore appear in both builds.
+
+Lifecycle fixtures include boot progress, open/password setup mode, system
+messages, crash recovery diagnostics, all firmware-update stages, and the
+provider/network/radar states. Use `./preview/run.sh --list` to see the complete
+set.
 
 ## Limits
 

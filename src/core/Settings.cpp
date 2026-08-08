@@ -273,6 +273,8 @@ bool settingsBegin() {
   return LittleFS.format() && LittleFS.begin();
 }
 
+bool saveSettings(const Settings& s);
+
 bool loadSettings(Settings& s) {
   s.setDefaults();
   File f = LittleFS.open(CONFIG_PATH, "r");
@@ -282,6 +284,14 @@ bool loadSettings(Settings& s) {
   f.close();
   if (err) return false;
   settingsApplyJson(s, doc.as<JsonObjectConst>());
+
+  // Setup mode has no saved station network, so always use the current default
+  // AP identity. This also migrates the old SmallTV name without changing the
+  // AP name of an already-configured device.
+  if (s.wifiCount == 0 && s.apSsid != DEFAULT_AP_SSID) {
+    s.apSsid = DEFAULT_AP_SSID;
+    saveSettings(s);
+  }
   return true;
 }
 

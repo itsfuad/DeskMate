@@ -40,6 +40,8 @@ constexpr uint16_t blend565(uint16_t base, uint16_t overlay, uint8_t alpha) {
 constexpr uint16_t PANEL_DARK = rgb565(18, 29, 48);
 constexpr uint16_t GLASS_DARK = rgb565(3, 12, 22);
 constexpr uint16_t WHITE_SOFT = rgb565(246, 248, 251);
+constexpr uint16_t TEXT_BLACK = rgb565(0, 0, 0);
+constexpr uint16_t TEXT_WHITE = rgb565(255, 255, 255);
 constexpr uint16_t SUN = rgb565(255, 208, 54);
 constexpr uint16_t CLOUD = rgb565(224, 233, 242);
 constexpr uint16_t RAIN = rgb565(64, 188, 236);
@@ -69,8 +71,6 @@ struct WeatherTheme {
   uint16_t secondary;
   uint16_t panelOverlay;
   uint16_t panelBorder;
-  uint16_t panelText;
-  uint16_t panelMuted;
   uint16_t separator;
   uint16_t cloudLight;
   uint16_t cloudShade;
@@ -83,7 +83,6 @@ struct WeatherTheme {
   uint8_t precipitation;
 };
 
-constexpr uint16_t INK_DARK = rgb565(13, 34, 58);
 constexpr uint16_t WINDOW_LIGHT = rgb565(255, 198, 102);
 
 // Extra dawn and dusk keys are deliberately present between the five named
@@ -368,16 +367,13 @@ WeatherTheme weatherThemeForMinute(int minute) {
     textNight = smoothAmount(minute, sunsetMinute - 50, sunsetMinute + 10);
   }
 
-  theme.primary = blend565(INK_DARK, WHITE_SOFT, textNight);
+  theme.primary = blend565(TEXT_BLACK, TEXT_WHITE, textNight);
   theme.secondary = blend565(theme.skyTop, theme.primary, 205);
   theme.panelOverlay = blend565(WHITE_SOFT, GLASS_DARK, textNight);
   theme.panelAlpha = static_cast<uint8_t>(
       min<int>(132, palette.panelAlpha + extraPanelAlpha + 20));
   theme.panelBorder = blend565(theme.skyHorizon, theme.primary,
                                textNight > 140 ? 98 : 72);
-  theme.panelText = theme.primary;
-  theme.panelMuted = blend565(theme.panelOverlay, theme.primary,
-                              textNight > 140 ? 188 : 205);
   theme.separator = blend565(theme.panelOverlay, theme.primary,
                              textNight > 140 ? 76 : 60);
 
@@ -420,13 +416,42 @@ void copyShort(const char* source, char* target, size_t targetSize,
   target[i] = 0;
 }
 
-void drawShadowText(TileCanvas& g, const char* text, int x, int y,
-                    uint8_t size, uint16_t color, uint16_t shadow,
-                    uint8_t offset) {
+uint32_t colorLuminance(uint16_t color) {
+  const uint32_t red = ((color >> 11) & 0x1F) * 255 / 31;
+  const uint32_t green = ((color >> 5) & 0x3F) * 255 / 63;
+  const uint32_t blue = (color & 0x1F) * 255 / 31;
+  return 2126UL * red * red + 7152UL * green * green + 722UL * blue * blue;
+}
+
+uint16_t regionTextColor(const uint16_t* backgrounds, uint8_t count) {
+  uint32_t darkest = colorLuminance(backgrounds[0]);
+  uint32_t brightest = darkest;
+  for (uint8_t i = 1; i < count; ++i) {
+    const uint32_t luminance = colorLuminance(backgrounds[i]);
+    darkest = min(darkest, luminance);
+    brightest = max(brightest, luminance);
+  }
+
+  // Compare each candidate's weakest WCAG contrast: black over the darkest
+  // background versus white over the brightest background.
+  constexpr uint32_t full = 650250000UL;
+  constexpr uint32_t offset = full / 20;
+  const uint64_t blackWorst =
+      static_cast<uint64_t>(darkest + offset) * (brightest + offset);
+  const uint64_t whiteWorst =
+      static_cast<uint64_t>(offset) * (full + offset);
+  return blackWorst > whiteWorst ? TEXT_BLACK : TEXT_WHITE;
+}
+
+void drawContrastText(TileCanvas& g, const char* text, int x, int y,
+                      uint8_t size, uint16_t color,
+                      uint8_t shadowOffset = 0) {
   g.setTextSize(size);
-  g.setTextColor(shadow);
-  g.setCursor(x + offset, y + offset);
-  g.print(text);
+  if (shadowOffset) {
+    g.setTextColor(color == TEXT_WHITE ? TEXT_BLACK : TEXT_WHITE);
+    g.setCursor(x + shadowOffset, y + shadowOffset);
+    g.print(text);
+  }
   g.setTextColor(color);
   g.setCursor(x, y);
   g.print(text);
@@ -951,8 +976,13 @@ void drawScreen(TileCanvas& g, void* opaque) {
   g.fillRect(0, WEATHER_PANEL_Y, TFT_WIDTH, TFT_HEIGHT - WEATHER_PANEL_Y,
              theme.near);
 
-  const uint16_t primary = theme.primary;
   const struct tm& nowTm = context.nowTm;
+  const uint16_t scenicBackgrounds[] = {
+      theme.skyTop, theme.skyHorizon, theme.far,
+      theme.near, theme.water, theme.cloudLight};
+  const uint16_t scenicText = regionTextColor(
+      scenicBackgrounds,
+      sizeof(scenicBackgrounds) / sizeof(scenicBackgrounds[0]));
 
   char timeText[8];
   char meridiem[3];
@@ -969,24 +999,22 @@ void drawScreen(TileCanvas& g, void* opaque) {
   copyShort(s.weather.city.length() ? s.weather.city.c_str() : W.city,
             cityText, sizeof(cityText), 10);
 
-  const uint16_t textShadow = night ? INK_DARK : WHITE_SOFT;
   constexpr uint8_t headerSize = 2;
-  drawShadowText(g, cityText, DisplayLayout::Left + 2, 5, headerSize,
-                 primary, textShadow, 1);
-  drawShadowText(g, dateText,
-                 DisplayLayout::Right - gfxTextW(dateText, headerSize) - 2,
-                 5, headerSize, primary, textShadow, 1);
+  drawContrastText(g, cityText, DisplayLayout::Left + 2, 5,
+                   headerSize, scenicText, 1);
+  drawContrastText(g, dateText,
+                   DisplayLayout::Right - gfxTextW(dateText, headerSize) - 2,
+                   5, headerSize, scenicText, 1);
 
   constexpr uint8_t clockSize = 4;
   constexpr int clockX = 8;
   constexpr int clockY = 23;
-  drawShadowText(g, timeText, clockX, clockY, clockSize, primary,
-                 textShadow, 2);
+  drawContrastText(g, timeText, clockX, clockY, clockSize, scenicText, 2);
 
   if (meridiem[0]) {
-    drawShadowText(g, meridiem,
-                   clockX + gfxTextW(timeText, clockSize) + 4, 42, 2,
-                   primary, textShadow, 1);
+    drawContrastText(g, meridiem,
+                     clockX + gfxTextW(timeText, clockSize) + 4, 42,
+                     2, scenicText, 1);
   }
 
   char tempText[10];
@@ -994,10 +1022,11 @@ void drawScreen(TileCanvas& g, void* opaque) {
   constexpr int tempX = 10;
   constexpr int tempY = 60;
   constexpr uint8_t tempSize = 3;
-  drawShadowText(g, tempText, tempX, tempY, tempSize, primary, textShadow, 1);
+  drawContrastText(g, tempText, tempX, tempY, tempSize, scenicText, 1);
   const int degreeX = tempX + gfxTextW(tempText, tempSize) + 5;
-  g.drawCircle(degreeX + 1, tempY + 8, 4, textShadow);
-  g.drawCircle(degreeX, tempY + 7, 4, primary);
+  g.drawCircle(degreeX + 1, tempY + 8, 4,
+               scenicText == TEXT_WHITE ? TEXT_BLACK : TEXT_WHITE);
+  g.drawCircle(degreeX, tempY + 7, 4, scenicText);
 
   // The celestial bodies belong to the landscape; this icon always identifies
   // the current condition, including clear weather after the body has set.
@@ -1009,16 +1038,16 @@ void drawScreen(TileCanvas& g, void* opaque) {
   const ConditionLabel condition = conditionLabel(W.conditionId);
   constexpr uint8_t conditionSize = 2;
   if (condition.second) {
-    drawShadowText(g, condition.first,
-                   228 - gfxTextW(condition.first, conditionSize), 88,
-                   conditionSize, primary, textShadow, 1);
-    drawShadowText(g, condition.second,
-                   228 - gfxTextW(condition.second, conditionSize), 106,
-                   conditionSize, primary, textShadow, 1);
+    drawContrastText(g, condition.first,
+                     228 - gfxTextW(condition.first, conditionSize), 88,
+                     conditionSize, scenicText, 1);
+    drawContrastText(g, condition.second,
+                     228 - gfxTextW(condition.second, conditionSize), 106,
+                     conditionSize, scenicText, 1);
   } else {
-    drawShadowText(g, condition.first,
-                   228 - gfxTextW(condition.first, conditionSize), 96,
-                   conditionSize, primary, textShadow, 1);
+    drawContrastText(g, condition.first,
+                     228 - gfxTextW(condition.first, conditionSize), 96,
+                     conditionSize, scenicText, 1);
   }
 
   const char unit = s.weather.metric ? 'C' : 'F';
@@ -1033,22 +1062,21 @@ void drawScreen(TileCanvas& g, void* opaque) {
 
   const uint16_t panelOverlay = theme.panelOverlay;
   const uint16_t panelBorder = theme.panelBorder;
-  const uint16_t panelText = theme.panelText;
-  const uint16_t panelMuted = theme.panelMuted;
   const uint16_t separator = theme.separator;
   const uint8_t panelAlpha = static_cast<uint8_t>(
       min<int>(120, theme.panelAlpha + 10));
   blendRoundedPanel(g, panelX, panelY, panelW, panelH, panelRadius,
                     panelOverlay, panelAlpha, panelBorder);
+  const uint16_t panelBackground =
+      blend565(theme.near, panelOverlay, panelAlpha);
+  const uint16_t panelText = regionTextColor(&panelBackground, 1);
 
   char detail[40];
   snprintf(detail, sizeof(detail), "FEELS %.0f%c  HUM%d%%  W%.0f%c  %d",
            W.feels, unit, W.humidity, W.wind,
            s.weather.metric ? 'K' : 'M', W.pressure);
-  g.setTextSize(1);
-  g.setTextColor(panelMuted);
-  g.setCursor(120 - gfxTextW(detail, 1) / 2, 163);
-  g.print(detail);
+  drawContrastText(g, detail, 120 - gfxTextW(detail, 1) / 2, 163,
+                   1, panelText);
 
   for (uint8_t i = 0; i < 4; ++i) {
     const int left = 9 + i * 56;
@@ -1075,20 +1103,18 @@ void drawScreen(TileCanvas& g, void* opaque) {
                forecastMeridiem[0]);
     }
 
-    g.setTextSize(1);
-    g.setTextColor(panelMuted);
-    g.setCursor(left + (52 - gfxTextW(forecastTime, 1)) / 2, 177);
-    g.print(forecastTime);
+    drawContrastText(g, forecastTime,
+                     left + (52 - gfxTextW(forecastTime, 1)) / 2, 177,
+                     1, panelText);
 
     drawMiniIcon(g, W.forecast[i].id, W.forecast[i].night, left + 12, 188);
 
     char forecastTemp[12];
     snprintf(forecastTemp, sizeof(forecastTemp), "%.0f%c",
              W.forecast[i].temp, unit);
-    g.setTextSize(2);
-    g.setTextColor(panelText);
-    g.setCursor(left + (52 - gfxTextW(forecastTemp, 2)) / 2, 215);
-    g.print(forecastTemp);
+    drawContrastText(g, forecastTemp,
+                     left + (52 - gfxTextW(forecastTemp, 2)) / 2, 215,
+                     2, panelText);
   }
 }
 
@@ -1119,17 +1145,17 @@ void renderWeatherAnimatedTop(const Settings& settings) {
 
 #if !defined(DESKMATE_PREVIEW)
 static TlsSession g_weatherSession;
-bool beginGet(const Settings& s, const String& url, HttpRequest& request,
+bool beginGet(const Settings& s, const String& url,
+              std::unique_ptr<SecureClient>& client, HTTPClient& http,
               uint16_t budgetMs) {
-  HttpRequestOptions options;
-  options.host = "api.openweathermap.org";
-  options.timeoutMs = min<uint16_t>(budgetMs, s.httpTimeout);
-  options.workingSetBytes = 6000;
-  options.responseLimitBytes = 24576;
-  options.session = &g_weatherSession;
-  if (!request.begin(url, options)) return false;
-  request.http().addHeader("Accept", "application/json");
-  request.http().setUserAgent(FW_NAME);
+  client.reset(platformMakeSecureClient(4096, &g_weatherSession, 512, false));
+  if (!client) return false;
+  http.setTimeout(min<uint16_t>(budgetMs, s.httpTimeout));
+  http.setReuse(false);
+  http.useHTTP10(true);
+  if (!http.begin(*client, url)) return false;
+  http.addHeader("Accept", "application/json");
+  http.setUserAgent(FW_NAME);
   return true;
 }
 
@@ -1143,17 +1169,17 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
   url += F("&appid=");
   url += s.weather.apiKey;
 
-  HttpRequest request;
-  if (!beginGet(s, url, request, budgetMs)) {
+  std::unique_ptr<SecureClient> client;
+  HTTPClient http;
+  if (!beginGet(s, url, client, http, budgetMs)) {
     strlcpy(W.errorText, "CONNECTION FAILED", sizeof(W.errorText));
     return false;
   }
 
-  HTTPClient& http = request.http();
   const int code = http.GET();
   W.httpCode = code;
-  if (code != HTTP_CODE_OK) {
-    request.end();
+  if (!httpResponseReady(http, code, 24576)) {
+    http.end();
     strlcpy(W.errorText, code == 401 ? "INVALID API KEY" : "CURRENT API ERROR",
             sizeof(W.errorText));
     return false;
@@ -1175,8 +1201,8 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
-      doc, request.stream(), DeserializationOption::Filter(filter));
-  request.end();
+      doc, http.getStream(), DeserializationOption::Filter(filter));
+  http.end();
   if (err) {
     strlcpy(W.errorText, "BAD CURRENT DATA", sizeof(W.errorText));
     return false;
@@ -1209,12 +1235,12 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
   url += F("&appid=");
   url += s.weather.apiKey;
 
-  HttpRequest request;
-  if (!beginGet(s, url, request, budgetMs)) return false;
-  HTTPClient& http = request.http();
+  std::unique_ptr<SecureClient> client;
+  HTTPClient http;
+  if (!beginGet(s, url, client, http, budgetMs)) return false;
   const int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    request.end();
+  if (!httpResponseReady(http, code, 24576)) {
+    http.end();
     return false;
   }
 
@@ -1227,8 +1253,8 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(
-      doc, request.stream(), DeserializationOption::Filter(filter));
-  request.end();
+      doc, http.getStream(), DeserializationOption::Filter(filter));
+  http.end();
   if (err) return false;
 
   if (doc["city"]["timezone"].is<int>()) W.timezone = doc["city"]["timezone"];

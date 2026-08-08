@@ -110,6 +110,7 @@ static DisplayMode* activeMode(const Settings& s) {
 
 static Settings g_settings;
 static String   g_resetReason;        // why the chip last reset (diagnostics)
+static String   g_crashLog;           // plain-text boot ROM diagnostics for /crashlog
 static bool     g_safeMode = false;   // last reset was an exception -> don't re-enter the crash
 static char     g_epcStr[16] = "";
 static char     g_addrStr[16] = "";
@@ -146,6 +147,7 @@ void appApplyBrightness() {
 
 // Exposed to the web portal (/api/status) so the last reset reason is visible.
 const char* appResetReason() { return g_resetReason.c_str(); }
+const char* appCrashLog() { return g_crashLog.c_str(); }
 
 // Called by the web portal after settings are applied: re-init every mode and
 // force a fresh repaint so a mode/API/location change takes effect immediately.
@@ -200,6 +202,21 @@ void setup() {
   } else {
     g_resetReason = pr.reason;
   }
+
+  g_crashLog.reserve(320);
+  g_crashLog = F("firmware: " FW_NAME " " FW_VERSION "\nreset: ");
+  g_crashLog += pr.reason;
+  g_crashLog += F("\ncrash: ");
+  g_crashLog += pr.wasCrash ? F("yes") : F("no");
+  g_crashLog += F("\nepc1: ");
+  g_crashLog += pr.epc[0] ? pr.epc : "-";
+  g_crashLog += F("\nfault address: ");
+  g_crashLog += pr.addr[0] ? pr.addr : "-";
+#if defined(DESKMATE_ESP8266)
+  g_crashLog += F("\n\nraw reset info:\n");
+  g_crashLog += ESP.getResetInfo();
+#endif
+  if (!g_crashLog.endsWith("\n")) g_crashLog += '\n';
 
   Serial.println("[boot] settings");
   settingsBegin();

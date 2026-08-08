@@ -95,5 +95,11 @@ void previewRenderFirmware(GfxFirmwareState state, const char* artifact,
                            uint32_t writtenBytes, uint32_t totalBytes,
                            const char* detail = nullptr);
 
+void previewRenderBoot(const char* line1, const char* line2);
+void previewRenderAp(const char* ssid, const char* password, const char* ip);
+void previewRenderMessage(const char* title, const char* message,
+                          uint16_t color = C_UI_BLUE);
+void previewRenderCrash(const char* epc, const char* addr, const char* ip);
+
 void previewSetNetworkRssi(int rssi);
 void previewSetRadarState(const PreviewRadarState& state);

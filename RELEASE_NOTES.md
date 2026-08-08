@@ -1,11 +1,42 @@
 # 4.6.1
-Patch both Platform.h and RadarClient.cpp with null guards.
 
-- Centralized guarded HTTP(S) requests with cached TLS sizing, heap admission,
-  bounded response streams, and shared client cleanup across provider and OTA
-  metadata requests.
-- Increased rain particle motion and redraw cadence for visibly faster realtime
-  precipitation animation.
+## Network and recovery reliability
+
+- Restored the proven provider-owned HTTP/TLS clients for Weather, Radar,
+  GitHub, and OTA metadata. Shared networking now only validates HTTP status and
+  declared response size before JSON parsing.
+- Applied finite configured timeouts to synchronous provider requests, stream
+  parsing, network probes, release checks, and OTA firmware downloads.
+- Added a plain-text `/crashlog` route with the reset reason, crash flag, ESP8266
+  exception PC, fault address, and raw boot-ROM reset record.
+- Added a minimal `/update` upload form that remains available in setup and
+  crash-recovery modes.
+- Setup/fallback AP mode now always advertises `DeskMate-Setup` and migrates the
+  obsolete `SmallTV-Setup` value for unconfigured devices.
+
+## Display and preview
+
+- Moved boot, setup, message, and crash rendering into one shared system UI used
+  by both firmware and preview; removed the unused top accent/status bars and
+  reflowed panels for the full 240 x 240 safe area.
+- Weather typography now selects one worst-case black/white contrast style for
+  the scenic region and another for the forecast panel, avoiding mixed colors
+  across labels or render tiles.
+- Increased rain-particle motion and redraw cadence for faster precipitation.
+- Anchored the newest Network Guardian sample at the graph's right edge while
+  short histories grow leftward.
+- The preview now opens at the physical 240 x 240 size, supports free window
+  resizing, automatically rebuilds for firmware-source changes, and covers 39
+  fixtures including boot, setup, recovery, OTA, radar trails, and errors.
+
+## Radar trails
+
+- Reduced trails to 16 compressed points, records movement only after 2 km, and
+  removes history beyond 100 km instead of storing every five-second poll.
+- Replaced straight trail segments with short faded curves and added preview
+  fixtures for full trail and minimal radar combinations.
+
+Firmware version: 4.6.1
 
 # 4.6.0
 

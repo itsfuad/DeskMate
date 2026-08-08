@@ -14,19 +14,23 @@ static bool     g_error = false;
 // tiny buffer (a big heap win on the ESP8266); otherwise we fall back to 4 KB and
 // hope the records fit — if they don't in busy airspace, the webhook path is the
 // reliable alternative.
+static uint16_t g_tlsRx = 0;
 static TlsSession g_radarSession;
 
 struct AircraftTrail {
   char callsign[9];
   float lastLat;
   float lastLon;
-  int16_t dLat[30]; // Relative to origin, scaled by 5000
-  int16_t dLon[30]; // Relative to origin, scaled by 5000
+  int16_t dLat[16]; // Relative to origin, scaled by 5000
+  int16_t dLon[16]; // Relative to origin, scaled by 5000
   uint8_t count;
   uint32_t lastSeenMs;
 };
 
 #define MAX_TRAILS 12
+constexpr uint8_t kTrailMaxPoints = 16;
+constexpr float kTrailMinimumGapKm = 2.0f;
+constexpr float kTrailMaximumRadiusKm = 100.0f;
 static AircraftTrail g_trails[MAX_TRAILS];
 
 uint8_t         radarCount()      { return g_count; }
@@ -51,7 +55,7 @@ uint8_t getAircraftTrail(const char* callsign, float originLat, float originLon,
   if (!callsign || !callsign[0]) return 0;
   for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
     if (g_trails[i].callsign[0] != '\0' && strcmp(g_trails[i].callsign, callsign) == 0) {
-      uint8_t count = g_trails[i].count;
+      uint8_t count = min<uint8_t>(g_trails[i].count, kTrailMaxPoints);
       if (count > maxPoints) count = maxPoints;
       for (uint8_t j = 0; j < count; ++j) {
         lats[j] = originLat + (g_trails[i].dLat[j] / 5000.0f);
@@ -85,6 +89,12 @@ static void insertNearest(const Aircraft& t) {
 static void trimTail(char* s) {
   int n = strlen(s);
   while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t')) s[--n] = 0;
+}
+
+static void probeTls() {
+#if defined(DESKMATE_ESP8266)
+  g_tlsRx = 4096;
+#endif
 }
 
 // ---- URL builders ----------------------------------------------------------
@@ -171,19 +181,40 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
 
       if (foundIdx >= 0) {
         AircraftTrail& trail = g_trails[foundIdx];
-        if (t.lat != trail.lastLat || t.lon != trail.lastLon) {
-          // Shift history
-          for (int j = 29; j > 0; j--) {
+        float movementKm = 0;
+        float unusedBearing = 0;
+        geo(trail.lastLat, trail.lastLon, t.lat, t.lon,
+            movementKm, unusedBearing);
+        if (movementKm >= kTrailMinimumGapKm) {
+          // Keep only meaningful movement. This avoids storing near-identical
+          // five-second samples while keeping the current aircraft position
+          // independent from the compressed trail history.
+          const uint8_t limit = kTrailMaxPoints - 1;
+          for (int j = limit; j > 0; --j) {
             trail.dLat[j] = trail.dLat[j - 1];
             trail.dLon[j] = trail.dLon[j - 1];
           }
-          // Push previous point relative to origin
           trail.dLat[0] = (int16_t)roundf((trail.lastLat - s.radar.lat) * 5000.0f);
           trail.dLon[0] = (int16_t)roundf((trail.lastLon - s.radar.lon) * 5000.0f);
-          
           trail.lastLat = t.lat;
           trail.lastLon = t.lon;
-          if (trail.count < 30) trail.count++;
+          if (trail.count < kTrailMaxPoints) trail.count++;
+
+          // Trim old points by geographic radius, not by poll count. The
+          // newest point is index zero; once an old point falls outside the
+          // configured radius, all subsequent points are older still.
+          uint8_t kept = 0;
+          for (uint8_t j = 0; j < trail.count; ++j) {
+            const float pointLat = s.radar.lat + trail.dLat[j] / 5000.0f;
+            const float pointLon = s.radar.lon + trail.dLon[j] / 5000.0f;
+            geo(t.lat, t.lon, pointLat, pointLon, movementKm, unusedBearing);
+            if (movementKm <= kTrailMaximumRadiusKm) {
+              trail.dLat[kept] = trail.dLat[j];
+              trail.dLon[kept] = trail.dLon[j];
+              ++kept;
+            }
+          }
+          trail.count = kept;
         }
         trail.lastSeenMs = millis();
       } else {
@@ -223,31 +254,39 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
 // ---- one HTTP(S) GET + parse ----------------------------------------------
 static bool fetchUrl(const Settings& s, const String& url, uint16_t budgetMs, int* responseCode = nullptr) {
   const bool https = url.startsWith("https://");
-  HttpRequest request;
-  HttpRequestOptions options;
-  options.host = https ? ADSB_HOST : nullptr;
-  options.timeoutMs = min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
-  options.workingSetBytes = 6000;
-  options.responseLimitBytes = 49152;
-  options.session = https ? &g_radarSession : nullptr;
-  if (!request.begin(url, options)) return false;
 
-  HTTPClient& http = request.http();
+  std::unique_ptr<NetClient> client;
+  if (https) {
+    if (ESP.getFreeHeap() < 14000) return false;
+    probeTls();
+    client.reset(platformMakeSecureClient(g_tlsRx, &g_radarSession));
+  } else {
+    client.reset(new WiFiClient());
+  }
+  if (!client) return false;
+
+  HTTPClient http;
+  const uint16_t timeoutMs =
+      min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
+  http.setTimeout(timeoutMs);
+  http.setReuse(false);
+  http.useHTTP10(true);
+  if (!http.begin(*client, url)) return false;
   http.addHeader("Accept", "application/json");
   http.setUserAgent(F(ADSB_USER_AGENT));
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
   int code = http.GET();
   if (responseCode) *responseCode = code;
-  if (code != HTTP_CODE_OK) {
-    request.end();
+  if (!httpResponseReady(http, code, 49152)) {
+    http.end();
     return false;
   }
 
   yield();
-  bool ok = parseAdsb(s, request.stream());
+  bool ok = parseAdsb(s, http.getStream());
   yield();
-  request.end();
+  http.end();
   return ok;
 }
 

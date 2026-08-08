@@ -22,7 +22,7 @@ struct Options {
   std::string screen = "weather-cycle-clear";
   std::string output;
   std::string allDirectory;
-  int scale = 4;
+  int scale = 1;
   uint32_t frameMs = 0;
   bool headless = false;
   bool list = false;
@@ -148,16 +148,22 @@ unsigned long packRgb(Visual* visual, uint8_t red, uint8_t green,
          packChannel(blue, visual->blue_mask);
 }
 
-void drawFramebufferToImage(XImage* image, Visual* visual, int scale,
-                            bool pixelGrid) {
+void drawFramebufferToImage(XImage* image, Visual* visual, bool pixelGrid) {
   const uint16_t* pixels = PreviewFramebuffer::dataConst();
-  const int outputWidth = TFT_WIDTH * scale;
-  const int outputHeight = TFT_HEIGHT * scale;
+  const int contentSize = std::min(image->width, image->height);
+  const int offsetX = (image->width - contentSize) / 2;
+  const int offsetY = (image->height - contentSize) / 2;
+  const int zoom = std::max(1, contentSize / TFT_WIDTH);
 
-  for (int y = 0; y < outputHeight; ++y) {
-    const int sourceY = y / scale;
-    for (int x = 0; x < outputWidth; ++x) {
-      const int sourceX = x / scale;
+  for (int y = 0; y < image->height; ++y) {
+    for (int x = 0; x < image->width; ++x) {
+      if (x < offsetX || x >= offsetX + contentSize ||
+          y < offsetY || y >= offsetY + contentSize) {
+        XPutPixel(image, x, y, packRgb(visual, 0, 0, 0));
+        continue;
+      }
+      const int sourceX = (x - offsetX) * TFT_WIDTH / contentSize;
+      const int sourceY = (y - offsetY) * TFT_HEIGHT / contentSize;
       const uint16_t color = pixels[sourceY * TFT_WIDTH + sourceX];
       const uint8_t r5 = static_cast<uint8_t>((color >> 11) & 0x1F);
       const uint8_t g6 = static_cast<uint8_t>((color >> 5) & 0x3F);
@@ -166,8 +172,9 @@ void drawFramebufferToImage(XImage* image, Visual* visual, int scale,
       uint8_t green = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
       uint8_t blue = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
 
-      if (pixelGrid && scale >= 4 &&
-          (x % scale == scale - 1 || y % scale == scale - 1)) {
+      if (pixelGrid && zoom >= 4 &&
+          ((x - offsetX) % zoom == zoom - 1 ||
+           (y - offsetY) % zoom == zoom - 1)) {
         red = static_cast<uint8_t>(red * 0.72f);
         green = static_cast<uint8_t>(green * 0.72f);
         blue = static_cast<uint8_t>(blue * 0.72f);
@@ -266,6 +273,28 @@ int runInteractive(const Options& options, int initialIndex) {
       XNextEvent(display, &event);
       if (event.type == Expose) {
         dirty = true;
+      } else if (event.type == ConfigureNotify &&
+                 (event.xconfigure.width != image->width ||
+                  event.xconfigure.height != image->height)) {
+        XImage* resized = XCreateImage(
+            display, visual, depth, ZPixmap, 0, nullptr,
+            event.xconfigure.width, event.xconfigure.height, 32, 0);
+        if (!resized) {
+          running = false;
+          continue;
+        }
+        resized->data = static_cast<char*>(std::calloc(
+            static_cast<size_t>(resized->bytes_per_line),
+            static_cast<size_t>(resized->height)));
+        if (!resized->data) {
+          resized->data = nullptr;
+          XDestroyImage(resized);
+          running = false;
+          continue;
+        }
+        XDestroyImage(image);
+        image = resized;
+        dirty = true;
       } else if (event.type == ClientMessage &&
                  static_cast<Atom>(event.xclient.data.l[0]) == deleteWindow) {
         running = false;
@@ -363,9 +392,9 @@ int runInteractive(const Options& options, int initialIndex) {
 
     if (dirty) {
       renderScenario(scenario, nowMs);
-      drawFramebufferToImage(image, visual, options.scale, pixelGrid);
-      XPutImage(display, window, graphics, image, 0, 0, 0, 0, outputWidth,
-                outputHeight);
+      drawFramebufferToImage(image, visual, pixelGrid);
+      XPutImage(display, window, graphics, image, 0, 0, 0, 0,
+                image->width, image->height);
       XFlush(display);
       updateTitle(display, window, scenario, currentIndex, paused);
       dirty = false;
