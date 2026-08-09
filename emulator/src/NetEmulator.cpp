@@ -29,4 +29,6 @@ String netSSID() {
   return emulatorNetworkMode() == EmulatorNetwork::Ap
       ? accessPointSsid : String("Host network");
 }
-int netRSSI() { return WiFi.RSSI(); }
+int netRSSI() {
+  return emulatorNetworkMode() == EmulatorNetwork::Sta ? WiFi.RSSI() : 0;
+}

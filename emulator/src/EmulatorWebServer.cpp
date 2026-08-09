@@ -41,6 +41,30 @@ bool sendAll(int socket, const std::string& value) {
   }
   return true;
 }
+
+int hexDigit(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+  return -1;
+}
+
+std::string decodeQuery(const std::string& value) {
+  std::string decoded;
+  for (size_t i = 0; i < value.size(); ++i) {
+    if (value[i] == '%' && i + 2 < value.size()) {
+      const int high = hexDigit(value[i + 1]);
+      const int low = hexDigit(value[i + 2]);
+      if (high >= 0 && low >= 0) {
+        decoded.push_back(static_cast<char>((high << 4) | low));
+        i += 2;
+        continue;
+      }
+    }
+    decoded.push_back(value[i] == '+' ? ' ' : value[i]);
+  }
+  return decoded;
+}
 }
 
 EmulatorWebServer::~EmulatorWebServer() {
@@ -138,6 +162,17 @@ void EmulatorWebServer::handleConnection(int client) {
   responseReady_ = false;
   responseBody_.clear();
   activeClient_ = client;
+  if (queryAt != std::string::npos) {
+    std::istringstream query(target.substr(queryAt + 1));
+    std::string pair;
+    while (std::getline(query, pair, '&')) {
+      const size_t equals = pair.find('=');
+      const std::string key = decodeQuery(pair.substr(0, equals));
+      const std::string value = equals == std::string::npos
+          ? std::string() : decodeQuery(pair.substr(equals + 1));
+      if (!key.empty()) args_[key] = String(value);
+    }
+  }
   const Route* route = findRoute(path, method);
 
   if (route && route->uploadHandler &&

@@ -1,4 +1,4 @@
-// deskmate — custom firmware for the GeekMagic DeskMate (ESP-12F / ESP8266)
+// deskmate — custom firmware for the DeskMate ESP-12F / ESP8266
 //
 // Four desk-dashboard features, each a self-contained DisplayMode (see Mode.h):
 // ambient weather, network guardian, live ADS-B radar, and GitHub status.

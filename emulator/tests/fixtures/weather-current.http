@@ -1,0 +1,6 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 236
+Connection: close
+
+{"name":"Dhaka","timezone":21600,"main":{"temp":29.5,"feels_like":32.0,"humidity":72,"pressure":1008},"wind":{"speed":3.2},"sys":{"sunrise":4102444800,"sunset":4102488000},"weather":[{"id":801,"description":"few clouds","icon":"02d"}]}

@@ -1,4 +1,4 @@
-// board_esp8266.h — pin map + panel quirks for the original GeekMagic DeskMate.
+// board_esp8266.h — pin map + panel quirks for the original DeskMate hardware.
 //   ESP-12F (ESP8266), 1.54" 240x240 ST7789 IPS over hardware SPI.
 // Pin mapping confirmed from teardowns / ESPHome + Tasmota community configs.
 #pragma once

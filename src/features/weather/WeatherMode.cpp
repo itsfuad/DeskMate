@@ -42,6 +42,7 @@ constexpr uint16_t RAIN = rgb565(64, 188, 236);
 constexpr uint16_t SNOW = rgb565(235, 246, 252);
 constexpr uint16_t ERROR_C = rgb565(255, 112, 112);
 constexpr int WEATHER_PANEL_Y = 157;
+constexpr int WEATHER_SCENE_SHIFT_Y = -6;
 
 struct TimePalette {
   uint16_t skyTop;
@@ -593,7 +594,7 @@ void drawStars(TileCanvas& g, const WeatherTheme& theme,
     seed = static_cast<uint16_t>(seed * 2053U + 13849U);
     const int x = 1 + seed % 238U;
     seed = static_cast<uint16_t>(seed * 2053U + 13849U);
-    const int y = 3 + seed % 104U;
+    const int y = 3 + seed % 104U + WEATHER_SCENE_SHIFT_Y;
     const uint8_t pulse = static_cast<uint8_t>((phase + i * 7U) % 13U);
     const uint8_t twinkle = pulse < 3 ? 65 : (pulse > 10 ? 24 : 0);
     const uint8_t alpha = static_cast<uint8_t>(min<int>(235,
@@ -652,6 +653,7 @@ void drawCelestial(TileCanvas& g, const WeatherTheme& theme, int minute) {
   float arc;
 
   if (moonPosition(minute, x, y, arc)) {
+    y += WEATHER_SCENE_SHIFT_Y;
     const uint16_t background = skyColorAt(theme, y);
     const uint8_t cloudDim = static_cast<uint8_t>(theme.cloudLevel * 18);
     const uint16_t outer = blend565(
@@ -672,6 +674,7 @@ void drawCelestial(TileCanvas& g, const WeatherTheme& theme, int minute) {
   }
 
   if (!sunPosition(minute, x, y, arc)) return;
+  y += WEATHER_SCENE_SHIFT_Y;
 
   const uint16_t background = skyColorAt(theme, y);
   const uint8_t cloudDim = static_cast<uint8_t>(theme.cloudLevel * 18);
@@ -715,6 +718,7 @@ void drawLensFlare(TileCanvas& g, const WeatherTheme& theme, int minute) {
   int sunY;
   float arc;
   if (!sunPosition(minute, sunX, sunY, arc) || arc < 0.38f) return;
+  sunY += WEATHER_SCENE_SHIFT_Y;
 
   constexpr float opticalX = 120.0f;
   constexpr float opticalY = 96.0f;
@@ -752,7 +756,7 @@ void drawMovingClouds(TileCanvas& g, const WeatherTheme& theme,
   for (uint8_t i = 0; i < count; ++i) {
     const int travel = static_cast<int>(animationMs / speedMs[i]);
     const int x = ((seed[i] + travel) % 330) - 70;
-    int y = yPos[i];
+    int y = yPos[i] + WEATHER_SCENE_SHIFT_Y;
     const uint8_t visibility = count == 1 ? 30
         : static_cast<uint8_t>(min<int>(120, 50 + count * 12 + i * 2));
     const uint16_t localSky = skyColorAt(theme, y + 7 * scale[i]);
@@ -785,18 +789,25 @@ void drawAlpineValley(TileCanvas& g, const WeatherTheme& theme) {
       foreground,
   };
 
+  if (WEATHER_SCENE_SHIFT_Y < 0) {
+    g.fillRect(0, WEATHER_PANEL_Y + WEATHER_SCENE_SHIFT_Y, TFT_WIDTH,
+               -WEATHER_SCENE_SHIFT_Y, theme.near);
+  }
+
   const int left = max<int>(0, g.tileX());
   const int top = max<int>(0, g.tileY());
   const int right = min<int>(WEATHER_SCENE_WIDTH, g.tileX() + g.tileW());
   const int bottom = min<int>(WEATHER_SCENE_HEIGHT, g.tileY() + g.tileH());
   for (int y = top; y < bottom; ++y) {
+    const int sourceY = y - WEATHER_SCENE_SHIFT_Y;
+    if (sourceY < 0 || sourceY >= WEATHER_SCENE_HEIGHT) continue;
     for (int x = left; x < right; ++x) {
-      const int pixel = y * WEATHER_SCENE_WIDTH + x;
+      const int pixel = sourceY * WEATHER_SCENE_WIDTH + x;
       const uint8_t packed = pgm_read_byte(&WEATHER_SCENE[pixel / 2]);
       const uint8_t index = pixel & 1 ? packed & 0x0F : packed >> 4;
       if (!index) continue;
-      const uint16_t color = index <= 2 && y < 116
-          ? blend565(skyColorAt(theme, y), theme.far, 62)
+      const uint16_t color = index <= 2 && sourceY < 116
+          ? blend565(skyColorAt(theme, sourceY), theme.far, 62)
           : colors[index];
       g.drawPixel(x, y, color);
     }
@@ -812,14 +823,25 @@ void drawAlpineValley(TileCanvas& g, const WeatherTheme& theme) {
   const uint16_t tentGlow = blend565(tentRight, WINDOW_LIGHT,
                                      static_cast<uint8_t>(
                                          58 + theme.nightAmount / 2));
-  g.fillTriangle(57, 160, 78, 128, 99, 160, tentEdge);
-  g.fillTriangle(61, 157, 78, 133, 78, 157, tentLeft);
-  g.fillTriangle(78, 133, 95, 157, 78, 157, tentRight);
-  g.fillTriangle(78, 157, 84, 145, 91, 157, tentGlow);
-  g.drawFastHLine(52, 160, 52, foreground);
-  g.drawLine(78, 128, 78, 159, tentEdge);
-  g.drawLine(57, 160, 51, 162, tentEdge);
-  g.drawLine(99, 160, 105, 162, tentEdge);
+  g.fillTriangle(57, 160 + WEATHER_SCENE_SHIFT_Y,
+                 78, 128 + WEATHER_SCENE_SHIFT_Y,
+                 99, 160 + WEATHER_SCENE_SHIFT_Y, tentEdge);
+  g.fillTriangle(61, 157 + WEATHER_SCENE_SHIFT_Y,
+                 78, 133 + WEATHER_SCENE_SHIFT_Y,
+                 78, 157 + WEATHER_SCENE_SHIFT_Y, tentLeft);
+  g.fillTriangle(78, 133 + WEATHER_SCENE_SHIFT_Y,
+                 95, 157 + WEATHER_SCENE_SHIFT_Y,
+                 78, 157 + WEATHER_SCENE_SHIFT_Y, tentRight);
+  g.fillTriangle(78, 157 + WEATHER_SCENE_SHIFT_Y,
+                 84, 145 + WEATHER_SCENE_SHIFT_Y,
+                 91, 157 + WEATHER_SCENE_SHIFT_Y, tentGlow);
+  g.drawFastHLine(52, 160 + WEATHER_SCENE_SHIFT_Y, 52, foreground);
+  g.drawLine(78, 128 + WEATHER_SCENE_SHIFT_Y,
+             78, 159 + WEATHER_SCENE_SHIFT_Y, tentEdge);
+  g.drawLine(57, 160 + WEATHER_SCENE_SHIFT_Y,
+             51, 162 + WEATHER_SCENE_SHIFT_Y, tentEdge);
+  g.drawLine(99, 160 + WEATHER_SCENE_SHIFT_Y,
+             105, 162 + WEATHER_SCENE_SHIFT_Y, tentEdge);
 }
 
 void drawPrecipitation(TileCanvas& g, const WeatherTheme& theme,
@@ -841,7 +863,8 @@ void drawPrecipitation(TileCanvas& g, const WeatherTheme& theme,
           tick * static_cast<uint32_t>(1 + i % 3) % 248UL);
       const int x = (rainSeeds[i][0] + 248 - drift) % 248 - 4;
       const int y = 10 + (rainSeeds[i][1] +
-                          tick * static_cast<uint32_t>(5 + i % 4)) % 153;
+                          tick * static_cast<uint32_t>(5 + i % 4)) % 153 +
+                    WEATHER_SCENE_SHIFT_Y;
       const int length = 3 + i % 3;
       g.drawLine(x, y, x - 1, y + length, theme.rainColor);
     }
@@ -849,7 +872,8 @@ void drawPrecipitation(TileCanvas& g, const WeatherTheme& theme,
     const int phase = static_cast<int>(tick % 9UL);
     for (int i = 0; i < 18; ++i) {
       const int x = (i * 37 + phase * 4) % 240;
-      const int y = 14 + (i * 23 + phase * 3) % 150;
+      const int y = 14 + (i * 23 + phase * 3) % 150 +
+                    WEATHER_SCENE_SHIFT_Y;
       g.drawPixel(x, y, SNOW);
       if ((i & 3) == 0) g.drawPixel(x + 1, y, SNOW);
     }

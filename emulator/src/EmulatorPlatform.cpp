@@ -11,20 +11,22 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <vector>
 
 namespace {
 constexpr EmulatorBoardProfile profiles[] = {
-    {"esp8266", "GeekMagic DeskMate ESP8266", 0x82661234, 160,
+    {"esp8266", "DeskMate ESP8266", 0x82661234, 160,
      48 * 1024, 24 * 1024, 4 * 1024 * 1024, 1536 * 1024, true, 1023,
      "deskmate-firmware.bin"},
     {"esp32c2", "DeskMate ESP32-C2", 0x32c21234, 80,
      220 * 1024, 160 * 1024, 4 * 1024 * 1024, 1408 * 1024, false, 4095,
      "deskmate-firmware-c2.bin"},
-    {"esp32", "NM-TV-154 ESP32", 0x32001234, 240,
+    {"esp32", "DeskMate ESP32", 0x32001234, 240,
      280 * 1024, 200 * 1024, 4 * 1024 * 1024, 1408 * 1024, false, 4095,
      "deskmate-firmware-esp32.bin"},
 };
@@ -148,6 +150,48 @@ bool emulatorTlsMemoryReady() {
 }
 int emulatorLdrValue() { return emulatorBoardProfile().hasLdr ? currentLdr : 0; }
 const char* emulatorUpdateAsset() { return emulatorBoardProfile().updateAsset; }
+
+uint32_t emulatorFsTotalBytes() {
+  return currentBoard == EmulatorBoard::Esp8266 ? 1024UL * 1024UL : 0xF0000UL;
+}
+
+namespace {
+std::vector<std::filesystem::path> emulatorFsFiles() {
+  std::vector<std::filesystem::path> files;
+  const auto root = std::filesystem::path(emulatorStateDirectory()) / "littlefs";
+  std::error_code error;
+  if (!std::filesystem::exists(root, error)) return files;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root, error)) {
+    if (!error && entry.is_regular_file()) files.push_back(entry.path());
+  }
+  std::sort(files.begin(), files.end());
+  return files;
+}
+}
+
+uint32_t emulatorFsUsedBytes() {
+  uint64_t used = 0;
+  for (const auto& file : emulatorFsFiles()) {
+    std::error_code error;
+    const uintmax_t size = std::filesystem::file_size(file, error);
+    if (!error) used += size;
+  }
+  return static_cast<uint32_t>(std::min<uint64_t>(used, UINT32_MAX));
+}
+
+size_t emulatorFsFileCount() { return emulatorFsFiles().size(); }
+
+bool emulatorFsFileAt(size_t index, String& path, size_t& size) {
+  const auto files = emulatorFsFiles();
+  if (index >= files.size()) return false;
+  const auto root = std::filesystem::path(emulatorStateDirectory()) / "littlefs";
+  std::error_code error;
+  const auto relative = std::filesystem::relative(files[index], root, error);
+  if (error) return false;
+  path = String("/") + relative.generic_string();
+  size = std::filesystem::file_size(files[index], error);
+  return !error;
+}
 
 void platformOnTimeSync(void (*callback)()) {
   timeSyncCallback = callback;

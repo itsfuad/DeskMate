@@ -1,6 +1,6 @@
 // loader.cpp — a minimal OTA "trampoline" for devices whose stock firmware
 // reserves so much flash that its updater rejects a full deskmate image
-// ("Not Enough Space"), e.g. the GeekMagic DeskMate-ultra with its large
+// ("Not Enough Space"), e.g. compact DeskMate variants with their large
 // image/GIF store.
 //
 // It is deliberately tiny: WiFi + a bare web OTA endpoint, no display, no

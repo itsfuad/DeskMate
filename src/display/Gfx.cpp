@@ -10,7 +10,7 @@
 // **mode 3**. Arduino_GFX's stock Arduino_ST7789 forces SPI_MODE2 on the ESP8266
 // (wrong clock edge for this panel), so the controller never initializes and the
 // screen stays black even with the backlight on. Subclass begin() to force mode 3
-// — matching the known-good GeekMagic community firmwares. (On ESP32 the base
+// — matching the known-good DeskMate-compatible firmwares. (On ESP32 the base
 // class already selects mode 3, so the override is harmless there.)
 class Arduino_ST7789_DeskMate : public Arduino_ST7789 {
  public:

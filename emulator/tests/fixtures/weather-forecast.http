@@ -1,0 +1,6 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 337
+Connection: close
+
+{"city":{"timezone":21600},"list":[{"dt":4102455600,"main":{"temp":30.0},"weather":[{"id":801,"icon":"02d"}]},{"dt":4102466400,"main":{"temp":28.0},"weather":[{"id":500,"icon":"10d"}]},{"dt":4102477200,"main":{"temp":27.0},"weather":[{"id":802,"icon":"02n"}]},{"dt":4102488000,"main":{"temp":26.0},"weather":[{"id":800,"icon":"01n"}]}]}

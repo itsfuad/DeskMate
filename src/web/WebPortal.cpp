@@ -62,12 +62,15 @@ static void showFirmwareFailure(const char* artifact, const String& message) {
 // ---------------------------------------------------------------------------
 static void sendJson(JsonDocument& doc, int code = 200) {
   String out;
+  server.sendHeader("Cache-Control", "no-store, max-age=0");
   serializeJson(doc, out);
   server.send(code, "application/json", out);
 }
 
 static void handleRoot() {
-  server.sendHeader("Cache-Control", "no-cache");
+  server.sendHeader("Cache-Control", "no-store, max-age=0");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "0");
   server.send_P(200, "text/html", WEBUI_HTML);
 }
 
@@ -159,6 +162,14 @@ static bool validDeviceHostname(const String& value) {
 static bool validLatLon(float lat, float lon) {
   return isfinite(lat) && isfinite(lon) && lat >= -90.0f && lat <= 90.0f &&
          lon >= -180.0f && lon <= 180.0f;
+}
+
+static bool validAirportCode(const char* value) {
+  if (!value || !value[0] || strlen(value) >= MAX_ICAO_LEN) return false;
+  for (size_t i = 0; value[i]; ++i) {
+    if (!isalnum(static_cast<unsigned char>(value[i]))) return false;
+  }
+  return true;
 }
 
 static bool validHhmm(const char* value) {
@@ -292,6 +303,16 @@ static bool validateConfigInput(JsonObjectConst root, String& error) {
          !(webhook.startsWith("http://") || webhook.startsWith("https://")))) {
       error = F("invalid radar configuration"); return false;
     }
+    if (radar["airports"].is<JsonArrayConst>()) {
+      uint8_t count = 0;
+      for (JsonObjectConst airport : radar["airports"].as<JsonArrayConst>()) {
+        if (++count > MAX_AIRPORTS || !validAirportCode(airport["icao"] | "") ||
+            !validLatLon(airport["lat"] | 999.0f,
+                         airport["lon"] | 999.0f)) {
+          error = F("invalid radar airport"); return false;
+        }
+      }
+    }
   }
 
   if (root["github"].is<JsonObjectConst>()) {
@@ -403,6 +424,84 @@ static void handleScan() {
   }
   WiFi.scanDelete();
   sendJson(doc);
+}
+
+static bool validFsPath(const String& path) {
+  if (!path.length() || path[0] != '/' || path.length() > 96 ||
+      path.indexOf("..") >= 0) return false;
+  for (size_t i = 0; i < path.length(); ++i) {
+    const char c = path[i];
+    if (static_cast<unsigned char>(c) < 32 || c == '\\') return false;
+  }
+  return path != "/";
+}
+
+static void addFsEntry(JsonArray files, const String& path, size_t size) {
+  JsonObject entry = files.add<JsonObject>();
+  entry["path"] = path;
+  entry["size"] = static_cast<uint32_t>(size);
+}
+
+static void handleFsList() {
+  JsonDocument doc;
+  JsonObject root = doc.to<JsonObject>();
+  JsonArray files = root["files"].to<JsonArray>();
+
+#if defined(DESKMATE_EMULATOR)
+  root["total"] = emulatorFsTotalBytes();
+  root["used"] = emulatorFsUsedBytes();
+  for (size_t i = 0; i < emulatorFsFileCount(); ++i) {
+    String path;
+    size_t size = 0;
+    if (emulatorFsFileAt(i, path, size)) addFsEntry(files, path, size);
+  }
+#elif defined(DESKMATE_ESP8266)
+  FSInfo info;
+  LittleFS.info(info);
+  root["total"] = info.totalBytes;
+  root["used"] = info.usedBytes;
+  Dir dir = LittleFS.openDir("/");
+  while (dir.next()) addFsEntry(files, dir.fileName(), dir.fileSize());
+#else
+  root["total"] = LittleFS.totalBytes();
+  root["used"] = LittleFS.usedBytes();
+  File rootDir = LittleFS.open("/");
+  if (rootDir) {
+    File file = rootDir.openNextFile();
+    while (file) {
+      if (!file.isDirectory()) addFsEntry(files, file.name(), file.size());
+      file = rootDir.openNextFile();
+    }
+  }
+#endif
+  sendJson(doc);
+}
+
+static void handleFsFile() {
+  const String path = server.arg("path");
+  if (!validFsPath(path)) {
+    server.send(400, "text/plain", "invalid filesystem path");
+    return;
+  }
+  File file = LittleFS.open(path.c_str(), "r");
+  if (!file) {
+    server.send(404, "text/plain", "file not found");
+    return;
+  }
+  const bool download = server.arg("download") == "1";
+  if (download) {
+    size_t slash = 0;
+    for (size_t i = 0; i < path.length(); ++i) {
+      if (path[i] == '/') slash = i;
+    }
+    String name = path.substring(slash + 1);
+    server.sendHeader("Content-Disposition", String("attachment; filename=\"") +
+                      name + "\"");
+  }
+  server.sendHeader("Cache-Control", "no-store, max-age=0");
+  server.streamFile(file, path.endsWith(".json") ? "application/json"
+                                                 : "text/plain; charset=utf-8");
+  file.close();
 }
 
 static void handleReboot() {
@@ -637,6 +736,7 @@ static void handleUpdateUpload() {
 static void handleNotFound() {
   if (netMode() == NET_AP) {
     // Redirect everything to the config page so the captive portal pops.
+    server.sendHeader("Cache-Control", "no-store, max-age=0");
     server.sendHeader("Location", String("http://") + WiFi.softAPIP().toString(), true);
     server.send(302, "text/plain", "");
   } else {
@@ -658,6 +758,8 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/config", HTTP_POST, handlePostConfig);
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/scan", HTTP_GET, handleScan);
+  server.on("/api/fs", HTTP_GET, handleFsList);
+  server.on("/api/fs/file", HTTP_GET, handleFsFile);
   server.on("/api/reboot", HTTP_POST, handleReboot);
   server.on("/api/factory", HTTP_POST, handleFactory);
   server.on("/api/refresh", HTTP_POST, handleRefresh);

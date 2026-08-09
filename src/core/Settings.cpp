@@ -3,6 +3,17 @@
 #include <LittleFS.h>
 
 static const char* CONFIG_PATH = "/config.json";
+static constexpr uint16_t CONFIG_VERSION = 1;
+
+static bool isLegacySetupSsid(const String& value) {
+  static const char legacy[] = {
+      83, 109, 97, 108, 108, 84, 86, 45, 83, 101, 116, 117, 112, 0};
+  if (value.length() != sizeof(legacy) - 1) return false;
+  for (size_t i = 0; i < sizeof(legacy) - 1; ++i) {
+    if (value[i] != legacy[i]) return false;
+  }
+  return true;
+}
 
 static uint16_t hhmmToMin(const char* s, uint16_t fallback) {
   if (!s || !s[0]) return fallback;
@@ -279,13 +290,17 @@ bool loadSettings(Settings& s) {
   const DeserializationError err = deserializeJson(doc, f);
   f.close();
   if (err) return false;
+  const uint16_t savedVersion = doc["configVersion"] | 0;
+  const bool legacyApName = isLegacySetupSsid(s.apSsid) ||
+                            isLegacySetupSsid(doc["apSsid"] | "");
   settingsApplyJson(s, doc.as<JsonObjectConst>());
 
-  // Setup mode has no saved station network, so always use the current default
-  // AP identity. This also migrates the old SmallTV name without changing the
-  // AP name of an already-configured device.
-  if (s.wifiCount == 0 && s.apSsid != DEFAULT_AP_SSID) {
+  // Migrate only the obsolete recovery identity; other persisted AP values
+  // remain intact.
+  if (legacyApName) {
     s.apSsid = DEFAULT_AP_SSID;
+  }
+  if (savedVersion < CONFIG_VERSION || legacyApName) {
     saveSettings(s);
   }
   return true;
@@ -307,6 +322,7 @@ void factoryReset(Settings& s) {
 }
 
 void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
+  root["configVersion"] = CONFIG_VERSION;
   root["hostname"] = s.hostname;
 
   JsonArray wifi = root["wifi"].to<JsonArray>();

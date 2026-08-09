@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.7.3 — 2026-08-09
+
+### Portal and configuration
+
+- Restored airport editing and persistence in the radar configuration page.
+- Added a read-only LittleFS inspector with file listing, viewing and download.
+- Added configuration versioning and migration for legacy setup data.
+- Added no-store headers so setup pages and configuration responses do not remain stale in browser caches.
+- Standardized product and emulator identity on DeskMate.
+
+### Display
+
+- Added Wi-Fi RSSI in dBm with signal bars on the Network Guardian screen.
+- Dynamically positioned the latency unit after the measured value.
+- Moved the weather scene six pixels upward while keeping telemetry and forecast layout unchanged.
+
+### Emulator and verification
+
+- Added virtual LittleFS enumeration and URL query decoding to the emulator.
+- Added recorded weather responses and portal integration checks covering migration, airport persistence, filesystem access and traversal rejection.
+
 ## 4.7.2 — 2026-08-09
 
 ### Network and recovery reliability
@@ -14,7 +35,7 @@
 - Added a minimal `/update` upload form that remains available in setup and
   crash-recovery modes.
 - Setup/fallback AP mode now advertises `DeskMate-Setup` and migrates the old
-  `SmallTV-Setup` value for unconfigured devices.
+  legacy setup AP value for unconfigured devices.
 
 ### Display and preview
 

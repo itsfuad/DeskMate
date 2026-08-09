@@ -18,7 +18,7 @@ static void startAP(const Settings& s) {
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   // AP mode is the recovery/setup surface. Always expose the current
   // DeskMate setup identity, even when an older config still contains the
-  // SmallTV name or saved STA credentials caused a failed fallback.
+  // A stale setup identity or saved STA credentials caused a failed fallback.
   const char* setupSsid = DEFAULT_AP_SSID;
   if (s.apPass.length() >= 8) {
     WiFi.softAP(setupSsid, s.apPass.c_str());

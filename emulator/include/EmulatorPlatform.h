@@ -5,6 +5,7 @@
 #include "EmulatorWebServer.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -55,6 +56,10 @@ uint32_t emulatorFreeContStack();
 bool emulatorTlsMemoryReady();
 int emulatorLdrValue();
 const char* emulatorUpdateAsset();
+uint32_t emulatorFsTotalBytes();
+uint32_t emulatorFsUsedBytes();
+size_t emulatorFsFileCount();
+bool emulatorFsFileAt(size_t index, String& path, size_t& size);
 
 class IPAddress {
  public:

@@ -90,6 +90,7 @@ void stats(uint16_t& latest, uint16_t& average, uint16_t& best,
 
 uint8_t wifiQuality() {
   const int rssi = netRSSI();
+  if (rssi >= 0) return 0;
   return static_cast<uint8_t>(constrain((rssi + 90) * 100 / 45, 0, 100));
 }
 
@@ -133,6 +134,33 @@ void drawCardValue(TileCanvas& g, int x, int y, int w, const char* label,
   g.print(value);
 }
 
+void drawWifiCard(TileCanvas& g, int x, int y, int w, int rssi) {
+  g.fillRoundRect(x, y, w, 40, 9, PANEL);
+  g.setTextSize(1);
+  g.setTextColor(MUTED);
+  g.setCursor(x + 8, y + 6);
+  g.print("WI-FI dBm");
+
+  const bool available = rssi < 0;
+  const uint8_t quality = wifiQuality();
+  char value[12];
+  if (available) snprintf(value, sizeof(value), "%d", rssi);
+  else strlcpy(value, "N/A", sizeof(value));
+  g.setTextSize(2);
+  g.setTextColor(available ? (quality > 55 ? CYAN : AMBER) : MUTED);
+  g.setCursor(x + 8, y + 20);
+  g.print(value);
+
+  const uint8_t bars = available
+      ? static_cast<uint8_t>(constrain((quality + 24) / 25, 1, 4)) : 0;
+  for (uint8_t i = 0; i < 4; ++i) {
+    const int barHeight = 4 + i * 3;
+    const uint16_t color = i < bars
+        ? (quality > 55 ? CYAN : AMBER) : LINE;
+    g.fillRect(x + 43 + i * 5, y + 34 - barHeight, 3, barHeight, color);
+  }
+}
+
 void drawNetwork(TileCanvas& g, void* opaque) {
   const NetworkRenderContext& context =
       *static_cast<const NetworkRenderContext*>(opaque);
@@ -161,7 +189,8 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   g.print(value);
   g.setTextSize(2);
   g.setTextColor(MUTED);
-  g.setCursor(70, 50);
+  const int unitX = constrain(10 + gfxTextW(value, 5) + 5, 10, 190);
+  g.setCursor(unitX, 50);
   g.print("ms");
 
   char subtitle[48];
@@ -222,14 +251,12 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   }
 
   char dnsText[12];
-  char wifiText[12];
   if (count && samples[(head + SAMPLE_COUNT - 1) % SAMPLE_COUNT].dnsOk) {
     snprintf(dnsText, sizeof(dnsText), "%ums", dnsLatest);
   } else {
     strlcpy(dnsText, "FAIL", sizeof(dnsText));
   }
-  const uint8_t quality = wifiQuality();
-  snprintf(wifiText, sizeof(wifiText), "%u%%", quality);
+  const int rssi = netRSSI();
 
   constexpr int cardsY = 178;
   static_assert(DisplayLayout::fitsSafe(10, cardsY, 68, 40),
@@ -237,8 +264,7 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   drawCardValue(g, 10, cardsY, 68, "UPTIME", availabilityText, CYAN);
   drawCardValue(g, 86, cardsY, 68, "DNS", dnsText,
                 dnsText[0] == 'F' ? CORAL : BLUE);
-  drawCardValue(g, 162, cardsY, 68, "WI-FI", wifiText,
-                quality > 55 ? CYAN : AMBER);
+  drawWifiCard(g, 162, cardsY, 68, rssi);
 
   g.setTextSize(1);
   g.setTextColor(MUTED);
