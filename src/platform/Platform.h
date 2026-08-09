@@ -16,7 +16,58 @@ static constexpr uint16_t PLATFORM_TLS_RX_BYTES = 4096;
 static constexpr uint16_t PLATFORM_TLS_TX_BYTES = 512;
 static constexpr uint16_t PLATFORM_TLS_HEAP_OVERHEAD_BYTES = 7000;
 
-#if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
+#if defined(DESKMATE_EMULATOR)
+// ================================ Desktop ==================================
+#include "EmulatorPlatform.h"
+
+using WebServerClass = EmulatorWebServer;
+using SecureClient   = EmulatorSecureClient;
+using NetClient      = EmulatorClient;
+using TlsSession     = EmulatorTlsSession;
+
+static inline void platformSetHostname(const char* hostname) {
+  emulatorSetHostname(hostname);
+}
+static inline void platformTimeBegin(const char* tz, const char* server1,
+                                     const char* server2) {
+  emulatorTimeBegin(tz, server1, server2);
+}
+static inline void platformMdnsUpdate() {}
+static inline void platformAnalogWriteInit(uint8_t) {}
+static inline bool platformScanIsOpen(int index) {
+  return emulatorScanIsOpen(index);
+}
+static inline String platformUpdateError() { return emulatorUpdateError(); }
+static inline uint32_t platformChipId() { return emulatorChipId(); }
+static inline uint32_t platformCpuFreqMhz() { return emulatorCpuFreqMhz(); }
+
+struct PlatformReset { String reason; bool wasCrash; char epc[16]; char addr[16]; };
+static inline PlatformReset platformResetInfo() {
+  const EmulatorResetInfoData source = emulatorResetInfo();
+  PlatformReset result;
+  result.reason = source.reason;
+  result.wasCrash = source.wasCrash;
+  strlcpy(result.epc, source.epc, sizeof(result.epc));
+  strlcpy(result.addr, source.addr, sizeof(result.addr));
+  return result;
+}
+
+static inline SecureClient* platformMakeSecureClient(
+    uint16_t rxBuf = PLATFORM_TLS_RX_BYTES, TlsSession* session = nullptr,
+    uint16_t txBuf = PLATFORM_TLS_TX_BYTES, bool cheapCiphers = false) {
+  (void)rxBuf; (void)session; (void)txBuf; (void)cheapCiphers;
+  SecureClient* client = new SecureClient();
+  client->setInsecure();
+  return client;
+}
+static inline uint32_t platformMaxFreeBlock() {
+  return emulatorMaxFreeBlock();
+}
+static inline uint32_t platformFreeContStack() {
+  return emulatorFreeContStack();
+}
+
+#elif defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 // ================== ESP32 family (C2/ESP8684 + classic ESP32) ==================
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -154,7 +205,9 @@ static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); 
 // are intentionally optimistic; a server record larger than the receive buffer
 // can still make an individual request fail.
 static inline bool platformTlsMemoryReady() {
-#if defined(DESKMATE_ESP8266)
+#if defined(DESKMATE_EMULATOR)
+  return emulatorTlsMemoryReady();
+#elif defined(DESKMATE_ESP8266)
   constexpr uint32_t requiredFree =
       PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
       PLATFORM_TLS_HEAP_OVERHEAD_BYTES;
@@ -180,6 +233,26 @@ static inline bool platformTcpConnect(WiFiClient& client, const char* host,
 // True once SNTP has set the clock (epoch past 2021-01-01). Until then the
 // caller must treat time as unknown (night mode stays off = fail-safe on).
 static inline bool platformTimeValid() { return time(nullptr) > 1609459200; }
+
+static inline bool platformHasLdr() {
+#if defined(DESKMATE_EMULATOR)
+  return emulatorBoardProfile().hasLdr;
+#elif defined(DESKMATE_ESP8266)
+  return true;
+#else
+  return false;
+#endif
+}
+
+static inline uint16_t platformAdcMax() {
+#if defined(DESKMATE_EMULATOR)
+  return emulatorBoardProfile().adcMax;
+#elif defined(DESKMATE_ESP8266)
+  return 1023;
+#else
+  return 4095;
+#endif
+}
 
 // Register a callback fired on every successful SNTP sync (the "NTP was just
 // reachable and set the clock" signal used to trust the clock for night mode).

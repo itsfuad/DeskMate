@@ -125,11 +125,11 @@ static uint8_t  g_ldrCache   = DEFAULT_BRIGHTNESS;   // last LDR reading (2 s ca
 static uint8_t appEffectiveBrightness() {
   if (clockNightActive()) return g_settings.clock.nightLevel;
 #if HAS_LDR
-  if (g_settings.autoBrightness) {
+  if (g_settings.autoBrightness && platformHasLdr()) {
     if (millis() - g_lastAutoBr > 2000) {
       g_lastAutoBr = millis();
       int raw = analogRead(LDR_PIN);
-      g_ldrCache = (uint8_t)constrain(raw * 100 / ADC_MAX, 5, 100);
+      g_ldrCache = (uint8_t)constrain(raw * 100 / platformAdcMax(), 5, 100);
     }
     return g_ldrCache;
   }

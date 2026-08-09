@@ -1,0 +1,10 @@
+{"ac":[
+{"hex":"702c6c","type":"adsb_icao","flight":"AJX1431 ","r":"99-5480","t":"C30J","dbFlags":1,"desc":"LOCKHEED MARTIN C-130J Super Hercules","alt_baro":13000,"alt_geom":13425,"gs":228.7,"ias":180,"tas":226,"mach":0.344,"wd":40,"ws":4,"track":168.40,"track_rate":0.00,"roll":0.70,"mag_heading":167.52,"true_heading":167.20,"baro_rate":-128,"geom_rate":-128,"squawk":"5541","emergency":"none","category":"A3","nav_qnh":1012.8,"nav_altitude_mcp":12992,"nav_altitude_fms":12992,"nav_heading":168.05,"nav_modes":["autopilot","althold","tcas"],"lat":24.005360,"lon":89.998808,"nic":9,"rc":75,"seen_pos":0.307,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":10094,"seen":0.3,"rssi":-17.3,"dst":25.510,"dir":297.4},
+{"hex":"4d0117","type":"adsb_icao","flight":"CLX7956 ","r":"LX-VCM","t":"B748","desc":"BOEING 747-8","alt_baro":39000,"alt_geom":41575,"gs":494.3,"ias":265,"tas":496,"mach":0.848,"wd":40,"ws":12,"oat":-48,"tat":-15,"track":123.11,"track_rate":0.03,"roll":0.18,"mag_heading":122.17,"true_heading":121.82,"baro_rate":0,"geom_rate":0,"squawk":"0323","emergency":"none","category":"A5","nav_qnh":1013.6,"nav_altitude_mcp":39008,"nav_altitude_fms":39008,"nav_heading":122.34,"lat":23.708679,"lon":90.047455,"nic":8,"rc":186,"seen_pos":0.813,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":50423,"seen":0.1,"rssi":-16.8,"dst":20.926,"dir":253.2}
+]
+,"msg": "No error"
+,"now": 1786264138000
+,"total": 2
+,"ctime": 1786264138000
+,"ptime": 0
+}

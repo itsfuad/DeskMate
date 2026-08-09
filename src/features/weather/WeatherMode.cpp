@@ -1,11 +1,7 @@
-#if defined(DESKMATE_PREVIEW)
-#include "PreviewApi.h"
-#else
 #include "WeatherMode.h"
 #include "Platform.h"
 #include "HttpRequest.h"
 #include <ArduinoJson.h>
-#endif
 #include "Gfx.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
@@ -15,9 +11,7 @@
 #include <math.h>
 #include <time.h>
 
-#if !defined(DESKMATE_PREVIEW)
 WeatherMode g_weatherMode;
-#endif
 
 namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
@@ -147,9 +141,6 @@ struct WeatherData {
 };
 
 WeatherData W;
-#if defined(DESKMATE_PREVIEW)
-time_t previewNowUtc = 1785501000;
-#endif
 
 bool isRain(int id) { return id >= 200 && id < 600; }
 bool isSnow(int id) { return id >= 600 && id < 700; }
@@ -179,11 +170,7 @@ void localTm(uint32_t utc, struct tm& out) {
 }
 
 void currentLocalTm(struct tm& out) {
-#if defined(DESKMATE_PREVIEW)
-  time_t now = previewNowUtc;
-#else
   time_t now = time(nullptr);
-#endif
   if (now < 1609459200) {
     now = static_cast<time_t>(W.sunrise ? W.sunrise : 1700000000UL);
   }
@@ -1133,7 +1120,6 @@ void renderWeatherScreen(const Settings& settings) {
   gfxRenderTiled(drawScreen, &context, context.theme.near);
 }
 
-#if !defined(DESKMATE_PREVIEW)
 void renderWeatherAnimatedTop(const Settings& settings) {
   WeatherRenderContext context = makeWeatherContext(settings);
   // Recompose only the scenic/header area. The forecast panel stays
@@ -1141,9 +1127,7 @@ void renderWeatherAnimatedTop(const Settings& settings) {
   gfxRenderRegion(drawScreen, &context, context.theme.near,
                   0, 0, TFT_WIDTH, WEATHER_PANEL_Y);
 }
-#endif
 
-#if !defined(DESKMATE_PREVIEW)
 static TlsSession g_weatherSession;
 constexpr size_t kWeatherUrlCapacity = 320;
 
@@ -1285,41 +1269,7 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
   }
   return W.forecastCount > 0;
 }
-#endif
 }  // namespace
-
-#if defined(DESKMATE_PREVIEW)
-void previewRenderWeather(const Settings& settings,
-                          const PreviewWeatherState& state) {
-  W = WeatherData();
-  W.valid = state.valid;
-  W.error = state.error;
-  W.httpCode = state.httpCode;
-  strlcpy(W.errorText, state.errorText ? state.errorText : "",
-          sizeof(W.errorText));
-  strlcpy(W.city, state.city ? state.city : "", sizeof(W.city));
-  strlcpy(W.icon, state.icon ? state.icon : "01d", sizeof(W.icon));
-  W.temp = state.temp;
-  W.feels = state.feels;
-  W.wind = state.wind;
-  W.humidity = state.humidity;
-  W.pressure = state.pressure;
-  W.conditionId = state.conditionId;
-  W.timezone = state.timezone;
-  W.sunrise = state.sunrise;
-  W.sunset = state.sunset;
-  W.forecastCount = min<uint8_t>(state.forecastCount, 4);
-  for (uint8_t i = 0; i < W.forecastCount; ++i) {
-    W.forecast[i].valid = state.forecast[i].valid;
-    W.forecast[i].id = state.forecast[i].id;
-    W.forecast[i].night = state.forecast[i].night;
-    W.forecast[i].temp = state.forecast[i].temp;
-    W.forecast[i].stamp = state.forecast[i].stamp;
-  }
-  previewNowUtc = state.nowUtc;
-  renderWeatherScreen(settings);
-}
-#else
 
 uint32_t WeatherMode::pollIntervalMs(const Settings& settings) const {
   return static_cast<uint32_t>(settings.weather.pollSec) * 1000UL;
@@ -1417,5 +1367,3 @@ void WeatherMode::displayTick(const Settings& settings) {
     nextAnimationMs_ = nowMs + (isRain(W.conditionId) ? 1000UL : 2500UL);
   }
 }
-
-#endif  // DESKMATE_PREVIEW

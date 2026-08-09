@@ -1,4 +1,4 @@
-#include "PreviewFramebuffer.h"
+#include "EmulatorDisplay.h"
 
 #include <algorithm>
 #include <array>
@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <filesystem>
 
-namespace PreviewFramebuffer {
+namespace EmulatorDisplay {
 namespace {
 std::array<uint16_t, TFT_WIDTH * TFT_HEIGHT> framebuffer{};
 
@@ -138,4 +138,4 @@ bool saveBmp(const std::string& path, int scale) {
   return ok;
 }
 
-}  // namespace PreviewFramebuffer
+}  // namespace EmulatorDisplay

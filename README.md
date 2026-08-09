@@ -2,15 +2,13 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible GeekMagic-style hardware.
 
-[![Weather Cycle Demo](preview/weather-cycle-demo.gif)](preview/weather-cycle-demo.gif)
-
 ## DeskMate 4.5
 
 Version 4.5 uses a compact palette-indexed alpine scene traced from the supplied reference animation: its mountain contours, lake, forest edge, foreground framing, and tent retain the source composition while runtime colors remain weather- and time-driven. Moving cloud lanes, reference-matched sun and moon paths, sun flare, twinkling stars, and rain/snow motion preserve live conditions and the day/night cycle. Dawn and dusk are transition ranges rather than hard theme switches.
 
 Weather telemetry is integrated into one continuous forecast card, leaving the lake and tent unobstructed. The card automatically changes between a light and dark glass tint while keeping one uniform substrate, so lake highlights cannot turn telemetry into a separate strip. The complete UI redraws only when data or the minute changes; scenic animation recomposes only the upper 157 rows every 2.5 seconds, leaving the forecast panel retained in LCD RAM.
 
-Version 4.4 added a native Linux desktop preview for the fixed 240 × 240 interface. It compiles the real firmware drawing functions against an RGB565 framebuffer, displays them in an enlarged X11 window, and can generate deterministic BMP screenshots for every UI state. This makes pixel-level layout work possible without repeatedly flashing the device.
+The native Linux emulator runs the same application lifecycle and provider clients as the ESP firmware against desktop implementations of display, networking, storage, clock, web-server, and OTA resources. Shared firmware edits therefore appear without maintaining a second preview behavior system.
 
 Version 4.3 separates **data acquisition** from **display rendering**. Every screen selected in the carousel keeps an independent refresh schedule while hidden, but only the visible screen renders. A central cooperative scheduler owns all polling, permits one network-heavy job at a time, and keeps the latest cached snapshot for instant carousel transitions.
 
@@ -58,29 +56,32 @@ DeskMate repeats inexpensive structural validation on the device. Secrets are wr
 NTP supplies UTC. The browser-resolved location provides an IANA timezone label and current UTC offset, while normal OpenWeather polling refreshes the offset. The cached offset is available immediately after reboot for the clock, forecast timestamps and scheduled night brightness.
 
 
-## Desktop preview
+## Desktop emulator
 
 On Fedora, install the native build dependencies:
 
 ```bash
-sudo dnf install gcc-c++ cmake libX11-devel
+sudo dnf install gcc-c++ cmake libX11-devel openssl-devel
 ```
 
-Launch the interactive preview. It opens on the animated clear-weather day cycle by default:
+Launch the full firmware application using any supported board profile:
 
 ```bash
-./preview/run.sh
+./emulator/run.sh --board esp8266
+./emulator/run.sh --board esp32c2
+./emulator/run.sh --board esp32
 ```
 
-Use Space to pause the transition and Up/Down to step by 30 simulated minutes. Press 1, 2, 3, or 4 to switch directly between clear, partly cloudy, cloudy, and rain cycles. The preview animates cloud drift, precipitation, celestial movement, dawn/dusk color interpolation, and night lighting with the same renderer used by the firmware.
+The X11 window shows the real 240 × 240 RGB565 framebuffer and the real web portal is served at `http://127.0.0.1:8080`. API calls use the PC network; configuration and virtual flash persist per board.
 
-Render all screen fixtures without opening a window:
+Run headlessly or rebuild automatically while editing:
 
 ```bash
-./preview/run.sh --all preview-output --scale 1
+./emulator/run.sh --headless --duration-ms 1000 --output deskmate.bmp
+./emulator/run.sh --watch --board esp8266
 ```
 
-The preview uses the same 40 × 40 tile renderer, RGB565 colors, Adafruit GFX drawing code, classic font, and Weather/GitHub/Network/Radar/OTA layout sources as the firmware. Hardware and API inputs are replaced with deterministic fixtures. See [`preview/README.md`](preview/README.md) for controls, available scenarios, watch mode, and headless testing.
+No feature state is mocked. Deterministic tests replay recorded raw provider responses through the real clients. See [`emulator/README.md`](emulator/README.md) for resource controls, OTA behavior, watch mode, and verification.
 
 ## Build
 

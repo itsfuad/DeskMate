@@ -1,12 +1,7 @@
 // Settings.h — persisted DeskMate configuration (LittleFS /config.json).
 #pragma once
 #include <Arduino.h>
-#if defined(DESKMATE_PREVIEW)
-class JsonObject {};
-class JsonObjectConst {};
-#else
 #include <ArduinoJson.h>
-#endif
 #include "config.h"
 
 struct Airport {

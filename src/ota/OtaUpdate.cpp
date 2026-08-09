@@ -77,8 +77,14 @@ OtaLatest otaCheckLatest(const Settings& s) {
           r.error = F("parse failed"); retryable = true;      // truncated/stalled stream
         } else {
           r.tag = (const char*)(doc["tag_name"] | "");
+          const char* wantedAsset =
+#if defined(DESKMATE_EMULATOR)
+              emulatorUpdateAsset();
+#else
+              UPDATE_ASSET;
+#endif
           for (JsonObjectConst a : doc["assets"].as<JsonArrayConst>()) {
-            if (strcmp(a["name"] | "", UPDATE_ASSET) == 0) {
+            if (strcmp(a["name"] | "", wantedAsset) == 0) {
               r.url = (const char*)(a["browser_download_url"] | "");
               break;
             }
@@ -104,7 +110,63 @@ OtaLatest otaCheckLatest(const Settings& s) {
 }
 
 String otaUpdateFromGitHub(const Settings& s) {
-#if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
+#if defined(DESKMATE_EMULATOR)
+  OtaLatest r = otaCheckLatest(s);
+  if (!r.ok) return "check failed: " + r.error;
+  if (!r.newer) return "already up to date (" FW_VERSION ")";
+
+  SecureClient client;
+  client.setInsecure();
+  int code = 0;
+  int contentLength = -1;
+  bool chunked = false;
+  if (!httpGet(client, r.url.c_str(), FW_NAME, "application/octet-stream",
+               s.httpTimeout, emulatorBoardProfile().otaSlotBytes,
+               &code, &contentLength, &chunked) || code != 200 || chunked ||
+      contentLength <= 0) {
+    client.stop();
+    return F("firmware download failed");
+  }
+  if (!Update.begin(static_cast<uint32_t>(contentLength))) {
+    client.stop();
+    return platformUpdateError();
+  }
+  uint8_t buffer[2048];
+  uint32_t written = 0;
+  gfxFirmwareUpdate(GfxFirmwareState::Downloading, r.tag.c_str(), 0,
+                    static_cast<uint32_t>(contentLength));
+  while (written < static_cast<uint32_t>(contentLength)) {
+    const size_t wanted = min<size_t>(sizeof(buffer), contentLength - written);
+    size_t count = 0;
+    const uint32_t started = millis();
+    while (count < wanted && millis() - started < s.httpTimeout) {
+      if (client.available()) {
+        const int value = client.read();
+        if (value >= 0) buffer[count++] = static_cast<uint8_t>(value);
+      } else if (!client.connected()) {
+        break;
+      } else {
+        delay(1);
+      }
+    }
+    if (!count || Update.write(buffer, count) != count) {
+      Update.end();
+      client.stop();
+      return platformUpdateError().length() ? platformUpdateError()
+                                            : String("firmware stream ended early");
+    }
+    written += static_cast<uint32_t>(count);
+    gfxFirmwareUpdate(GfxFirmwareState::Writing, r.tag.c_str(), written,
+                      static_cast<uint32_t>(contentLength));
+  }
+  client.stop();
+  if (!Update.end(true)) return platformUpdateError();
+  gfxFirmwareUpdate(GfxFirmwareState::Complete, r.tag.c_str(), written,
+                    static_cast<uint32_t>(contentLength),
+                    "Virtual firmware verified - rebooting");
+  emulatorRequestRestart();
+  return String();
+#elif defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
   OtaLatest r = otaCheckLatest(s);
   if (!r.ok) return "check failed: " + r.error;
   if (!r.newer) return "already up to date (" FW_VERSION ")";
@@ -148,7 +210,7 @@ String otaUpdateFromGitHub(const Settings& s) {
 // The web UI queues the request in LittleFS and reboots; this runs early in
 // setup() with the heap still free. The request is consumed BEFORE the attempt,
 // so a crash or failure can never boot-loop.
-#if defined(DESKMATE_ESP8266)
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
 static const char* OTA_REQ_PATH = "/ota.req";
 static const char* OTA_MSG_PATH = "/ota.msg";
 
@@ -179,6 +241,12 @@ String otaTakeBootResult() {
 void otaBootUpdate(const Settings& s) {
   LittleFS.remove(OTA_REQ_PATH);            // consume first: one attempt per request
   if (WiFi.status() != WL_CONNECTED) { otaBootResult(F("no WiFi at boot")); return; }
+
+#if defined(DESKMATE_EMULATOR)
+  const String error = otaUpdateFromGitHub(s);
+  if (error.length()) otaBootResult(error);
+  return;
+#else
 
   OtaLatest r = otaCheckLatest(s);          // re-resolve the asset URL fresh
   if (!r.ok)    { otaBootResult("check failed: " + r.error); return; }
@@ -220,6 +288,7 @@ void otaBootUpdate(const Settings& s) {
   else if (ret != HTTP_UPDATE_OK)
     otaBootResult("download failed: " + ESPhttpUpdate.getLastErrorString());
   // HTTP_UPDATE_OK: rebootOnUpdate restarts into the new image
+#endif
 }
 #else
 bool   otaBootRequested() { return false; }

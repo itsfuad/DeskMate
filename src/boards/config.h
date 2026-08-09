@@ -22,8 +22,13 @@
 // ---------------------------------------------------------------------------
 // Board selection
 // ---------------------------------------------------------------------------
-#if defined(DESKMATE_PREVIEW)
-  // Desktop preview has no physical board pins.
+#if defined(DESKMATE_EMULATOR)
+  // Runtime board capabilities come from the desktop platform adapter. These
+  // values only keep compile-time pin code out of the shared application.
+  #define TFT_BL_DEFAULT_INVERTED true
+  #define HAS_LDR 1
+  #define LDR_PIN 0
+  #define ADC_MAX 1023
 #elif defined(DESKMATE_ESP32C2)
   #include "board_esp32c2.h"
 #elif defined(DESKMATE_ESP32)
@@ -74,7 +79,7 @@
 #define MAX_ICAO_LEN      8
 #define DEFAULT_RADAR_LAT       0.0f
 #define DEFAULT_RADAR_LON       0.0f
-#define DEFAULT_RADAR_RANGE_KM  20
+#define DEFAULT_RADAR_RANGE_KM  50
 #define DEFAULT_RADAR_POLL_SEC  10
 
 // ---------------------------------------------------------------------------

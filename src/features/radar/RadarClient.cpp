@@ -11,22 +11,6 @@ static bool     g_error = false;
 
 static TlsSession g_radarSession;
 
-struct AircraftTrail {
-  char callsign[9];
-  float lastLat;
-  float lastLon;
-  int16_t dLat[16]; // Relative to origin, scaled by 5000
-  int16_t dLon[16]; // Relative to origin, scaled by 5000
-  uint8_t count;
-  uint32_t lastSeenMs;
-};
-
-#define MAX_TRAILS 12
-constexpr uint8_t kTrailMaxPoints = 16;
-constexpr float kTrailMinimumGapKm = 2.0f;
-constexpr float kTrailMaximumRadiusKm = 100.0f;
-static AircraftTrail g_trails[MAX_TRAILS];
-
 uint8_t         radarCount()      { return g_count; }
 const Aircraft& aircraftAt(uint8_t i) { return g_ac[i]; }
 uint32_t        radarLastOkMs()   { return g_lastOkMs; }
@@ -37,28 +21,7 @@ void radarInit(const Settings& settings) {
   g_count = 0;
   g_error = false;
   g_lastOkMs = 0;
-  for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
-    g_trails[i].callsign[0] = '\0';
-    g_trails[i].count = 0;
-    g_trails[i].lastSeenMs = 0;
-  }
-}
-
-uint8_t getAircraftTrail(const char* callsign, float originLat, float originLon,
-                         float* lats, float* lons, uint8_t maxPoints) {
-  if (!callsign || !callsign[0]) return 0;
-  for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
-    if (g_trails[i].callsign[0] != '\0' && strcmp(g_trails[i].callsign, callsign) == 0) {
-      uint8_t count = min<uint8_t>(g_trails[i].count, kTrailMaxPoints);
-      if (count > maxPoints) count = maxPoints;
-      for (uint8_t j = 0; j < count; ++j) {
-        lats[j] = originLat + (g_trails[i].dLat[j] / 5000.0f);
-        lons[j] = originLon + (g_trails[i].dLon[j] / 5000.0f);
-      }
-      return count;
-    }
-  }
-  return 0;
+  radarTrailReset();
 }
 
 // ---- geo: flat-earth projection around home (good enough at radar ranges) --
@@ -150,78 +113,8 @@ static bool parseAdsb(const Settings& s, Stream& stream) {
     strlcpy(t.category, a["category"] | "", sizeof(t.category));
     strlcpy(t.type, a["t"] | "", sizeof(t.type));
 
-    // Update or insert into global trail pool
-    if (t.callsign[0] != '\0') {
-      int foundIdx = -1;
-      for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
-        if (g_trails[i].callsign[0] != '\0' && strcmp(g_trails[i].callsign, t.callsign) == 0) {
-          foundIdx = i;
-          break;
-        }
-      }
-
-      if (foundIdx >= 0) {
-        AircraftTrail& trail = g_trails[foundIdx];
-        float movementKm = 0;
-        float unusedBearing = 0;
-        geo(trail.lastLat, trail.lastLon, lat, lon,
-            movementKm, unusedBearing);
-        if (movementKm >= kTrailMinimumGapKm) {
-          // Keep only meaningful movement. This avoids storing near-identical
-          // five-second samples while keeping the current aircraft position
-          // independent from the compressed trail history.
-          const uint8_t limit = kTrailMaxPoints - 1;
-          for (int j = limit; j > 0; --j) {
-            trail.dLat[j] = trail.dLat[j - 1];
-            trail.dLon[j] = trail.dLon[j - 1];
-          }
-          trail.dLat[0] = (int16_t)roundf((trail.lastLat - s.radar.lat) * 5000.0f);
-          trail.dLon[0] = (int16_t)roundf((trail.lastLon - s.radar.lon) * 5000.0f);
-          trail.lastLat = lat;
-          trail.lastLon = lon;
-          if (trail.count < kTrailMaxPoints) trail.count++;
-
-          // Trim old points by geographic radius, not by poll count. The
-          // newest point is index zero; once an old point falls outside the
-          // configured radius, all subsequent points are older still.
-          uint8_t kept = 0;
-          for (uint8_t j = 0; j < trail.count; ++j) {
-            const float pointLat = s.radar.lat + trail.dLat[j] / 5000.0f;
-            const float pointLon = s.radar.lon + trail.dLon[j] / 5000.0f;
-            geo(lat, lon, pointLat, pointLon, movementKm, unusedBearing);
-            if (movementKm <= kTrailMaximumRadiusKm) {
-              trail.dLat[kept] = trail.dLat[j];
-              trail.dLon[kept] = trail.dLon[j];
-              ++kept;
-            }
-          }
-          trail.count = kept;
-        }
-        trail.lastSeenMs = millis();
-      } else {
-        // Evict least-recently-seen or use empty slot
-        int slot = -1;
-        uint32_t oldestMs = 0xFFFFFFFFUL;
-        for (uint8_t i = 0; i < MAX_TRAILS; ++i) {
-          if (g_trails[i].callsign[0] == '\0') {
-            slot = i;
-            break;
-          }
-          if (g_trails[i].lastSeenMs < oldestMs) {
-            oldestMs = g_trails[i].lastSeenMs;
-            slot = i;
-          }
-        }
-        if (slot >= 0) {
-          AircraftTrail& trail = g_trails[slot];
-          strlcpy(trail.callsign, t.callsign, sizeof(trail.callsign));
-          trail.lastLat = lat;
-          trail.lastLon = lon;
-          trail.count = 0;
-          trail.lastSeenMs = millis();
-        }
-      }
-    }
+    radarTrailObserve(t.callsign, s.radar.lat, s.radar.lon, lat, lon,
+                      millis());
 
     geo(s.radar.lat, s.radar.lon, lat, lon, t.distKm, t.bearingDeg);
     const float track = (a["track"].is<float>() || a["track"].is<int>())

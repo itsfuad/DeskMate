@@ -1,8 +1,4 @@
-#if defined(DESKMATE_PREVIEW)
-#include "PreviewApi.h"
-#else
 #include "RadarMode.h"
-#endif
 #include "Gfx.h"
 #include "RadarClient.h"
 #include "TileRenderer.h"
@@ -11,9 +7,7 @@
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 
-#if !defined(DESKMATE_PREVIEW)
 RadarMode g_radarMode;
-#endif
 
 namespace {
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
@@ -29,6 +23,17 @@ constexpr uint16_t CYAN    = rgb565(66, 211, 205);
 constexpr uint16_t BLUE    = rgb565(69, 145, 210);
 constexpr uint16_t AMBER   = rgb565(246, 186, 78);
 constexpr uint16_t GREEN   = rgb565(79, 205, 128);
+
+uint16_t blend565(uint16_t background, uint16_t foreground, uint8_t alpha) {
+  const uint16_t inverse = 255U - alpha;
+  const uint16_t red = (((background >> 11) & 0x1F) * inverse +
+                        ((foreground >> 11) & 0x1F) * alpha) / 255U;
+  const uint16_t green = (((background >> 5) & 0x3F) * inverse +
+                          ((foreground >> 5) & 0x3F) * alpha) / 255U;
+  const uint16_t blue = ((background & 0x1F) * inverse +
+                         (foreground & 0x1F) * alpha) / 255U;
+  return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
+}
 
 constexpr int CX = 120;
 constexpr int CY = 120;
@@ -198,7 +203,6 @@ void drawRadarHeartbeat(TileCanvas& g, const Settings& settings,
   StatusDot::draw(g, x, y, color, on, busy);
 }
 
-#if !defined(DESKMATE_PREVIEW)
 struct RadarLedContext {
   const Settings* settings = nullptr;
   bool on = false;
@@ -211,7 +215,6 @@ void drawRadarLedRegion(TileCanvas& g, void* opaque) {
   g.fillScreen(BG);
   drawRadarHeartbeat(g, *context.settings, context.on, context.busy);
 }
-#endif
 
 void drawRadar(TileCanvas& g, void* opaque) {
   const RadarRenderContext& context =
@@ -294,11 +297,13 @@ void drawRadar(TileCanvas& g, void* opaque) {
 
     // Draw fading trail paths
     if (settings.radar.showTrails) {
-      float tLats[30];
-      float tLons[30];
-      uint8_t count = getAircraftTrail(aircraft.callsign, settings.radar.lat, settings.radar.lon, tLats, tLons, 30);
-      int trailX[31] = {x};
-      int trailY[31] = {y};
+      float tLats[RADAR_TRAIL_MAX_POINTS];
+      float tLons[RADAR_TRAIL_MAX_POINTS];
+      uint8_t count = getAircraftTrail(
+          aircraft.callsign, settings.radar.lat, settings.radar.lon,
+          tLats, tLons, RADAR_TRAIL_MAX_POINTS);
+      int trailX[RADAR_TRAIL_MAX_POINTS + 1] = {x};
+      int trailY[RADAR_TRAIL_MAX_POINTS + 1] = {y};
       uint8_t pointCount = 1;
       for (uint8_t j = 0; j < count; ++j) {
         float tDist, tBrg;
@@ -311,9 +316,12 @@ void drawRadar(TileCanvas& g, void* opaque) {
         ++pointCount;
       }
       for (uint8_t j = 0; j + 1 < pointCount; ++j) {
-        const uint8_t scale = max<uint8_t>(24, 200 - (j * 10));
+        const uint8_t oldestSegment = pointCount - 2;
+        const uint8_t scale = oldestSegment == 0
+            ? 255
+            : 255 - static_cast<uint8_t>(j * 215 / oldestSegment);
         drawTrailCurve(g, trailX, trailY, pointCount, j,
-                       StatusDot::scaleRgb565(color, scale));
+                       blend565(BG, color, scale));
       }
     }
 
@@ -398,18 +406,6 @@ void drawRadar(TileCanvas& g, void* opaque) {
   drawRadarHeartbeat(g, settings, context.heartbeatOn, context.pollBusy);
 }
 }  // namespace
-
-#if defined(DESKMATE_PREVIEW)
-void previewRenderRadar(const Settings& settings,
-                        const PreviewRadarState& state) {
-  previewSetRadarState(state);
-  RadarRenderContext context;
-  context.settings = &settings;
-  context.heartbeatOn = state.heartbeatOn;
-  context.pollBusy = state.pollBusy;
-  gfxRenderTiled(drawRadar, &context, BG);
-}
-#else
 
 void RadarMode::begin(const Settings& settings) {
   radarInit(settings);
@@ -514,5 +510,3 @@ void RadarMode::displayTick(const Settings& settings) {
     renderHeartbeat(settings);
   }
 }
-
-#endif  // DESKMATE_PREVIEW

@@ -6,7 +6,7 @@
 
 #include "config.h"
 
-namespace PreviewFramebuffer {
+namespace EmulatorDisplay {
 
 void clear(uint16_t color = 0);
 void blit(int x, int y, const uint16_t* pixels, int width, int height,
@@ -19,4 +19,4 @@ int height();
 bool saveBmp(const std::string& path, int scale = 1);
 std::vector<uint32_t> toArgb8888(int scale = 1);
 
-}  // namespace PreviewFramebuffer
+}  // namespace EmulatorDisplay

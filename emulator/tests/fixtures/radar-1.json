@@ -1,0 +1,11 @@
+{"ac":[
+{"hex":"4d0117","type":"adsb_icao","flight":"CLX7956 ","r":"LX-VCM","t":"B748","desc":"BOEING 747-8","alt_baro":39000,"alt_geom":41575,"gs":492.3,"ias":264,"tas":496,"mach":0.848,"wd":40,"ws":13,"oat":-48,"tat":-15,"track":123.40,"track_rate":0.03,"roll":0.18,"mag_heading":122.17,"true_heading":121.84,"baro_rate":0,"geom_rate":-32,"squawk":"0323","emergency":"none","category":"A5","nav_qnh":1013.6,"nav_altitude_mcp":39008,"nav_altitude_fms":39008,"nav_heading":122.34,"lat":23.778045,"lon":89.932683,"nic":8,"rc":186,"seen_pos":0.161,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":50033,"seen":0.2,"rssi":-15.2,"dst":26.372,"dir":265.9},
+{"hex":"702c6c","type":"adsb_icao","flight":"AJX1431 ","r":"99-5480","t":"C30J","dbFlags":1,"desc":"LOCKHEED MARTIN C-130J Super Hercules","alt_baro":13025,"alt_geom":13450,"gs":227.5,"ias":180,"tas":226,"mach":0.344,"wd":58,"ws":4,"track":168.59,"track_rate":-0.06,"roll":-0.53,"mag_heading":167.87,"true_heading":167.56,"baro_rate":32,"geom_rate":64,"squawk":"5541","emergency":"none","category":"A3","nav_qnh":1012.8,"nav_altitude_mcp":12992,"nav_altitude_fms":12992,"nav_heading":168.05,"nav_modes":["autopilot","althold","tcas"],"lat":24.063736,"lon":89.985749,"nic":9,"rc":75,"seen_pos":0.674,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":9744,"seen":0.2,"rssi":-17.7,"dst":27.893,"dir":303.1},
+{"hex":"8a0a13","type":"adsb_icao","flight":"UBG146  ","r":"PK-BBG","t":"B738","desc":"BOEING 737-800","alt_baro":11125,"alt_geom":11550,"gs":333.8,"track":320.35,"geom_rate":-1024,"squawk":"5553","category":"A0","lat":23.755554,"lon":90.640106,"nic":7,"rc":371,"seen_pos":10.827,"version":0,"nac_p":7,"nac_v":0,"sil":2,"sil_type":"unknown","alert":0,"spi":0,"mlat":[],"tisb":[],"messages":182,"seen":8.8,"rssi":-23.1,"dst":12.904,"dir":104.7}
+]
+,"msg": "No error"
+,"now": 1786264082000
+,"total": 3
+,"ctime": 1786264082000
+,"ptime": 0
+}

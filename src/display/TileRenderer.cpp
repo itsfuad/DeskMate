@@ -1,7 +1,7 @@
 #include "TileRenderer.h"
 
-#if defined(DESKMATE_PREVIEW)
-#include "PreviewFramebuffer.h"
+#if defined(DESKMATE_EMULATOR)
+#include "EmulatorDisplay.h"
 #else
 #include <Arduino_GFX_Library.h>
 #include "Gfx.h"
@@ -138,7 +138,7 @@ void gfxMarkLineTiles(TileMask& mask, int16_t x0, int16_t y0,
 
 void gfxRenderTileMask(TileRenderCallback render, void* context,
                        uint16_t clearColor, TileMask mask) {
-#if defined(DESKMATE_PREVIEW)
+#if defined(DESKMATE_EMULATOR)
   if (!render || !mask) return;
 #else
   Arduino_GFX* out = gfxDev();
@@ -160,8 +160,8 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
           ? remainingW : TileCanvas::MAX_TILE;
       g_tileCanvas.beginTile(x, y, w, h, clearColor);
       render(g_tileCanvas, context);
-#if defined(DESKMATE_PREVIEW)
-      PreviewFramebuffer::blit(x, y, g_tileCanvas.pixels(), w, h, w);
+#if defined(DESKMATE_EMULATOR)
+      EmulatorDisplay::blit(x, y, g_tileCanvas.pixels(), w, h, w);
 #else
       out->draw16bitRGBBitmap(x, y, g_tileCanvas.pixels(), w, h);
 #endif
@@ -175,7 +175,7 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
 void gfxRenderRegion(TileRenderCallback render, void* context,
                      uint16_t clearColor, int16_t x, int16_t y,
                      int16_t w, int16_t h) {
-#if defined(DESKMATE_PREVIEW)
+#if defined(DESKMATE_EMULATOR)
   if (!render || w <= 0 || h <= 0) return;
 #else
   Arduino_GFX* out = gfxDev();
@@ -198,9 +198,9 @@ void gfxRenderRegion(TileRenderCallback render, void* context,
           ? remainingW : TileCanvas::MAX_TILE;
       g_tileCanvas.beginTile(xx, yy, chunkW, chunkH, clearColor);
       render(g_tileCanvas, context);
-#if defined(DESKMATE_PREVIEW)
-      PreviewFramebuffer::blit(xx, yy, g_tileCanvas.pixels(), chunkW, chunkH,
-                               chunkW);
+#if defined(DESKMATE_EMULATOR)
+      EmulatorDisplay::blit(xx, yy, g_tileCanvas.pixels(), chunkW, chunkH,
+                            chunkW);
 #else
       out->draw16bitRGBBitmap(xx, yy, g_tileCanvas.pixels(), chunkW, chunkH);
 #endif

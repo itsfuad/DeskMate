@@ -1,0 +1,11 @@
+{"ac":[
+{"hex":"702c6c","type":"adsb_icao","flight":"AJX1431 ","r":"99-5480","t":"C30J","dbFlags":1,"desc":"LOCKHEED MARTIN C-130J Super Hercules","alt_baro":12975,"alt_geom":13375,"gs":228.7,"ias":181,"tas":226,"mach":0.348,"wd":22,"ws":4,"track":168.40,"track_rate":0.00,"roll":0.53,"mag_heading":167.87,"true_heading":167.55,"baro_rate":-96,"geom_rate":64,"squawk":"5541","emergency":"none","category":"A3","nav_qnh":1012.8,"nav_altitude_mcp":12992,"nav_altitude_fms":12992,"nav_heading":168.05,"nav_modes":["autopilot","althold","tcas"],"lat":23.961461,"lon":90.008758,"nic":9,"rc":75,"seen_pos":0.136,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":10351,"seen":0.1,"rssi":-19.0,"dst":23.909,"dir":292.3},
+{"hex":"4d0117","type":"adsb_icao","flight":"CLX7956 ","r":"LX-VCM","t":"B748","desc":"BOEING 747-8","alt_baro":39000,"alt_geom":41575,"gs":495.1,"ias":265,"tas":498,"mach":0.848,"wd":43,"ws":16,"oat":-48,"tat":-15,"track":123.47,"track_rate":0.03,"roll":0.35,"mag_heading":122.17,"true_heading":121.82,"baro_rate":-64,"geom_rate":-64,"squawk":"0323","emergency":"none","category":"A5","nav_qnh":1013.6,"nav_altitude_mcp":39008,"nav_altitude_fms":39008,"nav_heading":130.08,"lat":23.655029,"lon":90.136108,"nic":8,"rc":186,"seen_pos":0.136,"version":2,"nic_baro":1,"nac_p":9,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":50682,"seen":0.1,"rssi":-21.7,"dst":17.800,"dir":238.5},
+{"hex":"781214","type":"adsb_icao","flight":"CES2036 ","r":"B-1309","t":"B738","desc":"BOEING 737-800","alt_baro":10550,"alt_geom":10675,"gs":297.2,"ias":253,"tas":302,"mach":0.460,"wd":211,"ws":7,"oat":11,"tat":23,"track":159.31,"track_rate":-0.06,"roll":-0.18,"mag_heading":160.84,"true_heading":160.46,"baro_rate":2880,"geom_rate":2848,"squawk":"4757","emergency":"none","category":"A3","nav_qnh":1013.6,"nav_altitude_mcp":15008,"nav_heading":158.91,"lat":23.595703,"lon":90.561167,"nic":8,"rc":186,"seen_pos":0.617,"version":2,"nic_baro":1,"nac_p":9,"nac_v":1,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":143,"seen":0.6,"rssi":-22.4,"dst":15.260,"dir":147.6}
+]
+,"msg": "No error"
+,"now": 1786264180000
+,"total": 3
+,"ctime": 1786264180000
+,"ptime": 0
+}

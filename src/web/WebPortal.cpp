@@ -84,7 +84,9 @@ static void handleGetConfig() {
   JsonObject feat = root["features"].to<JsonObject>();
   feat["weather"]=(bool)WITH_WEATHER; feat["network"]=(bool)WITH_NETWORK; feat["radar"]=(bool)WITH_RADAR; feat["github"]=(bool)WITH_GITHUB;
   // Which chip this build runs on (the UI warns about per-chip limitations).
-#if defined(DESKMATE_ESP32C2)
+#if defined(DESKMATE_EMULATOR)
+  root["chip"] = emulatorBoardProfile().id;
+#elif defined(DESKMATE_ESP32C2)
   root["chip"] = "esp32c2";
 #elif defined(DESKMATE_ESP32)
   root["chip"] = "esp32";
@@ -711,6 +713,30 @@ void webPortalLoop() {
     } else {
       showFirmwareFailure(r.tag.c_str(),
                           F("could not queue update (storage error)"));
+    }
+#elif defined(DESKMATE_EMULATOR)
+    if (emulatorBoardProfile().hasLdr) {
+      OtaLatest r = otaCheckLatest(*S);
+      if (!r.ok) {
+        showFirmwareFailure("GitHub release", "check failed: " + r.error);
+      } else if (!r.newer) {
+        g_updateMsg = "already up to date (" FW_VERSION ")";
+        gfxFirmwareUpdate(GfxFirmwareState::Current, r.tag.c_str(), 0, 0,
+                          g_updateMsg.c_str());
+        holdFirmwareScreen(1800);
+      } else if (otaRequestBootUpdate(r.tag.c_str())) {
+        g_updateMsg = "restarting for update";
+        gfxFirmwareUpdate(GfxFirmwareState::Preparing, r.tag.c_str(), 0, 0,
+                          "Restarting with free update memory");
+        scheduleReboot(500);
+      } else {
+        showFirmwareFailure(r.tag.c_str(),
+                            F("could not queue update (storage error)"));
+      }
+    } else {
+      String err = otaUpdateFromGitHub(*S);
+      if (err.length()) showFirmwareFailure("GitHub release", err);
+      else g_updateMsg = "updating...";
     }
 #else
     // ESP32 targets: mbedTLS has the RAM to download in place; blocks while it
