@@ -27,7 +27,7 @@ PORTAL_STATE="$TEST_DIR/portal-state"
 mkdir -p "$PORTAL_STATE/littlefs"
 cp "$ROOT/emulator/tests/fixtures/legacy-config.json" \
   "$PORTAL_STATE/littlefs/config.json"
-printf 'LittleFS inspector fixture\n' > "$PORTAL_STATE/littlefs/notes.txt"
+printf 'LittleFS listing fixture\n' > "$PORTAL_STATE/littlefs/notes.txt"
 PORT=$((18080 + $$ % 1000))
 PORTAL_LOG="$TEST_DIR/portal.log"
 (
@@ -49,13 +49,20 @@ headers="$(curl --silent --show-error --dump-header - --output /dev/null "$BASE/
 grep -qi '^Cache-Control: no-store' <<<"$headers"
 grep -q 'Airports' <(curl --silent --show-error "$BASE/")
 grep -q 'LittleFS' <(curl --silent --show-error "$BASE/")
+portalPage="$(curl --silent --show-error "$BASE/")"
+grep -q 'class="fs-list"' <<<"$portalPage"
+grep -q 'Read-only filesystem listing' <<<"$portalPage"
+if grep -q 'fs-view\|fs-download' <<<"$portalPage"; then
+  echo "LittleFS listing unexpectedly exposes file action links" >&2
+  exit 1
+fi
 config="$(curl --silent --show-error "$BASE/api/config")"
 grep -q '"configVersion":1' <<<"$config"
 grep -q '"apSsid":"DeskMate-Setup"' <<<"$config"
 files="$(curl --silent --show-error "$BASE/api/fs")"
 grep -q '"path":"/config.json"' <<<"$files"
 grep -q '"path":"/notes.txt"' <<<"$files"
-grep -q 'LittleFS inspector fixture' <(curl --silent --show-error \
+grep -q 'LittleFS listing fixture' <(curl --silent --show-error \
   "$BASE/api/fs/file?path=%2Fnotes.txt")
 downloadHeaders="$(curl --silent --show-error --dump-header - --output /dev/null \
   "$BASE/api/fs/file?download=1&path=%2Fnotes.txt")"
@@ -91,4 +98,4 @@ if [[ "$(stat -c '%s' "$WEATHER_IMAGE")" -ne 230454 ]]; then
 fi
 
 echo
-echo "Emulator tests passed: board boot, portal migration, airport settings, and LittleFS inspector."
+echo "Emulator tests passed: board boot, portal migration, airport settings, and filesystem listing."
