@@ -1,4 +1,5 @@
 #include "PollScheduler.h"
+#include "Connectivity.h"
 
 namespace {
 // At least this much foreground time is given back after every network job.
@@ -93,6 +94,21 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
   const uint32_t now = millis();
   refillCredits(now);
 
+  if (connectivityConsumeRecovery()) {
+    for (uint8_t i = 0; i < count_; ++i) {
+      if (!modes_[i] || !modes_[i]->requiresInternet()) continue;
+      Runtime& r = runtime_[i];
+      // An outage can make a blocking DNS/TLS attempt take longer than its
+      // advertised budget. Forget that outage-only timing on recovery so it
+      // cannot permanently fail the scheduler's credit admission check.
+      r.averageDurationMs = 0;
+      r.lastDurationMs = 0;
+      r.failures = 0;
+      r.forced = true;
+      r.budgetDeferred = false;
+    }
+  }
+
   const uint32_t dynamicGap = lastJobDurationMs_ == 0
       ? kMinimumInterJobGapMs
       : min<uint32_t>(kMaximumInterJobGapMs,
@@ -138,6 +154,11 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
     const bool due = r.forced || r.continuation ||
                      static_cast<int32_t>(now - r.nextDue) >= 0;
     if (!due) {
+      r.budgetDeferred = false;
+      continue;
+    }
+
+    if (mode->requiresInternet() && !connectivityAllowsRequests()) {
       r.budgetDeferred = false;
       continue;
     }

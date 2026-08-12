@@ -12,6 +12,7 @@ class RadarMode : public DisplayMode {
   uint32_t pollIntervalMs(const Settings&) const override;
   uint16_t pollBudgetMs(const Settings&) const override;
   uint8_t pollCost() const override { return 3; }
+  bool requiresInternet() const override { return true; }
   PollResult poll(const Settings&, uint16_t budgetMs) override;
   void pollActivityChanged(const Settings&, bool busy) override;
   void displayTick(const Settings&) override;

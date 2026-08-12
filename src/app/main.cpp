@@ -15,6 +15,7 @@
 #include "OtaUpdate.h"
 #include "Mode.h"
 #include "Clock.h"
+#include "Connectivity.h"
 #include "PollScheduler.h"
 
 #if WITH_WEATHER
@@ -67,8 +68,14 @@ static bool carouselHas(const Settings& s, const DisplayMode* m) {
 }
 
 static bool modePollingEnabled(const Settings& s, const DisplayMode* m) {
+  if (!m) return false;
+#if WITH_NETWORK
+  // Connectivity is shared infrastructure. Its inexpensive DNS/TCP probe keeps
+  // running even when the Network screen is not part of the display rotation.
+  if (m->modeConst() == MODE_NETWORK) return true;
+#endif
   if (s.mode == MODE_CAROUSEL) return carouselHas(s, m);
-  return m && m->modeConst() == s.mode;
+  return m->modeConst() == s.mode;
 }
 
 static DisplayMode* upcomingMode(const Settings& s) {
@@ -221,6 +228,7 @@ void setup() {
   Serial.println("[boot] settings");
   settingsBegin();
   loadSettings(g_settings);
+  connectivityBegin(WITH_NETWORK != 0);
 
   Serial.println("[boot] display");
   gfxBegin(g_settings);

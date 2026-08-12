@@ -18,6 +18,7 @@ endif()
 set(DESKMATE_SHARED_SOURCES
   ${DESKMATE_ROOT}/src/app/main.cpp
   ${DESKMATE_ROOT}/src/core/Clock.cpp
+  ${DESKMATE_ROOT}/src/core/Connectivity.cpp
   ${DESKMATE_ROOT}/src/core/HttpRequest.cpp
   ${DESKMATE_ROOT}/src/core/PollScheduler.cpp
   ${DESKMATE_ROOT}/src/core/Settings.cpp
@@ -59,7 +60,16 @@ add_executable(deskmate-radar-client-test
   ${DESKMATE_ROOT}/src/features/radar/RadarTrail.cpp
 )
 
-foreach(target deskmate-emulator deskmate-radar-trail-test deskmate-radar-client-test)
+add_executable(deskmate-connectivity-test
+  tests/ConnectivitySchedulerTest.cpp
+  src/ArduinoCompat.cpp
+  src/EmulatorPlatform.cpp
+  ${DESKMATE_ROOT}/src/core/Connectivity.cpp
+  ${DESKMATE_ROOT}/src/core/PollScheduler.cpp
+)
+
+foreach(target deskmate-emulator deskmate-radar-trail-test
+               deskmate-radar-client-test deskmate-connectivity-test)
   target_compile_definitions(${target} PRIVATE DESKMATE_EMULATOR ARDUINO=10819)
   target_include_directories(${target} PRIVATE
     include
@@ -85,6 +95,7 @@ find_package(Threads REQUIRED)
 find_package(X11)
 target_link_libraries(deskmate-emulator PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_link_libraries(deskmate-radar-client-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(deskmate-connectivity-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 
 if(X11_FOUND)
   target_compile_definitions(deskmate-emulator PRIVATE DESKMATE_HAVE_X11)
@@ -95,7 +106,8 @@ else()
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  foreach(target deskmate-emulator deskmate-radar-trail-test deskmate-radar-client-test)
+  foreach(target deskmate-emulator deskmate-radar-trail-test
+                 deskmate-radar-client-test deskmate-connectivity-test)
     target_compile_options(${target} PRIVATE
       -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-nonnull-compare
       -Wno-array-bounds)

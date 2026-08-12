@@ -1,4 +1,5 @@
 #include "NetworkMode.h"
+#include "Connectivity.h"
 #include "Platform.h"
 #include "Gfx.h"
 #include "TileRenderer.h"
@@ -48,8 +49,6 @@ struct NetworkRenderContext {
 Sample samples[SAMPLE_COUNT];
 uint8_t head = 0;
 uint8_t count = 0;
-bool online = false;
-bool haveState = false;
 uint32_t outageStart = 0;
 uint32_t lastOutageSec = 0;
 uint16_t outageCount = 0;
@@ -95,7 +94,7 @@ uint8_t wifiQuality() {
 }
 
 uint16_t networkStatusColor() {
-  if (!haveState || !count) return BLUE;
+  if (connectivityState() == InternetState::Unknown || !count) return BLUE;
   const Sample& last = samples[(head + SAMPLE_COUNT - 1) % SAMPLE_COUNT];
   if (last.tcpOk && last.dnsOk) return GREEN;
   if (last.tcpOk || last.dnsOk) return AMBER;
@@ -183,6 +182,7 @@ void drawNetwork(TileCanvas& g, void* opaque) {
   g.setTextColor(TEXT);
   g.setTextSize(5);
   char value[40];
+  const bool online = connectivityState() == InternetState::Online;
   if (online) snprintf(value, sizeof(value), "%u", latest);
   else strlcpy(value, "--", sizeof(value));
   g.setCursor(10, 30);
@@ -317,16 +317,15 @@ void NetworkMode::probe(const Settings& settings, uint16_t budgetMs) {
   if (count < SAMPLE_COUNT) ++count;
 
   const bool nowOnline = sample.tcpOk && sample.dnsOk;
-  if (!haveState) {
-    haveState = true;
-    online = nowOnline;
-    if (!online) {
+  const InternetState previous = connectivityState();
+  connectivityRecord(nowOnline);
+  if (previous == InternetState::Unknown) {
+    if (!nowOnline) {
       outageStart = millis();
       outageCount = 1;
     }
-  } else if (nowOnline != online) {
-    online = nowOnline;
-    if (!online) {
+  } else if (nowOnline != (previous == InternetState::Online)) {
+    if (!nowOnline) {
       outageStart = millis();
       ++outageCount;
     } else if (outageStart) {

@@ -32,6 +32,7 @@ class DisplayMode {
     return static_cast<uint16_t>(min<uint32_t>(s.httpTimeout, 6000UL));
   }
   virtual uint8_t pollCost() const { return 1; }  // 1=light ... 5=TLS-heavy
+  virtual bool requiresInternet() const { return false; }
   virtual PollResult poll(const Settings& s, uint16_t budgetMs) {
     (void)s; (void)budgetMs; return PollResult::Skipped;
   }

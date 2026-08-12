@@ -9,6 +9,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 "$ROOT/emulator/build/deskmate-radar-trail-test"
 "$ROOT/emulator/build/deskmate-radar-client-test" \
   "$ROOT/emulator/tests/fixtures" "$TEST_DIR/radar-state"
+"$ROOT/emulator/build/deskmate-connectivity-test"
 
 for board in esp8266 esp32c2 esp32; do
   image="$TEST_DIR/$board.bmp"
@@ -98,4 +99,4 @@ if [[ "$(stat -c '%s' "$WEATHER_IMAGE")" -ne 230454 ]]; then
 fi
 
 echo
-echo "Emulator tests passed: board boot, portal migration, airport settings, and filesystem listing."
+echo "Emulator tests passed: connectivity recovery, board boot, portal migration, airport settings, and filesystem listing."
