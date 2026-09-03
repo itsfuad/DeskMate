@@ -2,9 +2,11 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible DeskMate hardware.
 
-## DeskMate 4.7.3
+## DeskMate 4.8.0
 
-DeskMate 4.7.3 uses a compact palette-indexed alpine scene traced from the supplied reference animation: its mountain contours, lake, forest edge, foreground framing, and tent retain the source composition while runtime colors remain weather- and time-driven. Moving cloud lanes, reference-matched sun and moon paths, sun flare, twinkling stars, and rain/snow motion preserve live conditions and the day/night cycle. Dawn and dusk are transition ranges rather than hard theme switches.
+DeskMate 4.8.0 rebuilds the GitHub screen around pending work — an inbox of review requests, mentions and assigned issues, the viewer's pull requests with review and CI state, and the contribution pulse — across selectable pages that share the screen's display window. UI glyphs are now generated from real icon packs rather than drawn by hand, and radar targets are heading-rotated icons coloured by altitude band.
+
+DeskMate uses a compact palette-indexed alpine scene traced from the supplied reference animation: its mountain contours, lake, forest edge, foreground framing, and tent retain the source composition while runtime colors remain weather- and time-driven. Moving cloud lanes, reference-matched sun and moon paths, sun flare, twinkling stars, and rain/snow motion preserve live conditions and the day/night cycle. Dawn and dusk are transition ranges rather than hard theme switches.
 
 Weather telemetry is integrated into one continuous forecast card, leaving the lake and tent unobstructed. The card automatically changes between a light and dark glass tint while keeping one uniform substrate, so lake highlights cannot turn telemetry into a separate strip. The complete UI redraws only when data or the minute changes; scenic animation recomposes only the upper 157 rows every 2.5 seconds, leaving the forecast panel retained in LCD RAM.
 

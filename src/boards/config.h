@@ -5,7 +5,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "deskmate"
-#define FW_VERSION  "4.7.3"
+#define FW_VERSION  "4.8.0"
 
 #define REPO_URL      "https://github.com/itsfuad/deskmate"
 #define REPO_OWNER    "itsfuad"
@@ -73,7 +73,7 @@
 #define DEFAULT_RADAR_SRC  RADAR_SRC_DIRECT
 #define ADSB_HOST        "opendata.adsb.fi"
 #define ADSB_PATH        "/api/v3/lat/"
-#define ADSB_USER_AGENT  "DeskMate/4.3"
+#define ADSB_USER_AGENT  "DeskMate/" FW_VERSION
 #define MAX_AIRCRAFT     30
 #define MAX_AIRPORTS      6
 #define MAX_ICAO_LEN      8
