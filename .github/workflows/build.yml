@@ -6,6 +6,17 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  icons:
+    # src/display/IconData.* are generated from the Icon:: identifiers used in
+    # src/ and committed. This fails the build if the two drift apart. It reads
+    # only committed files, so it needs no rasterizer and no network.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.x'}
+      - run: python3 scripts/gen_icons.py --check
+
   esp8266:
     runs-on: ubuntu-latest
     steps:

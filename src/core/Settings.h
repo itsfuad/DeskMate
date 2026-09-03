@@ -86,6 +86,16 @@ struct GithubSettings {
   String login;
   uint8_t rangeMonths;   // fixed at 3 months
   uint16_t pollSec;
+  // Which of the screen's pages take part in its rotation. At least one stays
+  // selected; the screen's share of display time is divided between them.
+  bool pageInbox;
+  bool pagePulls;
+  bool pagePulse;
+
+  uint8_t pageCount() const {
+    return static_cast<uint8_t>(pageInbox) + static_cast<uint8_t>(pagePulls) +
+           static_cast<uint8_t>(pagePulse);
+  }
 
   void setDefaults();
   void toJson(JsonObject o, bool includeSecrets) const;

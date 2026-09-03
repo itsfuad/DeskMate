@@ -33,7 +33,8 @@ bool headerNameIs(const char* line, const char* name) {
 
 bool httpReadResponseHeaders(NetClient& client, uint32_t timeoutMs,
                              size_t maximumBytes, int* code,
-                             int* contentLength, bool* chunked) {
+                             int* contentLength, bool* chunked,
+                             bool allowUnknownLength) {
   if (code) *code = 0;
   if (contentLength) *contentLength = -1;
   if (chunked) *chunked = false;
@@ -62,12 +63,18 @@ bool httpReadResponseHeaders(NetClient& client, uint32_t timeoutMs,
       if (chunked) *chunked = true;
     }
   }
-  return (contentLength && *contentLength >= 0) || (chunked && *chunked);
+  if (contentLength && *contentLength >= 0) return true;
+  if (chunked && *chunked) return true;
+  // Nothing framed the body. That is a hard error for a caller that needs the
+  // size in advance, and ordinary HTTP/1.0 close-delimiting for one that
+  // streams until the peer disconnects.
+  return allowUnknownLength;
 }
 
 bool httpGet(NetClient& client, const char* url, const char* userAgent,
              const char* accept, uint32_t timeoutMs, size_t maximumBytes,
-             int* code, int* contentLength, bool* chunked) {
+             int* code, int* contentLength, bool* chunked,
+             bool allowUnknownLength) {
   if (!url || !url[0]) return false;
   const char* hostStart = nullptr;
   uint16_t port = 0;
@@ -103,5 +110,5 @@ bool httpGet(NetClient& client, const char* url, const char* userAgent,
   client.print(F("\r\nConnection: close\r\n\r\n"));
 
   return httpReadResponseHeaders(client, timeoutMs, maximumBytes, code,
-                                 contentLength, chunked);
+                                 contentLength, chunked, allowUnknownLength);
 }

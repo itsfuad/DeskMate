@@ -1,5 +1,70 @@
 # Changelog
 
+## Unreleased
+
+### GitHub screen
+
+- Reframed the screen around pending work. Up to three pages rotate: an inbox of review requests, mentions and assigned issues; the viewer's open pull requests with review-decision and CI-check badges; and the previous counts, streak and contribution heatmap as a pulse page.
+- Made the pages individually selectable in the web UI's GitHub tab, with at least one always kept. The portal shows the resulting per-page dwell as the selection or the carousel dwell changes.
+- Replaced the fixed eight-second page interval with one derived from the screen's own display window: the carousel dwell divided by the number of selected pages, floored at 1.2 s so a short window cannot thrash the panel with full repaints. One carousel visit now covers the rotation exactly once instead of stopping wherever a fixed interval landed.
+- Toggling page selection no longer counts as a feature change in the configuration API, so it repaints without discarding a good snapshot and re-running the GitHub API calls.
+- Fixed GitHub configuration validation rejecting any partial POST: an absent `pollSec` was read as zero and failed the range check, so every request that did not resend the whole object was refused. Only the keys a request carries are validated now.
+- Coloured rows with GitHub's own state palette rather than by category: open green, draft grey, merged purple, closed red (Primer's dark-theme values). The icon carries what a row is and the colour carries what state it is in, which is how GitHub's own inbox reads. Pull-request rows pick their glyph to match — `git-pull-request`, `git-pull-request-draft`, `git-merge`, `git-pull-request-closed` — and a closed issue shows a check rather than a dot.
+- The author search no longer filters to open pull requests, so a merged or closed one stays visible while it is recent and the new colours mean something. The page header still reports the true open count, which comes from `viewer` rather than from the list.
+- Fixed the GitHub calendar phase failing outright against the real API. GitHub's GraphQL endpoint delimits a response by closing the connection, sending neither `Content-Length` nor `Transfer-Encoding: chunked` — its REST endpoints do send a length, which is why OTA was unaffected — and `httpReadResponseHeaders` rejected an unframed body before reading a byte of it. Streaming callers can now opt into close-delimited bodies; `JsonScanner` already stopped at end of stream. Callers that need the size in advance, such as the firmware writer, keep the strict behaviour.
+- Raised the GitHub response ceiling from 24 KB to 96 KB. The response is parsed as it arrives and never buffered, so the limit bounds how long a reply may hold the single network slot rather than how much RAM it needs, and the old value could reject a busy account's contribution calendar sight unseen.
+- Replaced the GitHub screen's catch-all "GITHUB HTTP ERROR" with messages that name the failure: the GraphQL error text where the API supplies one, otherwise the HTTP status. A request that returns no response at all is now distinguished from one that returns an unusable body.
+- Fixed the first attempt of a GitHub request not being retried after a connection failure. The retry test covered negative and 5xx codes but not the zero a timeout leaves behind.
+- Fixed the pulse page reporting "LOADING" forever after its contribution calendar had actually failed. The calendar phase wrote its failure into the error state shared with the action lists, and the next successful list fetch cleared it, leaving no record of why the page was empty. The calendar now keeps its own failure state, so the page names the API error, points at the `read:user` scope, and counts down to the next attempt, while the shared header rule stays neutral because the lists themselves are fine.
+- Added a busy lamp to the GitHub screen for the duration of its blocking TLS refresh. The ESP8266 has one core and the refresh genuinely stops the panel for a few seconds; only the lamp's own rectangle is pushed, so showing it costs nothing near a repaint.
+- Fixed long API messages bleeding off both edges of an empty-state card; they are clipped to the card now.
+- Fixed the pulse page disappearing instead of explaining itself. It was dropped from the rotation whenever its contribution calendar was unavailable, which is exactly what a token without `read:user` produces: the page silently vanished and the only signal was a red header rule with no text. A selected page now always appears and names the failure.
+- Added per-row repository, number, title and queue age. Review requests are ordered ahead of mentions, and mentions ahead of assigned issues.
+- Added an explicit `ALL CLEAR` state so an empty inbox reads as an answer rather than a blank panel.
+- Arriving from the carousel now always starts at the first selected page rather than mid-rotation.
+- A failed refresh keeps the last good snapshot and turns the header rule red instead of blanking the screen.
+- Split GitHub polling into two phases over the one GraphQL endpoint. Action lists refresh every cycle; the three-month contribution calendar, which is most of the payload and changes once a day, refreshes hourly as a scheduler continuation. A failed calendar phase no longer backs off the whole screen.
+- The POST body is now streamed from PROGMEM in fixed chunks instead of being staged in a 640-byte RAM buffer, and response staging moved off the stack, lowering peak stack use during the TLS session.
+- Extended the portal's token verification to exercise the issue/pull-request search the screen depends on, not only the contribution query.
+
+### Radar
+
+- Fixed the radar reporting no data from a healthy endpoint. The CDN in front of adsb.fi answers an HTTP/1.0 request by closing the connection rather than sending Content-Length or Transfer-Encoding, and the client rejected the unframed body before reading it — the same defect as the GitHub calendar phase, from the same shared helper. ArduinoJson already stopped at the end of the document, so the response parses as-is.
+- Coloured aircraft by altitude band, the convention every ADS-B display follows: ground, then bands at 5, 10, 20, 30 and 40 thousand feet. Previously every target was painted the same coral with cyan reserved for the nearest, which encoded almost nothing and turned a busy sky into one mass. The nearest target now keeps a ring instead of its own colour, so highlighting it costs no altitude information.
+- Added an on-screen altitude key and tied the nearest-target ring to the readout that names it, so neither the colours nor the ring need explaining away from the device.
+- Fixed every aircraft being drawn 45 degrees clockwise of its track. Icon packs draw a vehicle at whatever angle suits a toolbar and Lucide's plane flies northeast, which the rotation frames inherited. Packs now carry a `rotation_offset` so the house angle is corrected once per pack, `base=` overrides it for a glyph that disagrees with its own pack, and the generator measures frame 0 and fails the build with the exact correction if it does not point north.
+- Replaced the hand-built aircraft silhouette with a rotated icon, in two sizes standing in for emitter-category scaling. Rotorcraft keep their drawn rotor disc, which looks the same from every heading.
+- The radar source test now names the failure — unreachable, rate limited, or an unexpected status — rather than reporting every outcome as invalid aircraft data. An empty but valid sky was already a success and stays one.
+
+### Icons
+
+- Added rotation frames: `rot=N` in `assets/icons.overrides` rasterizes N evenly spaced rotations of a glyph, and `gfxDrawIconRotated` picks the nearest. The rotation is applied to the vector before rasterizing, so every frame is as clean as the unrotated one.
+
+### Response parsing
+
+- Added `src/core/JsonScanner.h`, a streaming allocation-free JSON walker that tracks container nesting and array indices.
+- Fixed a latent defect in GitHub response handling: the previous reader matched keys at any depth, so any `message` field in a successful payload was reported as a GraphQL error. Errors are now matched only inside the top-level `errors` array.
+- Identically named fields in different result lists can no longer overwrite one another, which is what made multiple lists possible at all.
+
+### Icons
+
+- Replaced hand-drawn icon primitives with glyphs resolved from real icon packs, and removed the hand-maintained icon list entirely. Firmware code references `Icon::CodeMerge`; `scripts/gen_icons.py` scans `src/` for those identifiers, resolves each against committed pack catalogs, vendors any missing SVG and emits exactly the glyphs in use. An icon that stops being referenced stops being compiled in — the first run of this dropped two glyphs that had been declared but never drawn.
+- Indexed Octicons, FontAwesome Free 7.3.1 and Lucide: 4,184 icons searchable offline with `scripts/gen_icons.py --search`, so the available set is whatever the packs ship rather than whatever someone remembered to declare. Every catalog stays searchable regardless of the resolution order, so an icon outside it can be found and then pinned.
+- Screens now draw from Lucide alone: one ISC-licensed set with no attribution obligation and one stroke weight throughout. Lucide ships no fills, so status badges are rings at 14px with a lowered alpha threshold rather than discs at 12px; it ships no brand marks, so the loading screen uses `git-graph`; and it has no `code-review`, so a review request uses `message-square-code`.
+- Added `--from DIR` to both icon scripts, so an unpacked official FontAwesome download can replace the network for both indexing and vendoring. The location is remembered in a gitignored `assets/icons/sources.conf`, and a machine without the package falls back to downloading.
+- FontAwesome now resolves against `svgs-full/`, whose drawings are all normalized to a square 640x640 box; its default `svgs/` are tight-cropped and non-square for 1762 of 2883 icons.
+- An identifier is the pack's own name in PascalCase, with a trailing number for the render size, so one drawing serves several sizes without a declaration for each. Sizes now resolve to a pack's purpose-drawn variant where one exists, replacing downscaled 16-pixel art for the 12- and 24-pixel badges.
+- Added `gfxDrawIcon` / `gfxDrawIconCentered` in `src/display/Icons.h`. Glyphs are 1-bit masks in flash, so they need no RAM copy and composite over whatever is behind them.
+- `assets/icons.overrides` is now the only hand-edited icon file, and only for pinning a pack or tuning a threshold.
+- A glyph whose source is not square is centered in its box rather than stretched to fill it, so FontAwesome's 512-tall variable-width drawings keep their proportions.
+- Ordinary firmware builds need neither Python nor network access. CI verifies the generated sources still match the icons `src/` references.
+
+### Emulator and verification
+
+- Added a JSON scanner test covering list isolation, arrays nested under a reused name, error scoping, depth overflow, truncation and string escapes.
+- Added GitHub screen coverage to the emulator suite: the three pages render from recorded responses, the contribution heatmap is asserted by pixel, and a token-less run is required to differ.
+- Emulator fixtures are now selected after the request body is written, so the two GitHub polling phases can be answered from separate recordings.
+
 ## 4.7.3 — 2026-08-09
 
 ### Portal and configuration

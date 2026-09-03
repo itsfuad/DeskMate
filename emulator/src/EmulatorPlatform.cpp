@@ -78,8 +78,18 @@ std::string responseFixtureName(const std::string& host,
   if (host == "api.openweathermap.org")
     return path.find("/forecast") != std::string::npos
         ? "weather-forecast.http" : "weather-current.http";
-  if (host == "api.github.com")
-    return path == "/graphql" ? "github.http" : "release.http";
+  if (host == "api.github.com") {
+    if (path != "/graphql") return "release.http";
+    // The GitHub screen posts two different documents to one endpoint. Pick the
+    // fixture from the query body so each polling phase can be exercised.
+    const size_t body = request.find("\r\n\r\n");
+    const std::string document = body == std::string::npos
+        ? std::string() : request.substr(body + 4);
+    if (document.find("contributionCalendar") != std::string::npos)
+      return "github-calendar.http";
+    if (!document.empty()) return "github-lists.http";
+    return "github.http";
+  }
 
   std::string name = host + path;
   for (char& value : name)
@@ -247,6 +257,25 @@ struct EmulatorClient::Impl {
   std::string request;
   std::string response;
   size_t responsePosition = 0;
+
+  // The fixture is chosen the first time the caller reads, by which point the
+  // whole request -- headers and body -- has been written.
+  void ensureResponse() {
+    if (responseLoaded || request.empty()) return;
+    responseLoaded = true;
+    const std::filesystem::path path =
+        std::filesystem::path(emulatorResponseDirectory()) /
+        responseFixtureName(host, request);
+    std::ifstream input(path, std::ios::binary);
+    response.assign(std::istreambuf_iterator<char>(input),
+                    std::istreambuf_iterator<char>());
+    if (path.extension() == ".json" && !response.empty()) {
+      const std::string body = response;
+      response = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
+          "Content-Length: " + std::to_string(body.size()) +
+          "\r\nConnection: close\r\n\r\n" + body;
+    }
+  }
 };
 
 EmulatorClient::EmulatorClient(bool secure) : impl_(new Impl(secure)) {}
@@ -301,6 +330,7 @@ int EmulatorClient::connect(const char* host, uint16_t port) {
 }
 
 int EmulatorClient::available() {
+  if (impl_->fixture) impl_->ensureResponse();
   if (!connected()) return 0;
   if (impl_->peeked >= 0) return 1;
   if (impl_->fixture)
@@ -315,6 +345,7 @@ int EmulatorClient::read() {
     impl_->peeked = -1;
     return value;
   }
+  if (impl_->fixture) impl_->ensureResponse();
   if (!connected()) return -1;
   if (impl_->fixture) {
     if (impl_->responsePosition >= impl_->response.size()) return -1;
@@ -339,22 +370,6 @@ size_t EmulatorClient::write(const uint8_t* buffer, size_t size) {
   if (!connected() || !buffer) return 0;
   if (impl_->fixture) {
     impl_->request.append(reinterpret_cast<const char*>(buffer), size);
-    if (!impl_->responseLoaded &&
-        impl_->request.find("\r\n\r\n") != std::string::npos) {
-      const std::filesystem::path path =
-          std::filesystem::path(emulatorResponseDirectory()) /
-          responseFixtureName(impl_->host, impl_->request);
-      std::ifstream input(path, std::ios::binary);
-      impl_->response.assign(std::istreambuf_iterator<char>(input),
-                             std::istreambuf_iterator<char>());
-      if (path.extension() == ".json" && !impl_->response.empty()) {
-        const std::string body = impl_->response;
-        impl_->response = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
-            "Content-Length: " + std::to_string(body.size()) +
-            "\r\nConnection: close\r\n\r\n" + body;
-      }
-      impl_->responseLoaded = true;
-    }
     return size;
   }
   size_t written = 0;
@@ -371,6 +386,7 @@ size_t EmulatorClient::write(const uint8_t* buffer, size_t size) {
 bool EmulatorClient::connected() {
   if (impl_->fixture)
     return !impl_->responseLoaded || impl_->responsePosition < impl_->response.size();
+
   if (impl_->socket < 0) return false;
   pollfd descriptor{impl_->socket, static_cast<short>(POLLIN | POLLHUP | POLLERR), 0};
   if (poll(&descriptor, 1, 0) <= 0) return true;

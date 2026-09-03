@@ -20,8 +20,11 @@ set(DESKMATE_SHARED_SOURCES
   ${DESKMATE_ROOT}/src/core/Clock.cpp
   ${DESKMATE_ROOT}/src/core/Connectivity.cpp
   ${DESKMATE_ROOT}/src/core/HttpRequest.cpp
+  ${DESKMATE_ROOT}/src/core/JsonScanner.cpp
   ${DESKMATE_ROOT}/src/core/PollScheduler.cpp
   ${DESKMATE_ROOT}/src/core/Settings.cpp
+  ${DESKMATE_ROOT}/src/display/IconData.cpp
+  ${DESKMATE_ROOT}/src/display/Icons.cpp
   ${DESKMATE_ROOT}/src/display/TileRenderer.cpp
   ${DESKMATE_ROOT}/src/features/weather/WeatherMode.cpp
   ${DESKMATE_ROOT}/src/features/github/GithubMode.cpp
@@ -60,16 +63,25 @@ add_executable(deskmate-radar-client-test
   ${DESKMATE_ROOT}/src/features/radar/RadarTrail.cpp
 )
 
+add_executable(deskmate-json-scanner-test
+  tests/JsonScannerTest.cpp
+  src/ArduinoCompat.cpp
+  src/EmulatorPlatform.cpp
+  ${DESKMATE_ROOT}/src/core/JsonScanner.cpp
+)
+
 add_executable(deskmate-connectivity-test
   tests/ConnectivitySchedulerTest.cpp
   src/ArduinoCompat.cpp
   src/EmulatorPlatform.cpp
   ${DESKMATE_ROOT}/src/core/Connectivity.cpp
+  ${DESKMATE_ROOT}/src/core/JsonScanner.cpp
   ${DESKMATE_ROOT}/src/core/PollScheduler.cpp
 )
 
 foreach(target deskmate-emulator deskmate-radar-trail-test
-               deskmate-radar-client-test deskmate-connectivity-test)
+               deskmate-radar-client-test deskmate-connectivity-test
+               deskmate-json-scanner-test)
   target_compile_definitions(${target} PRIVATE DESKMATE_EMULATOR ARDUINO=10819)
   target_include_directories(${target} PRIVATE
     include
@@ -96,6 +108,7 @@ find_package(X11)
 target_link_libraries(deskmate-emulator PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_link_libraries(deskmate-radar-client-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_link_libraries(deskmate-connectivity-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(deskmate-json-scanner-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 
 if(X11_FOUND)
   target_compile_definitions(deskmate-emulator PRIVATE DESKMATE_HAVE_X11)
@@ -107,7 +120,8 @@ endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   foreach(target deskmate-emulator deskmate-radar-trail-test
-                 deskmate-radar-client-test deskmate-connectivity-test)
+                 deskmate-radar-client-test deskmate-connectivity-test
+                 deskmate-json-scanner-test)
     target_compile_options(${target} PRIVATE
       -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-nonnull-compare
       -Wno-array-bounds)

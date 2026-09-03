@@ -317,11 +317,18 @@ static bool validateConfigInput(JsonObjectConst root, String& error) {
 
   if (root["github"].is<JsonObjectConst>()) {
     const JsonObjectConst github = root["github"].as<JsonObjectConst>();
-    const int months = github["rangeMonths"] | 3;
-    const int interval = github["pollSec"] | 0;
-    if (months != 3 ||
-        interval < 300 || interval > 3600) {
-      error = F("invalid GitHub range or interval"); return false;
+    // Validate only the keys the request actually carries. Page selection is
+    // posted on its own, and treating an absent interval as zero would reject
+    // every such display-only change.
+    if (github["rangeMonths"].is<int>() &&
+        github["rangeMonths"].as<int>() != 3) {
+      error = F("GitHub range is fixed at 3 months"); return false;
+    }
+    if (github["pollSec"].is<int>()) {
+      const int interval = github["pollSec"].as<int>();
+      if (interval < 300 || interval > 3600) {
+        error = F("invalid GitHub interval"); return false;
+      }
     }
     if (github["token"].is<const char*>() &&
         github["token"].as<String>().length() > 512) {
@@ -379,10 +386,19 @@ static void handlePostConfig() {
   const bool hasMode = root["mode"].is<const char*>();
   const bool hasRotation = root["rotation"].is<int>();
   const bool hasWeather = root["weather"].is<JsonObjectConst>();
+  // Choosing which GitHub pages rotate is a display preference. Only the keys
+  // that change what is fetched count as a feature change, so toggling a page
+  // does not discard a good snapshot and re-run the API calls.
+  JsonObjectConst github = root["github"];
+  const bool hasGithubData = !github.isNull() &&
+                             (github["token"].is<const char*>() ||
+                              github["login"].is<const char*>() ||
+                              github["pollSec"].is<int>());
+  const bool hasGithubDisplay = !github.isNull() && !hasGithubData;
   const bool hasFeatureConfig = hasWeather ||
                                 root["network"].is<JsonObjectConst>() ||
                                 root["radar"].is<JsonObjectConst>() ||
-                                root["github"].is<JsonObjectConst>();
+                                hasGithubData;
 
   settingsApplyJson(*S, root);
   const bool persisted = saveSettings(*S);
@@ -399,7 +415,9 @@ static void handlePostConfig() {
   const bool timeFormatChanged = hasClock && S->clock.use24Hour != oldUse24Hour;
   if (rotationChanged) gfxSetRotation(S->rotation);
   if (hasFeatureConfig) appInvalidate();
-  else if (hasMode || rotationChanged || timeFormatChanged) appWakeActive();
+  else if (hasMode || rotationChanged || timeFormatChanged || hasGithubDisplay) {
+    appWakeActive();
+  }
 
   const bool wifiChanged = netFingerprint(*S) != oldNet;
 
@@ -630,7 +648,24 @@ static void handleTestRadar() {
   output["ok"] = ok;
   output["aircraft"] = count;
   output["httpCode"] = httpCode;
-  if (!ok) output["error"] = "radar endpoint did not return valid aircraft data";
+  if (!ok) {
+    // An unreachable endpoint, a rate limit and a malformed body are three
+    // different problems with three different fixes, so the test names which.
+    char detail[72];
+    if (httpCode == 0) {
+      strlcpy(detail, "could not reach the radar endpoint", sizeof(detail));
+    } else if (httpCode == 429) {
+      strlcpy(detail, "radar endpoint is rate limiting this device (HTTP 429)",
+              sizeof(detail));
+    } else if (httpCode != 200) {
+      snprintf(detail, sizeof(detail), "radar endpoint returned HTTP %d",
+               httpCode);
+    } else {
+      strlcpy(detail, "radar endpoint did not return valid aircraft data",
+              sizeof(detail));
+    }
+    output["error"] = detail;
+  }
   sendJson(output, ok ? 200 : 422);
 }
 

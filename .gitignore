@@ -50,3 +50,7 @@ dependencies.lock
 *.bmp
 
 graphify-out
+
+# Local icon release packages registered by --from. Absolute, machine-specific
+# paths; a missing entry just falls back to downloading the glyph.
+assets/icons/sources.conf

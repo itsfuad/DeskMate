@@ -4,6 +4,7 @@
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
 #include "StatusDot.h"
+#include "Icons.h"
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 
@@ -23,6 +24,22 @@ constexpr uint16_t CYAN    = rgb565(66, 211, 205);
 constexpr uint16_t BLUE    = rgb565(69, 145, 210);
 constexpr uint16_t AMBER   = rgb565(246, 186, 78);
 constexpr uint16_t GREEN   = rgb565(79, 205, 128);
+constexpr uint16_t VIOLET  = rgb565(168, 130, 255);
+constexpr uint16_t GROUND  = rgb565(140, 158, 163);
+
+// Altitude bands, the convention every ADS-B display uses. Colour carries the
+// one thing a flat plan view cannot: how high a target is. The previous scheme
+// painted every aircraft the same coral and reserved cyan for the nearest,
+// which encoded almost nothing and turned a busy sky into one red mass.
+uint16_t altitudeColor(int32_t altFt) {
+  if (altFt <= 0) return GROUND;        // on the ground, or no altitude given
+  if (altFt < 5000) return CORAL;
+  if (altFt < 10000) return AMBER;
+  if (altFt < 20000) return GREEN;
+  if (altFt < 30000) return CYAN;
+  if (altFt < 40000) return BLUE;
+  return VIOLET;
+}
 
 uint16_t blend565(uint16_t background, uint16_t foreground, uint8_t alpha) {
   const uint16_t inverse = 255U - alpha;
@@ -97,15 +114,6 @@ void geo(float homeLat, float homeLon, float lat, float lon,
   if (bearing < 0) bearing += 360.0f;
 }
 
-void rotatedPoint(int x, int y, float heading, float localX,
-                  float localForward, int& outX, int& outY) {
-  const float angle = heading * static_cast<float>(PI) / 180.0f;
-  const float c = cosf(angle);
-  const float s = sinf(angle);
-  outX = x + static_cast<int>(lroundf(localX * c + localForward * s));
-  outY = y + static_cast<int>(lroundf(localX * s - localForward * c));
-}
-
 float categoryScale(const Aircraft& aircraft) {
   if (aircraft.category[0] == 'A') {
     switch (aircraft.category[1]) {
@@ -137,6 +145,8 @@ void drawAircraft(TileCanvas& g, const Aircraft& aircraft, int x, int y,
   const float heading = aircraft.headingDeg;
 
   if (isRotorcraft(aircraft)) {
+    // A rotor disc seen from above is the same at every heading, so this one
+    // stays drawn rather than iconified; there is no orientation to convey.
     const int arm = max(3, static_cast<int>(5 * scale));
     g.drawLine(x - arm, y, x + arm, y, color);
     g.drawLine(x, y - arm, x, y + arm, color);
@@ -145,26 +155,10 @@ void drawAircraft(TileCanvas& g, const Aircraft& aircraft, int x, int y,
     return;
   }
 
-  const float nose = 9.0f * scale;
-  const float tail = -7.0f * scale;
-  const float wing = 7.0f * scale;
-  const float tailWing = 3.4f * scale;
-  int nx, ny, tx, ty, lwx, lwy, rwx, rwy, ltx, lty, rtx, rty;
-  rotatedPoint(x, y, heading, 0, nose, nx, ny);
-  rotatedPoint(x, y, heading, 0, tail, tx, ty);
-  rotatedPoint(x, y, heading, -wing, 0.5f * scale, lwx, lwy);
-  rotatedPoint(x, y, heading, wing, 0.5f * scale, rwx, rwy);
-  rotatedPoint(x, y, heading, -tailWing, -5.0f * scale, ltx, lty);
-  rotatedPoint(x, y, heading, tailWing, -5.0f * scale, rtx, rty);
-
-  g.drawLine(tx, ty, nx, ny, color);
-  g.drawLine(lwx, lwy, rwx, rwy, color);
-  g.drawLine(ltx, lty, rtx, rty, color);
-  g.fillTriangle(nx, ny, x - 1, y + 1, x + 1, y + 1, color);
-  if (scale >= 1.05f) {
-    g.drawLine(tx + 1, ty, nx + 1, ny, color);
-    g.fillCircle(x, y, 1, color);
-  }
+  // Two icon sizes stand in for the continuous category scaling the drawn
+  // silhouette used, which is all the panel can resolve anyway.
+  gfxDrawIconRotated(g, scale >= 1.05f ? Icon::Plane16 : Icon::Plane12,
+                     x, y, heading, color);
 }
 
 struct LabelBox {
@@ -287,13 +281,15 @@ void drawRadar(TileCanvas& g, void* opaque) {
       if (!settings.radar.showRimDots) continue;
       int x, y;
       polar(RR - 1, aircraft.bearingDeg, x, y);
-      g.fillCircle(x, y, i == 0 ? 3 : 2, i == 0 ? CYAN : CORAL);
+      const uint16_t rimColor = altitudeColor(aircraft.altFt);
+      g.fillCircle(x, y, i == 0 ? 3 : 2, rimColor);
+      if (i == 0) g.drawCircle(x, y, 5, rimColor);
       continue;
     }
 
     int x, y;
     polar(aircraft.distKm / range * RR, aircraft.bearingDeg, x, y);
-    const uint16_t color = i == 0 ? CYAN : CORAL;
+    const uint16_t color = altitudeColor(aircraft.altFt);
 
     // Draw fading trail paths
     if (settings.radar.showTrails) {
@@ -326,6 +322,9 @@ void drawRadar(TileCanvas& g, void* opaque) {
     }
 
     drawAircraft(g, aircraft, x, y, ui, color);
+    // The nearest target keeps its own marker instead of its own colour, so
+    // that highlighting it costs no altitude information.
+    if (i == 0) g.drawCircle(x, y, max(7, static_cast<int>(9 * ui)), color);
 
     if (!settings.radar.showLabels || !aircraft.callsign[0] ||
         labelCount >= 10) {
@@ -386,6 +385,24 @@ void drawRadar(TileCanvas& g, void* opaque) {
   g.setCursor(DisplayLayout::Right - gfxTextW(countText, 1), 8);
   g.print(countText);
 
+  // Altitude key. Target colour is the only place the plan view can carry
+  // height, so the scale that decodes it belongs on the screen rather than in
+  // the documentation. It sits in the top-left corner, outside the scope.
+  constexpr int keyX = 8;
+  constexpr int keyY = 18;
+  constexpr int keyW = 5;
+  constexpr int keyGap = 1;
+  const uint16_t bands[7] = {GROUND, CORAL, AMBER, GREEN, CYAN, BLUE, VIOLET};
+  for (uint8_t band = 0; band < 7; ++band) {
+    g.fillRect(keyX + band * (keyW + keyGap), keyY, keyW, 5, bands[band]);
+  }
+  constexpr int keyRight = keyX + 7 * (keyW + keyGap) - keyGap;
+  g.setTextColor(MUTED);
+  g.setCursor(keyX, keyY + 7);
+  g.print("GND");
+  g.setCursor(keyRight - gfxTextW("40K", 1), keyY + 7);
+  g.print("40K");
+
   if (aircraftCount) {
     const Aircraft& nearest = aircraftAt(0);
     char nearestText[30];
@@ -394,8 +411,12 @@ void drawRadar(TileCanvas& g, void* opaque) {
              settings.radar.unitsMi ? nearest.distKm * 0.621371f
                                     : nearest.distKm,
              settings.radar.unitsMi ? "mi" : "km");
-    g.setTextColor(CYAN);
-    g.setCursor(8, 222);
+    // The same ring the nearest target wears on the scope, so the highlight
+    // and the readout below it read as one thing.
+    const uint16_t nearestColor = altitudeColor(nearest.altFt);
+    g.drawCircle(11, 225, 3, nearestColor);
+    g.setTextColor(TEXT);
+    g.setCursor(18, 222);
     g.print(nearestText);
   } else {
     g.setTextColor(MUTED);

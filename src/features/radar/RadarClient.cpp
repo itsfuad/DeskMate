@@ -148,10 +148,15 @@ static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int*
   int code = 0;
   int contentLength = -1;
   bool chunked = false;
+  // adsb.fi sits behind a CDN that answers an HTTP/1.0 request by closing the
+  // connection instead of sending Content-Length or Transfer-Encoding. The
+  // ArduinoJson reader below stops at the end of the document, so an unframed
+  // body is perfectly parseable; refusing one made a healthy endpoint look
+  // dead.
   if (!httpGet(*client, url, ADSB_USER_AGENT, "application/json", timeoutMs,
-               49152, &code, &contentLength, &chunked)) return false;
+               49152, &code, &contentLength, &chunked, true)) return false;
   if (responseCode) *responseCode = code;
-  if (code != 200 || chunked || contentLength < 0) {
+  if (code != 200 || chunked) {
     client->stop();
     return false;
   }

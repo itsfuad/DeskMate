@@ -14,7 +14,9 @@ Version 4.3 separates **data acquisition** from **display rendering**. Every scr
 
 ### Rendering and polling architecture
 
-The GitHub heatmap now calculates one shared cell dimension from both the available width and height. Every day remains a strict square for 1, 3, 6, and 12-month ranges; shorter grids are enlarged and centered instead of being stretched into horizontal strips.
+The GitHub heatmap calculates one shared cell dimension from both the available width and height, so every day stays a strict square and short grids are enlarged and centered instead of stretched into horizontal strips.
+
+The GitHub screen splits its polling across two phases against the one GraphQL endpoint. The action lists are small and refresh on every cycle; the three-month contribution calendar is most of the payload and changes once a day, so it refreshes hourly and is requested as a scheduler continuation. Responses are read by a streaming, allocation-free JSON walker (`src/core/JsonScanner.h`) that tracks container nesting, so identically named fields in different lists cannot be conflated and a `message` field in the payload cannot be mistaken for a GraphQL error.
 
 When demand exceeds the ESP8266's capacity, DeskMate degrades predictably instead of accumulating work:
 
@@ -30,8 +32,13 @@ When demand exceeds the ESP8266's capacity, DeskMate degrades predictably instea
 
 - **Weather** — OpenWeather current conditions and four upcoming 3-hour forecast points. The reference-traced scene includes an alpine valley, layered mountains, lake reflections, pine forests, a foreground tent, moving clouds, precipitation, sun and moon arcs, optical-axis flare artifacts, and twinkling stars. A dedicated condition marker remains visible even in clear weather. Two-tone pixel typography reverses its face/shadow contrast between day and night. Morning, noon, afternoon, evening, and night blend continuously through explicit dawn/dusk transition ranges. Weather conditions tint the same time-driven scene instead of replacing it. Telemetry shares the unified forecast card so the lake remains unobstructed. The browser resolves a city through Open-Meteo, verifies the OpenWeather key, and sends canonical coordinates/timezone data to DeskMate.
 - **Network guardian** — TCP latency, DNS timing, availability, outage history, Wi-Fi quality and local IP.
-- **Aircraft radar** — Static full-screen PPI scope with airports, vectors, labels, range rings and aircraft silhouettes scaled from ADS-B emitter category when the feed provides it.
-- **GitHub activity** — Authenticated-user commits, open issues, open pull requests, streak and a contribution graph. The graph range is configurable as 1, 3, 6 or 12 months.
+- **Aircraft radar** — Static full-screen PPI scope with airports, vectors, labels and range rings. Targets are drawn as heading-rotated aircraft icons in two sizes taken from ADS-B emitter category, coloured by altitude band the way ADS-B displays conventionally are — ground, then 5, 10, 20, 30 and 40 thousand feet. The nearest target is ringed rather than recoloured, so the highlight costs no altitude information, and the same ring marks the readout that names it. An altitude key sits in the top-left corner.
+- **GitHub activity** — Answers "is something waiting on me?" before "how much have I done?". Up to three pages rotate:
+  - **Inbox** — review requests, mentions and assigned issues as rows carrying repository, number, title and queue age, review requests first. An empty inbox reads `ALL CLEAR` rather than a blank panel.
+  - **My pull requests** — your recent PRs, each with two state badges: the review decision (approved / changes requested / awaiting review) and the CI check rollup (passing / failing / pending). Approved and green means it is ready to merge; a red check means a build broke. Rows are coloured by GitHub's own state palette — open green, draft grey, merged purple, closed red — with the glyph matching the state.
+  - **Pulse** — open issues, open pull requests, period commits, contribution total, day streak and the three-month contribution heatmap.
+
+  Which pages take part is selectable in the web UI, and the screen's share of display time is divided between the selected ones — a 12-second carousel dwell with all three selected gives each 4 seconds, so one visit covers the rotation exactly once. Arriving from the carousel always starts at the first selected page. A selected page always appears: if the contribution calendar is unavailable — a token without `read:user` cannot read it at all — the pulse page says so rather than dropping out of the rotation. A failed refresh keeps the last good snapshot on screen and turns the header rule red instead of blanking the page.
 - **Carousel** — Rotates through any selected views while all selected data sources continue their background schedules.
 
 All active views use a static 40 × 40 RGB565 tile backbuffer. The visible LCD is never cleared before a replacement tile is fully composed.
@@ -100,6 +107,50 @@ Upload the binary from the DeskMate System tab, or over UART:
 ```bash
 pio run -e deskmate -t upload --upload-port /dev/ttyUSB0
 ```
+
+## Icons
+
+UI glyphs come from real icon packs rather than hand-drawn primitives, and
+there is no list of icons to maintain. Reference one in firmware code:
+
+```cpp
+gfxDrawIcon(canvas, Icon::CodeMerge, x, y, color);
+```
+
+then regenerate. `scripts/gen_icons.py` scans `src/` for `Icon::` identifiers,
+resolves each against the committed pack catalogs, vendors any SVG it does not
+have yet, and emits exactly those glyphs into `src/display/IconData.{h,cpp}`.
+An icon that stops being referenced stops being compiled in.
+
+```bash
+python3 scripts/gen_icons.py --search "pull request"   # find a name, offline
+python3 scripts/gen_icons.py                           # regenerate from usage
+python3 scripts/gen_icons.py --list                    # what is compiled in
+python3 scripts/gen_icons.py --preview                 # ASCII proof sheet
+python3 scripts/gen_icons.py --check                   # fail if stale
+```
+
+`Icon::Name` is the pack's own name in PascalCase; a trailing number is the
+render size, default 16. `Icon::DotFill12` and `Icon::DotFill24` are the same
+drawing at two sizes, and neither needs declaring.
+
+Octicons, FontAwesome Free 7.3.1 and Lucide are indexed — **4,184 icons**,
+searchable without network access. `assets/icons.overrides` exists only to pin a pack when
+several ship the same name, or to tune a glyph's threshold. See
+[`assets/icons/LICENSES.md`](assets/icons/LICENSES.md) for the licensing and
+for why Octicons resolves first.
+
+```bash
+python3 scripts/index_icons.py                     # refresh over the network
+python3 scripts/index_icons.py --from DIR fontawesome  # from a local package
+```
+
+Pointing `--from` at an unpacked official FontAwesome download once removes the
+network from the loop entirely: the location is remembered and later runs vendor
+glyphs straight out of it.
+
+Ordinary firmware builds need neither Python nor network access because the
+generated sources are committed; CI verifies they still match what `src/` uses.
 
 ## Other targets
 

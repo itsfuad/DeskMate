@@ -1,0 +1,30 @@
+# Per-icon overrides. Optional: this file may be empty.
+#
+#   <Identifier>  <pack|->  [threshold]
+#
+#   pack       force a pack when several ship the same name. "-" keeps the
+#              default order in scripts/icon_index.py.
+#   threshold  alpha cut for the 1-bit raster, 1..254, default 96. Lower keeps
+#              thin strokes; raise it to thin a glyph that fills in.
+#
+# Icons themselves are never declared here -- reference Icon::Name in code and
+# run scripts/gen_icons.py. Use --search to find a name, --preview to judge a
+# threshold before flashing.
+
+# Lucide draws strokes, not fills. At badge size its 2px-on-24 stroke lands
+# near one pixel, so these are cut lower to keep the ring and its glyph joined.
+CircleCheck14    -   64
+CircleX14        -   64
+CircleSmall14    -   64
+CircleCheck24    -   80
+
+# Radar targets must point along their track, so these carry 24 evenly spaced
+# rotations (15 degrees apart), rasterized from the vector at build time. Two
+# sizes stand in for the emitter-category scaling the old vector glyph did.
+# rot=N stores N evenly spaced headings. The angle that makes frame 0 point
+# north comes from the pack's rotation_offset in scripts/icon_index.py, so it
+# is set once per pack; add base=D here only for a glyph that disagrees with
+# its own pack. The generator measures frame 0 either way and fails the build
+# if it is not pointing north.
+Plane12          -   80   rot=24
+Plane16          -   80   rot=24

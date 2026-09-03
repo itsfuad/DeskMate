@@ -219,6 +219,9 @@ void GithubSettings::setDefaults() {
   login = "";
   rangeMonths = 3;
   pollSec = DEFAULT_GITHUB_POLL_SEC;
+  pageInbox = true;
+  pagePulls = true;
+  pagePulse = true;
 }
 
 void GithubSettings::toJson(JsonObject o, bool includeSecrets) const {
@@ -227,6 +230,9 @@ void GithubSettings::toJson(JsonObject o, bool includeSecrets) const {
   o["login"] = login;
   o["rangeMonths"] = rangeMonths;
   o["pollSec"] = pollSec;
+  o["pageInbox"] = pageInbox;
+  o["pagePulls"] = pagePulls;
+  o["pagePulse"] = pagePulse;
 }
 
 void GithubSettings::fromJson(JsonObjectConst o) {
@@ -239,6 +245,13 @@ void GithubSettings::fromJson(JsonObjectConst o) {
   // fixed so a large historical graph cannot reintroduce TLS pressure.
   rangeMonths = 3;
   if (o["pollSec"].is<int>()) pollSec = constrain(static_cast<int>(o["pollSec"]), 300, 3600);
+  if (o["pageInbox"].is<bool>()) pageInbox = o["pageInbox"];
+  if (o["pagePulls"].is<bool>()) pagePulls = o["pagePulls"];
+  if (o["pagePulse"].is<bool>()) pagePulse = o["pagePulse"];
+  // A screen with nothing to show would be a blank panel. Configuration files
+  // predating these keys, and any request that clears all three, fall back to
+  // the whole rotation.
+  if (!pageCount()) pageInbox = pagePulls = pagePulse = true;
 }
 
 void Settings::setDefaults() {
