@@ -19,6 +19,8 @@ struct AircraftTrail {
 };
 
 AircraftTrail trails[kMaxTrails];
+AircraftTrail savedTrails[kMaxTrails];
+bool updateActive = false;
 
 float distanceKm(float homeLat, float homeLon, float lat, float lon) {
   const float north = (lat - homeLat) * 111.0f;
@@ -29,11 +31,24 @@ float distanceKm(float homeLat, float homeLon, float lat, float lon) {
 }  // namespace
 
 void radarTrailReset() {
+  updateActive = false;
   for (uint8_t i = 0; i < kMaxTrails; ++i) {
     trails[i].callsign[0] = '\0';
     trails[i].count = 0;
     trails[i].lastSeenMs = 0;
   }
+}
+
+void radarTrailBeginUpdate() {
+  memcpy(savedTrails, trails, sizeof(trails));
+  updateActive = true;
+}
+
+void radarTrailCommitUpdate() { updateActive = false; }
+
+void radarTrailDiscardUpdate() {
+  if (updateActive) memcpy(trails, savedTrails, sizeof(trails));
+  updateActive = false;
 }
 
 uint8_t getAircraftTrail(const char* callsign, float originLat, float originLon,

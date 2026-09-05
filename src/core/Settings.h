@@ -1,7 +1,8 @@
 // Settings.h — persisted DeskMate configuration (LittleFS /config.json).
 #pragma once
 #include <Arduino.h>
-#include <ArduinoJson.h>
+#include "JsonScanner.h"
+#include "JsonWriter.h"
 #include "config.h"
 
 struct Airport {
@@ -27,8 +28,6 @@ struct ClockSettings {
   uint8_t nightLevel;
 
   void setDefaults();
-  void toJson(JsonObject o) const;
-  void fromJson(JsonObjectConst o);
 };
 
 struct RadarSettings {
@@ -48,8 +47,6 @@ struct RadarSettings {
   uint8_t airportCount;
 
   void setDefaults();
-  void toJson(JsonObject o) const;
-  void fromJson(JsonObjectConst o);
 };
 
 struct WeatherSettings {
@@ -66,8 +63,6 @@ struct WeatherSettings {
   uint16_t pollSec;
 
   void setDefaults();
-  void toJson(JsonObject o, bool includeSecrets) const;
-  void fromJson(JsonObjectConst o);
 };
 
 struct NetworkSettings {
@@ -77,8 +72,6 @@ struct NetworkSettings {
   uint16_t pollSec;
 
   void setDefaults();
-  void toJson(JsonObject o) const;
-  void fromJson(JsonObjectConst o);
 };
 
 struct GithubSettings {
@@ -98,8 +91,6 @@ struct GithubSettings {
   }
 
   void setDefaults();
-  void toJson(JsonObject o, bool includeSecrets) const;
-  void fromJson(JsonObjectConst o);
 };
 
 struct Settings {
@@ -132,9 +123,105 @@ struct Settings {
   void setDefaults();
 };
 
+// Presence describes only correctly typed schema values. Section and aggregate
+// flags make partial requests straightforward for WebPortal; field flags retain
+// the distinctions its validation currently needs.
+struct SettingsJsonPresence {
+  bool configVersion = false;
+  uint16_t configVersionValue = 0;
+  bool hostname = false;
+  bool wifi = false;
+  bool wifiEntriesValid = true;
+  bool staSsid = false;
+  bool staPass = false;
+  bool apSsid = false;
+  bool apPass = false;
+
+  bool mode = false;
+  bool carouselSec = false;
+  bool carouselSecValid = true;
+  bool carouselSelection = false;
+  bool carouselSelectionValid = true;
+  bool httpTimeout = false;
+  bool brightness = false;
+  bool brightnessValue = false;
+  bool brightnessValueValid = true;
+  bool autoBrightness = false;
+  bool backlightInverted = false;
+  bool rotation = false;
+  bool rotationValid = true;
+
+  bool clock = false;
+  bool clockNightStart = false;
+  bool clockNightStartValid = true;
+  bool clockNightEnd = false;
+  bool clockNightEndValid = true;
+  bool clockUse24Hour = false;
+  bool clockUse24HourInvalid = false;
+  bool clockNightLevel = false;
+  bool clockNightLevelValid = true;
+
+  bool weather = false;
+  bool weatherLat = false;
+  bool weatherLon = false;
+  bool weatherCity = false;
+  bool weatherTimezone = false;
+  bool weatherLocationVerified = false;
+  bool weatherPollSec = false;
+  bool weatherPollSecValid = true;
+  bool weatherApiKey = false;
+  bool weatherApiKeyValid = true;
+
+  bool network = false;
+  bool networkProbeHost = false;
+  bool networkProbePort = false;
+  bool networkProbePortValid = true;
+  bool networkDnsHost = false;
+  bool networkPollSec = false;
+  bool networkPollSecValid = true;
+
+  bool radar = false;
+  bool radarLat = false;
+  bool radarLon = false;
+  bool radarSource = false;
+  bool radarWebhookUrl = false;
+  bool radarRangeKm = false;
+  bool radarRangeKmValid = true;
+  bool radarPollSec = false;
+  bool radarPollSecValid = true;
+  bool radarAirports = false;
+  bool radarAirportsValid = true;
+
+  bool githubData = false;
+  bool githubDisplay = false;
+  bool githubRangeMonths = false;
+  bool githubRangeMonthsValid = true;
+  bool githubPollSec = false;
+  bool githubPollSecValid = true;
+  bool githubToken = false;
+  bool githubTokenValid = true;
+};
+
 bool settingsBegin();
 bool loadSettings(Settings& s);
 bool saveSettings(const Settings& s);
 void factoryReset(Settings& s);
-void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets);
-void settingsApplyJson(Settings& s, JsonObjectConst root);
+
+// Parse exactly one complete JSON object. `out` and `presence` are changed only
+// on success; missing fields inherit from `base`.
+bool settingsParseJson(Settings& out, const Settings& base,
+                       const char* json, size_t length,
+                       SettingsJsonPresence* presence = nullptr,
+                       JsonScanner::Error* error = nullptr);
+bool settingsParseJson(Settings& out, const Settings& base, Stream& stream,
+                       int contentLength = JsonScanner::UnknownLength,
+                       size_t maxBytes = JsonScanner::DefaultMaxBytes,
+                       SettingsJsonPresence* presence = nullptr,
+                       JsonScanner::Error* error = nullptr);
+
+// Write settings fields into an open object, allowing WebPortal to append its
+// response-only fields. settingsWriteJson writes and closes a complete object.
+bool settingsWriteJsonFields(JsonWriter& writer, const Settings& settings,
+                             bool includeSecrets);
+bool settingsWriteJson(JsonWriter& writer, const Settings& settings,
+                       bool includeSecrets);

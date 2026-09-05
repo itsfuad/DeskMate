@@ -63,6 +63,28 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::puts("Recorded real ADS-B client behavior passed.");
+  const uint8_t countBeforeFailure = radarCount();
+  if (radarPoll(settings, 3000)) {
+    std::fputs("truncated ADS-B response unexpectedly succeeded\n", stderr);
+    return 1;
+  }
+  float preservedLatitudes[10] = {};
+  float preservedLongitudes[10] = {};
+  const uint8_t preservedTrailCount = getAircraftTrail(
+      "CLX7956", HomeLat, HomeLon, preservedLatitudes, preservedLongitudes, 10);
+  if (radarCount() != countBeforeFailure || preservedTrailCount != trailCount ||
+      !near(preservedLatitudes[0], latitudes[0]) ||
+      !near(preservedLongitudes[0], longitudes[0]) ||
+      !near(preservedLatitudes[1], latitudes[1]) ||
+      !near(preservedLongitudes[1], longitudes[1])) {
+    std::fputs("failed ADS-B response changed the previous snapshot\n", stderr);
+    return 1;
+  }
+  if (radarPoll(settings, 3000) || radarCount() != countBeforeFailure) {
+    std::fputs("ADS-B response without an ac array changed the snapshot\n", stderr);
+    return 1;
+  }
+
+  std::puts("Recorded ADS-B behavior and failed-response rollback passed.");
   return 0;
 }

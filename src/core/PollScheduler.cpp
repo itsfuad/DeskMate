@@ -215,7 +215,10 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
   const uint32_t started = millis();
   const PollResult result = mode->poll(settings, budget);
   const uint32_t finished = millis();
-  if (active) active->pollActivityChanged(settings, false);
+  if (active) {
+    active->pollResultChanged(settings, result);
+    active->pollActivityChanged(settings, false);
+  }
   const uint32_t duration = finished - started;
 
   r.lastDurationMs = duration;

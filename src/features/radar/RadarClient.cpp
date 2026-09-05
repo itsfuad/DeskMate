@@ -1,13 +1,16 @@
 #include "RadarClient.h"
 #include "Platform.h"
 #include "HttpRequest.h"
-#include <ArduinoJson.h>
+#include "JsonScanner.h"
 #include <math.h>
+#include <new>
+#include <stdlib.h>
 
 static Aircraft g_ac[MAX_AIRCRAFT];   // kept sorted nearest-first
 static uint8_t  g_count = 0;
 static uint32_t g_lastOkMs = 0;
 static bool     g_error = false;
+static bool     g_lowMemory = false;
 
 static TlsSession g_radarSession;
 
@@ -15,11 +18,13 @@ uint8_t         radarCount()      { return g_count; }
 const Aircraft& aircraftAt(uint8_t i) { return g_ac[i]; }
 uint32_t        radarLastOkMs()   { return g_lastOkMs; }
 bool            radarError()      { return g_error; }
+bool            radarLowMemory()  { return g_lowMemory; }
 
 void radarInit(const Settings& settings) {
   (void)settings;
   g_count = 0;
   g_error = false;
+  g_lowMemory = false;
   g_lastOkMs = 0;
   radarTrailReset();
 }
@@ -34,14 +39,6 @@ static void geo(float homeLat, float homeLon, float lat, float lon,
   if (brg < 0) brg += 360.0f;
 }
 
-// Keep the array sorted ascending by distance, holding at most MAX_AIRCRAFT.
-static void insertNearest(const Aircraft& t) {
-  if (g_count == MAX_AIRCRAFT && t.distKm >= g_ac[g_count - 1].distKm) return;
-  uint8_t i = (g_count < MAX_AIRCRAFT) ? g_count : (uint8_t)(MAX_AIRCRAFT - 1);
-  while (i > 0 && g_ac[i - 1].distKm > t.distKm) { g_ac[i] = g_ac[i - 1]; i--; }
-  g_ac[i] = t;
-  if (g_count < MAX_AIRCRAFT) g_count++;
-}
 
 static void trimTail(char* s) {
   int n = strlen(s);
@@ -73,57 +70,153 @@ static bool buildWebhookUrl(const Settings& s, char* out, size_t outSize) {
 }
 
 // ---- parse the adsb.fi / webhook "ac" array --------------------------------
-static bool parseAdsb(const Settings& s, Stream& stream) {
-  // Filter to just the fields we plot; applied to every element of "ac".
-  JsonDocument filter;
-  JsonObject fe = filter["ac"][0].to<JsonObject>();
-  fe["lat"] = true;
-  fe["lon"] = true;
-  fe["track"] = true;
-  fe["flight"] = true;
-  fe["hex"] = true;
-  fe["alt_baro"] = true;
-  fe["category"] = true;
-  fe["t"] = true;
+namespace {
+struct ParsedAircraft {
+  Aircraft aircraft;
+  float lat;
+  float lon;
+};
 
-  JsonDocument doc;
-  DeserializationError err =
-      deserializeJson(doc, stream, DeserializationOption::Filter(filter));
-  if (err) return false;
+static ParsedAircraft candidates[MAX_AIRCRAFT];
 
-  JsonArrayConst ac = doc["ac"].as<JsonArrayConst>();
-  if (ac.isNull()) return false;
+struct RadarParse {
+  const Settings& settings;
+  ParsedAircraft current{};
+  int16_t index = -1;
+  uint8_t count = 0;
+  bool hasLat = false;
+  bool hasLon = false;
+  uint8_t depth = 0;
+  bool rootObject = false;
+  bool aircraftArray = false;
+  bool aircraftRow = false;
+  bool invalidSchema = false;
+};
 
-  g_count = 0;
-  for (JsonObjectConst a : ac) {
-    if (!a["lat"].is<float>() && !a["lat"].is<int>()) continue;
-    if (!a["lon"].is<float>() && !a["lon"].is<int>()) continue;
+void radarJsonContainer(void* context, const JsonScanner& scanner,
+                        JsonScanner::Container event) {
+  RadarParse& parse = *static_cast<RadarParse*>(context);
+  const bool start = event == JsonScanner::Container::ObjectStart ||
+                     event == JsonScanner::Container::ArrayStart;
+  const bool object = event == JsonScanner::Container::ObjectStart ||
+                      event == JsonScanner::Container::ObjectEnd;
+  if (start) {
+    if (parse.depth == 0) {
+      parse.rootObject = object;
+      if (!object) parse.invalidSchema = true;
+    } else if (parse.depth == 1 && !object && parse.rootObject &&
+               !strcmp(scanner.container(), "ac")) {
+      parse.aircraftArray = true;
+    } else if (parse.depth == 2 && parse.aircraftArray) {
+      if (object) parse.aircraftRow = true;
+      else parse.invalidSchema = true;
+    }
+    ++parse.depth;
+    return;
+  }
+  if (object && parse.depth == 3 && parse.aircraftRow) parse.aircraftRow = false;
+  if (parse.depth) --parse.depth;
+}
 
-    const float lat = a["lat"].as<float>();
-    const float lon = a["lon"].as<float>();
-    Aircraft t{};
-    t.altFt = a["alt_baro"].is<int>() ? a["alt_baro"].as<int>() : 0;  // "ground" => 0
+void commitRadarRow(RadarParse& parse) {
+  ParsedAircraft& row = parse.current;
+  if (!parse.hasLat || !parse.hasLon ||
+      (parse.settings.radar.minAltFt > 0 &&
+       row.aircraft.altFt < static_cast<int32_t>(parse.settings.radar.minAltFt))) return;
 
-    // Optional: drop ground/low traffic below the configured altitude threshold.
-    if (s.radar.minAltFt > 0 && t.altFt < (int32_t)s.radar.minAltFt) continue;
+  radarTrailObserve(row.aircraft.callsign, parse.settings.radar.lat,
+                    parse.settings.radar.lon, row.lat, row.lon, millis());
+  geo(parse.settings.radar.lat, parse.settings.radar.lon, row.lat, row.lon,
+      row.aircraft.distKm, row.aircraft.bearingDeg);
+  if (row.aircraft.headingDeg < 0.0f || row.aircraft.headingDeg > 360.0f)
+    row.aircraft.headingDeg = row.aircraft.bearingDeg;
 
-    const char* fl = a["flight"] | (a["hex"] | "");
-    strlcpy(t.callsign, fl, sizeof(t.callsign));
-    trimTail(t.callsign);
-    strlcpy(t.category, a["category"] | "", sizeof(t.category));
-    strlcpy(t.type, a["t"] | "", sizeof(t.type));
+  if (parse.count == MAX_AIRCRAFT &&
+      row.aircraft.distKm >= candidates[parse.count - 1].aircraft.distKm) return;
+  uint8_t i = parse.count < MAX_AIRCRAFT ? parse.count : MAX_AIRCRAFT - 1;
+  while (i > 0 && candidates[i - 1].aircraft.distKm > row.aircraft.distKm) {
+    candidates[i] = candidates[i - 1];
+    --i;
+  }
+  candidates[i] = row;
+  if (parse.count < MAX_AIRCRAFT) ++parse.count;
+}
 
-    radarTrailObserve(t.callsign, s.radar.lat, s.radar.lon, lat, lon,
-                      millis());
-
-    geo(s.radar.lat, s.radar.lon, lat, lon, t.distKm, t.bearingDeg);
-    const float track = (a["track"].is<float>() || a["track"].is<int>())
-        ? a["track"].as<float>() : -1.0f;
-    t.headingDeg = track >= 0.0f && track <= 360.0f
-        ? track : t.bearingDeg;
-    insertNearest(t);
+void radarJsonValue(void* context, const JsonScanner& scanner,
+                    JsonScanner::Value type, const char* text, uint32_t number) {
+  (void)number;
+  RadarParse& parse = *static_cast<RadarParse*>(context);
+  const int16_t index = scanner.indexUnder("ac");
+  if (!parse.aircraftArray || !parse.aircraftRow || parse.depth != 3 || index < 0) {
+    if (parse.aircraftArray && parse.depth == 2) parse.invalidSchema = true;
+    return;
+  }
+  if (index != parse.index) {
+    if (parse.index >= 0) commitRadarRow(parse);
+    parse.current = ParsedAircraft{};
+    parse.current.aircraft.headingDeg = -1.0f;
+    parse.hasLat = false;
+    parse.hasLon = false;
+    parse.index = index;
   }
 
+  const char* key = scanner.key();
+  if (type != JsonScanner::Value::String) {
+    char* end = nullptr;
+    const float value = strtof(text, &end);
+    if (end == text || *end) return;
+    if (!strcmp(key, "lat")) {
+      parse.current.lat = value;
+      parse.hasLat = true;
+    } else if (!strcmp(key, "lon")) {
+      parse.current.lon = value;
+      parse.hasLon = true;
+    } else if (!strcmp(key, "track")) {
+      parse.current.aircraft.headingDeg = value;
+    } else if (!strcmp(key, "alt_baro")) {
+      parse.current.aircraft.altFt = static_cast<int32_t>(value);
+    }
+  } else {
+    if (!strcmp(key, "flight")) {
+      strlcpy(parse.current.aircraft.callsign, text,
+              sizeof(parse.current.aircraft.callsign));
+      trimTail(parse.current.aircraft.callsign);
+    } else if (!strcmp(key, "hex") && !parse.current.aircraft.callsign[0]) {
+      strlcpy(parse.current.aircraft.callsign, text,
+              sizeof(parse.current.aircraft.callsign));
+    } else if (!strcmp(key, "category")) {
+      strlcpy(parse.current.aircraft.category, text,
+              sizeof(parse.current.aircraft.category));
+    } else if (!strcmp(key, "t")) {
+      strlcpy(parse.current.aircraft.type, text,
+              sizeof(parse.current.aircraft.type));
+    }
+  }
+}
+}  // namespace
+
+static bool parseAdsb(const Settings& s, Stream& stream, NetClient& client,
+                      int contentLength, uint32_t timeoutMs) {
+  std::unique_ptr<RadarParse> parse(new (std::nothrow) RadarParse{s});
+  if (!parse) {
+    g_lowMemory = true;
+    return false;
+  }
+  JsonScanner& scanner = JsonScanner::shared(stream, client, contentLength, timeoutMs);
+  scanner.setContainerHandler(radarJsonContainer, parse.get());
+  radarTrailBeginUpdate();
+  if (!scanner.walk(radarJsonValue, parse.get()) || !parse->rootObject ||
+      !parse->aircraftArray || parse->invalidSchema) {
+    radarTrailDiscardUpdate();
+    return false;
+  }
+  if (parse->index >= 0) commitRadarRow(*parse);
+  radarTrailCommitUpdate();
+
+  // Publish only after the complete document validates. A timeout or malformed
+  // response leaves both the previous aircraft snapshot and trails intact.
+  g_count = parse->count;
+  for (uint8_t i = 0; i < parse->count; ++i) g_ac[i] = candidates[i].aircraft;
   g_lastOkMs = millis();
   g_error = false;
   return true;
@@ -150,7 +243,7 @@ static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int*
   bool chunked = false;
   // adsb.fi sits behind a CDN that answers an HTTP/1.0 request by closing the
   // connection instead of sending Content-Length or Transfer-Encoding. The
-  // ArduinoJson reader below stops at the end of the document, so an unframed
+  // The streaming JSON reader stops at the end of the document, so an unframed
   // body is perfectly parseable; refusing one made a healthy endpoint look
   // dead.
   if (!httpGet(*client, url, ADSB_USER_AGENT, "application/json", timeoutMs,
@@ -162,7 +255,7 @@ static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int*
   }
 
   yield();
-  bool ok = parseAdsb(s, *client);
+  bool ok = parseAdsb(s, *client, *client, contentLength, timeoutMs);
   yield();
   client->stop();
   return ok;
@@ -170,6 +263,7 @@ static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int*
 
 // ---------------------------------------------------------------------------
 bool radarPoll(const Settings& settings, uint16_t budgetMs) {
+  g_lowMemory = false;
   if ((settings.radar.lat == 0.0f && settings.radar.lon == 0.0f) ||
       budgetMs < 250) return false;
 

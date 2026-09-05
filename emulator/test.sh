@@ -7,10 +7,17 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 
 "$ROOT/emulator/build.sh"
 "$ROOT/emulator/build/deskmate-radar-trail-test"
+RADAR_FIXTURES="$TEST_DIR/radar-fixtures"
+mkdir -p "$RADAR_FIXTURES"
+cp "$ROOT"/emulator/tests/fixtures/radar-*.json "$RADAR_FIXTURES/"
+printf '{"ac":[{"flight":"BROKEN","lat":23.7' > "$RADAR_FIXTURES/radar-4.json"
+printf '{}' > "$RADAR_FIXTURES/radar-5.json"
 "$ROOT/emulator/build/deskmate-radar-client-test" \
-  "$ROOT/emulator/tests/fixtures" "$TEST_DIR/radar-state"
+  "$RADAR_FIXTURES" "$TEST_DIR/radar-state"
 "$ROOT/emulator/build/deskmate-connectivity-test"
 "$ROOT/emulator/build/deskmate-json-scanner-test"
+"$ROOT/emulator/build/deskmate-json-writer-test"
+"$ROOT/emulator/build/deskmate-settings-test"
 
 for board in esp8266 esp32c2 esp32; do
   image="$TEST_DIR/$board.bmp"
@@ -46,6 +53,11 @@ for attempt in {1..30}; do
   if curl --silent --fail "$BASE/api/status" >/dev/null 2>&1; then break; fi
   sleep 0.1
 done
+status="$(curl --silent --show-error --fail "$BASE/api/status")"
+grep -q '"version":"4.8.7"' <<<"$status"
+for request in {1..100}; do
+  curl --silent --show-error --fail "$BASE/api/status" >/dev/null
+done
 
 headers="$(curl --silent --show-error --dump-header - --output /dev/null "$BASE/")"
 grep -qi '^Cache-Control: no-store' <<<"$headers"
@@ -64,6 +76,12 @@ grep -q '"apSsid":"DeskMate-Setup"' <<<"$config"
 files="$(curl --silent --show-error "$BASE/api/fs")"
 grep -q '"path":"/config.json"' <<<"$files"
 grep -q '"path":"/notes.txt"' <<<"$files"
+weatherResponse="$(curl --silent --show-error --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"weather":{"lat":23.7104,"lon":90.4073,"city":"Dhaka","country":"Bangladesh","timezone":"Asia/Dhaka","timezoneAbbr":"+06","utcOffsetSec":21600,"locationVerified":true,"apiKey":"","metric":true,"pollSec":900}}' \
+  "$BASE/api/config")"
+grep -q '"ok":true' <<<"$weatherResponse"
+grep -q '"apiKeySet":true' <(curl --silent --show-error "$BASE/api/config")
 grep -q 'LittleFS listing fixture' <(curl --silent --show-error \
   "$BASE/api/fs/file?path=%2Fnotes.txt")
 downloadHeaders="$(curl --silent --show-error --dump-header - --output /dev/null \

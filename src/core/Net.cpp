@@ -160,6 +160,16 @@ String netSSID() {
   return (g_mode == NET_AP) ? g_apSsid : WiFi.SSID();
 }
 
+void netSSID(char* out, size_t outSize) {
+  if (!out || !outSize) return;
+  out[0] = 0;
+  if (g_mode == NET_AP) {
+    strlcpy(out, g_apSsid.c_str(), outSize);
+  } else if (g_cfg && g_curNet >= 0 && g_curNet < g_cfg->wifiCount) {
+    strlcpy(out, g_cfg->wifi[g_curNet].ssid.c_str(), outSize);
+  }
+}
+
 int netRSSI() {
   return (g_mode == NET_STA) ? WiFi.RSSI() : 0;
 }

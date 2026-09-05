@@ -14,7 +14,7 @@
 // a TLS record larger than this buffer and fail the request.
 static constexpr uint16_t PLATFORM_TLS_RX_BYTES = 4096;
 static constexpr uint16_t PLATFORM_TLS_TX_BYTES = 512;
-static constexpr uint16_t PLATFORM_TLS_HEAP_OVERHEAD_BYTES = 7000;
+static constexpr uint16_t PLATFORM_TLS_HEAP_OVERHEAD_BYTES = 8000;
 
 #if defined(DESKMATE_EMULATOR)
 // ================================ Desktop ==================================

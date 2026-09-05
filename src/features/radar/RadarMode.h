@@ -15,6 +15,7 @@ class RadarMode : public DisplayMode {
   bool requiresInternet() const override { return true; }
   PollResult poll(const Settings&, uint16_t budgetMs) override;
   void pollActivityChanged(const Settings&, bool busy) override;
+  void pollResultChanged(const Settings&, PollResult result) override;
   void displayTick(const Settings&) override;
 
  private:

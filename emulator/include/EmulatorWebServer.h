@@ -48,6 +48,14 @@ class EmulatorWebServer {
   void send(int code, const char* contentType, const char* content) {
     send(code, contentType, String(content));
   }
+  void setContentLength(size_t length) {
+    responseLength_ = length;
+    responseLengthSet_ = true;
+  }
+  void sendContent(const char* content, size_t length);
+  void sendContent(const String& content) {
+    sendContent(content.c_str(), content.length());
+  }
   void send_P(int code, const char* contentType, const char* content) {
     send(code, contentType, content);
   }
@@ -81,5 +89,7 @@ class EmulatorWebServer {
   int responseCode_ = 200;
   std::string responseType_ = "text/plain";
   std::string responseBody_;
+  size_t responseLength_ = 0;
+  bool responseLengthSet_ = false;
   bool responseReady_ = false;
 };

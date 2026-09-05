@@ -29,6 +29,12 @@ String netSSID() {
   return emulatorNetworkMode() == EmulatorNetwork::Ap
       ? accessPointSsid : String("Host network");
 }
+void netSSID(char* output, size_t outputSize) {
+  if (!output || !outputSize) return;
+  const char* ssid = emulatorNetworkMode() == EmulatorNetwork::Ap
+      ? accessPointSsid.c_str() : "Host network";
+  strlcpy(output, ssid, outputSize);
+}
 int netRSSI() {
   return emulatorNetworkMode() == EmulatorNetwork::Sta ? WiFi.RSSI() : 0;
 }

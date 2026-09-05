@@ -151,18 +151,28 @@ void clockFormatTime(const Settings& settings, const struct tm& value,
     strlcpy(meridiem, hour24 < 12 ? "AM" : "PM", meridiemSize);
 }
 
-String clockTimeStr(const Settings& settings) {
+bool clockTimeStr(const Settings& settings, char* out, size_t outSize) {
+  if (!out || !outSize) return false;
+  out[0] = 0;
+
   struct tm value;
-  if (!clockNow(value)) return String();
+  if (!clockNow(value)) return false;
   char date[12];
-  if (strftime(date, sizeof(date), "%Y-%m-%d", &value) == 0) return String();
+  if (strftime(date, sizeof(date), "%Y-%m-%d", &value) == 0) return false;
   char timeText[8];
   char meridiem[3];
   clockFormatTime(settings, value, timeText, sizeof(timeText),
                   meridiem, sizeof(meridiem));
-  String result(date);
-  result += ' ';
-  result += timeText;
-  if (meridiem[0]) { result += ' '; result += meridiem; }
-  return result;
+  const int length = snprintf(out, outSize, "%s %s%s%s", date, timeText,
+                              meridiem[0] ? " " : "", meridiem);
+  if (length < 0 || static_cast<size_t>(length) >= outSize) {
+    out[0] = 0;
+    return false;
+  }
+  return true;
+}
+
+String clockTimeStr(const Settings& settings) {
+  char text[24];
+  return clockTimeStr(settings, text, sizeof(text)) ? String(text) : String();
 }

@@ -44,6 +44,9 @@ class DisplayMode {
   virtual void pollActivityChanged(const Settings& s, bool busy) {
     (void)s; (void)busy;
   }
+  virtual void pollResultChanged(const Settings& s, PollResult result) {
+    (void)s; (void)result;
+  }
 
   // Called every loop for the visible feature only. It may update clock-driven
   // text and render a dirty cached snapshot, but must never start an API call.

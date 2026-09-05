@@ -31,6 +31,17 @@ constexpr uint16_t GREEN_2 = rgb565(0, 109, 50);
 constexpr uint16_t GREEN_3 = rgb565(38, 166, 65);
 constexpr uint16_t GREEN_4 = rgb565(57, 211, 83);
 constexpr uint16_t ERROR_C = rgb565(248, 81, 73);
+PollResult indicatorResult = PollResult::Skipped;
+
+uint16_t indicatorColor() {
+  switch (indicatorResult) {
+    case PollResult::Success: return C_GREEN;
+    case PollResult::Failed: return C_RED;
+    case PollResult::Skipped: return C_WHITE;
+    case PollResult::MoreWork: return ORANGE;
+  }
+  return C_WHITE;
+}
 
 // GitHub's own state colours (Primer, dark theme). A row is coloured by the
 // state of the thing it points at and iconed by what kind of thing it is,
@@ -1076,8 +1087,10 @@ bool postGraphql(const Settings& settings, uint16_t budgetMs,
 
     Stream& stream = *client;
     reset(context);
-    JsonScanner scanner(stream, *client, contentLength, timeoutMs);
+    JsonScanner& scanner = JsonScanner::shared(
+        stream, *client, contentLength, timeoutMs);
     const bool walked = scanner.walk(handler, context);
+    const bool timedOut = scanner.timedOut();
     client->stop();
 
     if (graphError[0]) {
@@ -1093,12 +1106,11 @@ bool postGraphql(const Settings& settings, uint16_t budgetMs,
       return false;
     }
     if (!walked) {
-      if (attempt == 0 && !scanner.timedOut()) {
+      if (attempt == 0 && !timedOut) {
         delay(100);
         continue;
       }
-      setError(scanner.timedOut() ? "GITHUB TIMED OUT" : "BAD GRAPHQL DATA",
-               code);
+      setError(timedOut ? "GITHUB TIMED OUT" : "BAD GRAPHQL DATA", code);
       return false;
     }
     G.httpCode = code;
@@ -1231,6 +1243,10 @@ PollResult GithubMode::poll(const Settings& settings, uint16_t budgetMs) {
     dirty_ = true;
     return PollResult::Skipped;
   }
+  if (!tokenAndClockReady()) {
+    dirty_ = true;
+    return PollResult::Skipped;
+  }
 
   if (phase_ == Phase::Calendar) {
     // The result is deliberately not propagated: calendarDue() already backs
@@ -1250,7 +1266,13 @@ PollResult GithubMode::poll(const Settings& settings, uint16_t budgetMs) {
 
   const bool ok = fetchLists(settings, budgetMs);
   dirty_ = true;
-  if (!ok) return PollResult::Failed;
+  if (!ok) {
+    if (!strcmp(G.errorText, "LOW HEAP - RETRY LATER")) {
+      G.error = false;
+      return PollResult::Skipped;
+    }
+    return PollResult::Failed;
+  }
   if (calendarDue()) {
     phase_ = Phase::Calendar;
     return PollResult::MoreWork;
@@ -1344,17 +1366,22 @@ uint32_t GithubMode::pageDwellMs(const Settings& settings) const {
 // lamp for exactly that interval makes the pause legible instead of looking
 // like a hung rotation. Only the lamp's own rectangle is pushed, so this costs
 // nothing near a full repaint.
+void GithubMode::pollResultChanged(const Settings&, PollResult result) {
+  indicatorResult = result;
+}
+
 void GithubMode::pollActivityChanged(const Settings& settings, bool busy) {
   (void)settings;
   if (pollBusy_ == busy) return;
   pollBusy_ = busy;
   if (busy) busySince_ = millis();
-  const bool on = busy;
+  struct LedState { uint16_t color; bool busy; };
+  LedState state{busy ? BLUE : indicatorColor(), busy};
   gfxRenderRegion([](TileCanvas& g, void* context) {
-    const bool lit = *static_cast<const bool*>(context);
+    const LedState& led = *static_cast<const LedState*>(context);
     g.fillScreen(BG);
-    StatusDot::draw(g, layout::BusyX, layout::DotsY, BLUE, lit, lit);
-  }, const_cast<bool*>(&on), BG, layout::BusyX - 5, layout::DotsY - 5, 11, 11);
+    StatusDot::draw(g, layout::BusyX, layout::DotsY, led.color, true, led.busy);
+  }, &state, BG, layout::BusyX - 5, layout::DotsY - 5, 11, 11);
 
   // A finished refresh leaves new data behind; repaint on the next tick.
   if (!busy) dirty_ = true;

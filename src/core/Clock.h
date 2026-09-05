@@ -16,4 +16,5 @@ bool clockNightHeld();
 void clockFormatTime(const Settings& settings, const struct tm& value,
                      char* timeText, size_t timeTextSize,
                      char* meridiem, size_t meridiemSize);
+bool clockTimeStr(const Settings& settings, char* out, size_t outSize);
 String clockTimeStr(const Settings& settings);

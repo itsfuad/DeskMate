@@ -1,14 +1,17 @@
 #include "WeatherMode.h"
 #include "Platform.h"
 #include "HttpRequest.h"
-#include <ArduinoJson.h>
+#include "JsonScanner.h"
 #include "Gfx.h"
 #include "TileRenderer.h"
 #include "DisplayLayout.h"
 #include "WeatherScene.h"
 #include "Clock.h"
 #include <Arduino_GFX_Library.h>
+#include <errno.h>
+#include <limits.h>
 #include <math.h>
+#include <new>
 #include <time.h>
 
 WeatherMode g_weatherMode;
@@ -1179,6 +1182,166 @@ bool beginGet(const Settings& s, const char* url,
                  24576, &code, &contentLength, &chunked);
 }
 
+struct CurrentParse {
+  char city[sizeof(W.city)] = "";
+  char description[sizeof(W.description)] = "";
+  char icon[sizeof(W.icon)] = "01d";
+  float temp = 0;
+  float feels = 0;
+  float wind = 0;
+  int humidity = 0;
+  int pressure = 0;
+  int conditionId = 800;
+  int32_t timezone = 0;
+  uint32_t sunrise = 0;
+  uint32_t sunset = 0;
+};
+
+bool parseFloat(const char* text, float& output) {
+  char* end = nullptr;
+  const float value = strtof(text, &end);
+  if (end == text || *end) return false;
+  output = value;
+  return true;
+}
+
+bool parseInt(const JsonScanner& scanner, const char* text, int& output) {
+  if (scanner.numberIsUnsigned()) {
+    const uint32_t value = strtoul(text, nullptr, 10);
+    if (value > static_cast<uint32_t>(INT_MAX)) return false;
+    output = static_cast<int>(value);
+    return true;
+  }
+  char* end = nullptr;
+  errno = 0;
+  const long value = strtol(text, &end, 10);
+  if (errno == ERANGE || end == text || *end || value < INT_MIN ||
+      value > INT_MAX) return false;
+  output = static_cast<int>(value);
+  return true;
+}
+
+bool parseUint32(const JsonScanner& scanner, const char* text, uint32_t& output) {
+  if (!scanner.numberIsUnsigned()) return false;
+  output = strtoul(text, nullptr, 10);
+  return true;
+}
+
+void currentJsonValue(void* context, const JsonScanner& scanner,
+                      JsonScanner::Value type, const char* text,
+                      uint32_t number) {
+  (void)number;
+  CurrentParse& parsed = *static_cast<CurrentParse*>(context);
+  const char* key = scanner.key();
+  const char* object = scanner.container(0);
+
+  const int16_t weatherIndex = scanner.indexUnder("weather");
+  if (!object[0] && !scanner.container(1)[0] && weatherIndex < 0) {
+    if (!strcmp(key, "name") && type == JsonScanner::Value::String) {
+      strlcpy(parsed.city, text, sizeof(parsed.city));
+    } else if (!strcmp(key, "timezone") &&
+               type == JsonScanner::Value::Number) {
+      int value;
+      if (parseInt(scanner, text, value)) parsed.timezone = value;
+    }
+    return;
+  }
+
+  if (!strcmp(object, "main") && !scanner.container(1)[0] &&
+      !scanner.container(2)[0] && type == JsonScanner::Value::Number) {
+    if (!strcmp(key, "temp")) parseFloat(text, parsed.temp);
+    else if (!strcmp(key, "feels_like")) parseFloat(text, parsed.feels);
+    else if (!strcmp(key, "humidity")) parseInt(scanner, text, parsed.humidity);
+    else if (!strcmp(key, "pressure")) parseInt(scanner, text, parsed.pressure);
+  } else if (!strcmp(object, "wind") && !scanner.container(1)[0] &&
+             !scanner.container(2)[0] && !strcmp(key, "speed") &&
+             type == JsonScanner::Value::Number) {
+    parseFloat(text, parsed.wind);
+  } else if (!strcmp(object, "sys") && !scanner.container(1)[0] &&
+             !scanner.container(2)[0] && type == JsonScanner::Value::Number) {
+    if (!strcmp(key, "sunrise")) parseUint32(scanner, text, parsed.sunrise);
+    else if (!strcmp(key, "sunset")) parseUint32(scanner, text, parsed.sunset);
+  }
+
+  if (weatherIndex != 0 || strcmp(scanner.container(1), "weather") ||
+      scanner.container(2)[0] || object[0]) return;
+  if (!strcmp(key, "id") && type == JsonScanner::Value::Number) {
+    parseInt(scanner, text, parsed.conditionId);
+  } else if (!strcmp(key, "description") &&
+             type == JsonScanner::Value::String) {
+    strlcpy(parsed.description, text, sizeof(parsed.description));
+  } else if (!strcmp(key, "icon") && type == JsonScanner::Value::String) {
+    strlcpy(parsed.icon, text, sizeof(parsed.icon));
+  }
+}
+
+struct ForecastParse {
+  ForecastPoint points[4];
+  ForecastPoint current;
+  int16_t index = -1;
+  uint8_t count = 0;
+  int32_t timezone;
+  uint32_t cutoff;
+};
+
+void commitForecastPoint(ForecastParse& parsed) {
+  if (parsed.count >= 4 || parsed.current.stamp <= parsed.cutoff) return;
+  parsed.current.valid = true;
+  parsed.points[parsed.count++] = parsed.current;
+}
+
+void beginForecastPoint(ForecastParse& parsed, int16_t index) {
+  if (index == parsed.index) return;
+  if (parsed.index >= 0) commitForecastPoint(parsed);
+  parsed.current = ForecastPoint();
+  parsed.index = index;
+}
+
+void forecastJsonValue(void* context, const JsonScanner& scanner,
+                       JsonScanner::Value type, const char* text,
+                       uint32_t number) {
+  (void)number;
+  ForecastParse& parsed = *static_cast<ForecastParse*>(context);
+  const char* key = scanner.key();
+  const char* object = scanner.container(0);
+  const int16_t index = scanner.indexUnder("list");
+
+  if (index < 0) {
+    if (!strcmp(object, "city") && !scanner.container(1)[0] &&
+        !scanner.container(2)[0] && !strcmp(key, "timezone") &&
+        type == JsonScanner::Value::Number) {
+      int value;
+      if (parseInt(scanner, text, value)) parsed.timezone = value;
+    }
+    return;
+  }
+  if (parsed.count >= 4) return;
+
+  if (!object[0] && !strcmp(scanner.container(1), "list") &&
+      !scanner.container(2)[0] && !strcmp(key, "dt") &&
+      type == JsonScanner::Value::Number) {
+    beginForecastPoint(parsed, index);
+    parseUint32(scanner, text, parsed.current.stamp);
+  } else if (!strcmp(object, "main") && !scanner.container(1)[0] &&
+             !strcmp(scanner.container(2), "list") &&
+             !scanner.container(3)[0] && !strcmp(key, "temp") &&
+             type == JsonScanner::Value::Number) {
+    beginForecastPoint(parsed, index);
+    parseFloat(text, parsed.current.temp);
+  } else if (!object[0] && !strcmp(scanner.container(1), "weather") &&
+             !scanner.container(2)[0] &&
+             !strcmp(scanner.container(3), "list") &&
+             !scanner.container(4)[0] &&
+             scanner.indexUnder("weather") == 0) {
+    beginForecastPoint(parsed, index);
+    if (!strcmp(key, "id") && type == JsonScanner::Value::Number) {
+      parseInt(scanner, text, parsed.current.id);
+    } else if (!strcmp(key, "icon") && type == JsonScanner::Value::String) {
+      parsed.current.night = text[0] && text[1] && text[2] == 'n';
+    }
+  }
+}
+
 bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
   char url[kWeatherUrlCapacity];
   if (!buildWeatherUrl(s, false, url, sizeof(url))) {
@@ -1203,43 +1366,33 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
     return false;
   }
 
-  JsonDocument filter;
-  filter["name"] = true;
-  filter["timezone"] = true;
-  filter["main"]["temp"] = true;
-  filter["main"]["feels_like"] = true;
-  filter["main"]["humidity"] = true;
-  filter["main"]["pressure"] = true;
-  filter["wind"]["speed"] = true;
-  filter["sys"]["sunrise"] = true;
-  filter["sys"]["sunset"] = true;
-  filter["weather"][0]["id"] = true;
-  filter["weather"][0]["description"] = true;
-  filter["weather"][0]["icon"] = true;
-
-  JsonDocument doc;
-  const DeserializationError err = deserializeJson(
-      doc, *client, DeserializationOption::Filter(filter));
+  std::unique_ptr<CurrentParse> parsed(new (std::nothrow) CurrentParse());
+  if (!parsed) {
+    client->stop();
+    strlcpy(W.errorText, "LOW HEAP - RETRY LATER", sizeof(W.errorText));
+    return false;
+  }
+  JsonScanner& scanner = JsonScanner::shared(
+      *client, *client, contentLength, min<uint16_t>(budgetMs, s.httpTimeout));
+  const bool complete = scanner.walk(currentJsonValue, parsed.get());
   client->stop();
-  if (err) {
+  if (!complete) {
     strlcpy(W.errorText, "BAD CURRENT DATA", sizeof(W.errorText));
     return false;
   }
 
-  W.temp = doc["main"]["temp"] | 0.0f;
-  W.feels = doc["main"]["feels_like"] | 0.0f;
-  W.humidity = doc["main"]["humidity"] | 0;
-  W.pressure = doc["main"]["pressure"] | 0;
-  const float speed = doc["wind"]["speed"] | 0.0f;
-  W.wind = s.weather.metric ? speed * 3.6f : speed;
-  W.conditionId = doc["weather"][0]["id"] | 800;
-  W.timezone = doc["timezone"] | 0;
-  W.sunrise = doc["sys"]["sunrise"] | 0UL;
-  W.sunset = doc["sys"]["sunset"] | 0UL;
-  strlcpy(W.city, doc["name"] | "", sizeof(W.city));
-  strlcpy(W.description, doc["weather"][0]["description"] | "",
-          sizeof(W.description));
-  strlcpy(W.icon, doc["weather"][0]["icon"] | "01d", sizeof(W.icon));
+  W.temp = parsed->temp;
+  W.feels = parsed->feels;
+  W.humidity = parsed->humidity;
+  W.pressure = parsed->pressure;
+  W.wind = s.weather.metric ? parsed->wind * 3.6f : parsed->wind;
+  W.conditionId = parsed->conditionId;
+  W.timezone = parsed->timezone;
+  W.sunrise = parsed->sunrise;
+  W.sunset = parsed->sunset;
+  strlcpy(W.city, parsed->city, sizeof(W.city));
+  strlcpy(W.description, parsed->description, sizeof(W.description));
+  strlcpy(W.icon, parsed->icon, sizeof(W.icon));
   return true;
 }
 
@@ -1260,38 +1413,28 @@ bool fetchForecast(const Settings& s, uint16_t budgetMs) {
     return false;
   }
 
-  JsonDocument filter;
-  filter["city"]["timezone"] = true;
-  filter["list"][0]["dt"] = true;
-  filter["list"][0]["main"]["temp"] = true;
-  filter["list"][0]["weather"][0]["id"] = true;
-  filter["list"][0]["weather"][0]["icon"] = true;
-
-  JsonDocument doc;
-  const DeserializationError err = deserializeJson(
-      doc, *client, DeserializationOption::Filter(filter));
-  client->stop();
-  if (err) return false;
-
-  if (doc["city"]["timezone"].is<int>()) W.timezone = doc["city"]["timezone"];
-  for (ForecastPoint& point : W.forecast) point = ForecastPoint();
-  W.forecastCount = 0;
-
   time_t now = time(nullptr);
   if (now < 1609459200) now = 1700000000;
-  for (JsonObjectConst item : doc["list"].as<JsonArrayConst>()) {
-    if (W.forecastCount >= 4) break;
-    const uint32_t stamp = item["dt"] | 0UL;
-    if (stamp <= static_cast<uint32_t>(now + 900)) continue;
-    ForecastPoint& point = W.forecast[W.forecastCount++];
-    point.valid = true;
-    point.stamp = stamp;
-    point.temp = item["main"]["temp"] | 0.0f;
-    point.id = item["weather"][0]["id"] | 800;
-    const char* icon = item["weather"][0]["icon"] | "01d";
-    point.night = icon[2] == 'n';
+  std::unique_ptr<ForecastParse> parsed(new (std::nothrow) ForecastParse{
+      {}, {}, -1, 0, W.timezone, static_cast<uint32_t>(now + 900)});
+  if (!parsed) {
+    client->stop();
+    strlcpy(W.errorText, "LOW HEAP - RETRY LATER", sizeof(W.errorText));
+    return false;
   }
-  return W.forecastCount > 0;
+  JsonScanner& scanner = JsonScanner::shared(
+      *client, *client, contentLength, min<uint16_t>(budgetMs, s.httpTimeout));
+  const bool complete = scanner.walk(forecastJsonValue, parsed.get());
+  client->stop();
+  if (!complete) return false;
+  if (parsed->index >= 0) commitForecastPoint(*parsed);
+  if (!parsed->count) return false;
+
+  W.timezone = parsed->timezone;
+  for (ForecastPoint& point : W.forecast) point = ForecastPoint();
+  W.forecastCount = parsed->count;
+  for (uint8_t i = 0; i < parsed->count; ++i) W.forecast[i] = parsed->points[i];
+  return true;
 }
 }  // namespace
 
@@ -1311,6 +1454,7 @@ PollResult WeatherMode::poll(const Settings& settings, uint16_t budgetMs) {
     dirty_ = true;
     return PollResult::Skipped;
   }
+  if (!platformTlsMemoryReady()) return PollResult::Skipped;
 
   W.errorText[0] = 0;
   W.httpCode = 0;
@@ -1323,6 +1467,10 @@ PollResult WeatherMode::poll(const Settings& settings, uint16_t budgetMs) {
       // Preserve the last complete dashboard through transient provider/TLS
       // failures. Only a never-configured device falls back to the error card.
       W.valid = hadValidSnapshot;
+      if (!strcmp(W.errorText, "LOW HEAP - RETRY LATER")) {
+        W.error = false;
+        return PollResult::Skipped;
+      }
       return PollResult::Failed;
     }
 
@@ -1338,6 +1486,8 @@ PollResult WeatherMode::poll(const Settings& settings, uint16_t budgetMs) {
   // fetchForecast commits only after a complete parse, so a failed refresh
   // naturally leaves the previous forecast cached and visible.
   dirty_ = true;
+  if (!forecastOk && !strcmp(W.errorText, "LOW HEAP - RETRY LATER"))
+    return PollResult::Skipped;
   return forecastOk ? PollResult::Success : PollResult::Failed;
 }
 

@@ -13,3 +13,4 @@ uint8_t radarCount();
 const Aircraft& aircraftAt(uint8_t index);
 uint32_t radarLastOkMs();
 bool radarError();
+bool radarLowMemory();

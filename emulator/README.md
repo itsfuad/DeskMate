@@ -17,12 +17,6 @@ Fedora packages:
 sudo dnf install gcc-c++ cmake libX11-devel openssl-devel
 ```
 
-ArduinoJson uses the same pinned PlatformIO dependency as firmware. Install the
-project dependencies once if `.pio/libdeps/deskmate/ArduinoJson` is absent:
-
-```bash
-pio pkg install -e deskmate
-```
 
 ## Run
 

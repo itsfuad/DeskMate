@@ -1,4 +1,5 @@
 #include "RadarMode.h"
+#include "Platform.h"
 #include "Gfx.h"
 #include "RadarClient.h"
 #include "TileRenderer.h"
@@ -11,6 +12,8 @@
 RadarMode g_radarMode;
 
 namespace {
+PollResult indicatorResult = PollResult::Skipped;
+
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
@@ -179,14 +182,14 @@ struct RadarRenderContext {
   bool pollBusy = false;
 };
 
-uint16_t radarStatusColor(const Settings& settings) {
-  if (radarError()) return CORAL;
-  const uint32_t lastOk = radarLastOkMs();
-  if (!lastOk) return BLUE;
-  const uint32_t staleAfter = max<uint32_t>(30000UL,
-      static_cast<uint32_t>(settings.radar.pollSec) * 2500UL);
-  if (millis() - lastOk > staleAfter) return AMBER;
-  return GREEN;
+uint16_t radarStatusColor(const Settings&) {
+  switch (indicatorResult) {
+    case PollResult::Success: return GREEN;
+    case PollResult::Failed: return C_RED;
+    case PollResult::Skipped: return C_WHITE;
+    case PollResult::MoreWork: return AMBER;
+  }
+  return C_WHITE;
 }
 
 void drawRadarHeartbeat(TileCanvas& g, const Settings& settings,
@@ -466,8 +469,12 @@ uint16_t RadarMode::pollBudgetMs(const Settings& settings) const {
 PollResult RadarMode::poll(const Settings& settings, uint16_t budgetMs) {
   if (settings.radar.lat == 0.0f && settings.radar.lon == 0.0f)
     return PollResult::Skipped;
+  const bool https = settings.radar.source != RADAR_SRC_WEBHOOK ||
+                     settings.radar.webhookUrl.startsWith("https://");
+  if (https && !platformTlsMemoryReady()) return PollResult::Skipped;
   const bool ok = radarPoll(settings, budgetMs);
   needRender_ = true;
+  if (!ok && radarLowMemory()) return PollResult::Skipped;
   return ok ? PollResult::Success : PollResult::Failed;
 }
 
@@ -490,6 +497,10 @@ void RadarMode::renderHeartbeat(const Settings& settings) {
   context.busy = pollBusy_;
   // Exact 11x11 retained region with a dedicated callback: minimal CPU and SPI.
   gfxRenderRegion(drawRadarLedRegion, &context, BG, 221, 221, 11, 11);
+}
+
+void RadarMode::pollResultChanged(const Settings&, PollResult result) {
+  indicatorResult = result;
 }
 
 void RadarMode::pollActivityChanged(const Settings& settings, bool busy) {

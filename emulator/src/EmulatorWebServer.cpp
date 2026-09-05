@@ -161,6 +161,8 @@ void EmulatorWebServer::handleConnection(int client) {
   responseHeaders_.clear();
   responseReady_ = false;
   responseBody_.clear();
+  responseLength_ = 0;
+  responseLengthSet_ = false;
   activeClient_ = client;
   if (queryAt != std::string::npos) {
     std::istringstream query(target.substr(queryAt + 1));
@@ -248,12 +250,17 @@ void EmulatorWebServer::send(int code, const char* contentType, const String& co
   responseBody_ = static_cast<std::string>(content);
   responseReady_ = true;
 }
+void EmulatorWebServer::sendContent(const char* content, size_t length) {
+  if (!content || !length) return;
+  responseBody_.append(content, length);
+}
 void EmulatorWebServer::writeResponse() {
   if (activeClient_ < 0) return;
   std::ostringstream output;
   output << "HTTP/1.1 " << responseCode_ << ' ' << reasonFor(responseCode_) << "\r\n"
          << "Content-Type: " << responseType_ << "\r\n"
-         << "Content-Length: " << responseBody_.size() << "\r\n";
+         << "Content-Length: "
+         << (responseLengthSet_ ? responseLength_ : responseBody_.size()) << "\r\n";
   for (const auto& header : responseHeaders_)
     output << header.first << ": " << header.second.c_str() << "\r\n";
   output << "Connection: close\r\n\r\n" << responseBody_;

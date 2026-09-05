@@ -1,14 +1,105 @@
 #include "OtaUpdate.h"
 #include "Platform.h"
-#include <ArduinoJson.h>
 #include <LittleFS.h>
 #include "config.h"
 #include "Gfx.h"
 #include "HttpRequest.h"
+#include "JsonScanner.h"
 
 #if defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 #include <HTTPUpdate.h>
 #endif
+
+namespace {
+constexpr size_t kMaxReleaseBody = 24576;
+constexpr size_t kReleaseTagCapacity = 48;
+constexpr size_t kReleaseUrlCapacity = 256;
+
+struct ReleaseParse {
+  explicit ReleaseParse(const char* wanted) : wantedAsset(wanted) {}
+
+  const char* wantedAsset;
+  char tag[kReleaseTagCapacity] = "";
+  char matchedUrl[kReleaseUrlCapacity] = "";
+  uint8_t depth = 0;
+  bool rootObject = false;
+  bool assetsArray = false;
+  bool assetObject = false;
+  bool assetNameMatches = false;
+  bool matchedAsset = false;
+  bool invalidRelevantValue = false;
+};
+
+void releaseContainer(void* context, const JsonScanner& scanner,
+                      JsonScanner::Container event) {
+  ReleaseParse& parse = *static_cast<ReleaseParse*>(context);
+  switch (event) {
+    case JsonScanner::Container::ObjectStart:
+      ++parse.depth;
+      if (parse.depth == 1) {
+        parse.rootObject = scanner.container()[0] == 0;
+      } else if (parse.depth == 3 && parse.assetsArray &&
+                 scanner.container()[0] == 0) {
+        parse.assetObject = !parse.matchedAsset;
+        parse.assetNameMatches = false;
+        if (parse.assetObject) parse.matchedUrl[0] = 0;
+      }
+      break;
+
+    case JsonScanner::Container::ArrayStart:
+      ++parse.depth;
+      if (parse.depth == 2 && parse.rootObject &&
+          !strcmp(scanner.container(), "assets")) {
+        parse.assetsArray = true;
+      }
+      break;
+
+    case JsonScanner::Container::ObjectEnd:
+      if (parse.depth == 3 && parse.assetObject) {
+        if (parse.assetNameMatches) parse.matchedAsset = true;
+        parse.assetObject = false;
+      }
+      --parse.depth;
+      break;
+
+    case JsonScanner::Container::ArrayEnd:
+      if (parse.depth == 2 && parse.assetsArray &&
+          !strcmp(scanner.container(), "assets")) {
+        parse.assetsArray = false;
+      }
+      --parse.depth;
+      break;
+  }
+}
+
+void releaseValue(void* context, const JsonScanner& scanner,
+                  JsonScanner::Value type, const char* text, uint32_t) {
+  ReleaseParse& parse = *static_cast<ReleaseParse*>(context);
+  const char* key = scanner.key();
+  if (parse.depth == 1 && parse.rootObject && !strcmp(key, "tag_name")) {
+    if (type == JsonScanner::Value::String && !scanner.valueTruncated() &&
+        scanner.valueLength() < sizeof(parse.tag))
+      strlcpy(parse.tag, text, sizeof(parse.tag));
+    else
+      parse.tag[0] = 0;
+    return;
+  }
+  if (parse.depth != 3 || !parse.assetObject) return;
+
+  if (!strcmp(key, "name")) {
+    parse.assetNameMatches = type == JsonScanner::Value::String &&
+        !scanner.valueTruncated() && !strcmp(text, parse.wantedAsset);
+  } else if (!strcmp(key, "browser_download_url")) {
+    if (type == JsonScanner::Value::String && !scanner.valueTruncated() &&
+        scanner.valueLength() < sizeof(parse.matchedUrl)) {
+      strlcpy(parse.matchedUrl, text, sizeof(parse.matchedUrl));
+    } else {
+      parse.matchedUrl[0] = 0;
+      parse.invalidRelevantValue = true;
+    }
+  }
+}
+}  // namespace
 
 // "a.b.c" -> a*10000 + b*100 + c, for a simple newer-than comparison.
 static long verNum(const char* v) {
@@ -36,7 +127,7 @@ OtaLatest otaCheckLatest(const Settings& s) {
   // the API (which is what turns an occasional hiccup into a persistent failure).
   const int kAttempts = 3;
   for (int attempt = 1; attempt <= kAttempts; attempt++) {
-    r.tag = ""; r.url = ""; r.newer = false;   // clear partial state from any prior attempt
+    OtaLatest candidate;
     bool retryable = false;
 
     SecureClient client;
@@ -52,57 +143,57 @@ OtaLatest otaCheckLatest(const Settings& s) {
     int contentLength = -1;
     bool chunked = false;
     if (!httpGet(client, url, FW_NAME, "application/vnd.github+json",
-                 s.httpTimeout, 24576, &code, &contentLength, &chunked)) {
-      r.error = F("connect failed"); retryable = true;
+                 s.httpTimeout, kMaxReleaseBody, &code, &contentLength, &chunked)) {
+      candidate.error = F("connect failed"); retryable = true;
     } else {
       if (code == 403) {
-        r.error = F("GitHub API denied");                    // not retryable
+        candidate.error = F("GitHub API denied");             // not retryable
       } else if (code != 200 || chunked || contentLength < 0) {
         char status[24];
         snprintf(status, sizeof(status), "HTTP %d", code);
-        r.error = status;
-        retryable = (code >= 500);                            // server-side -> transient
+        candidate.error = status;
+        retryable = (code >= 500);                             // server-side -> transient
       } else {
-        // Keep only the fields we need; the releases payload is large.
-        JsonDocument filter;
-        filter["tag_name"] = true;
-        JsonObject fa = filter["assets"][0].to<JsonObject>();
-        fa["name"] = true;
-        fa["browser_download_url"] = true;
-
-        JsonDocument doc;
-        DeserializationError err =
-            deserializeJson(doc, client, DeserializationOption::Filter(filter));
-        if (err) {
-          r.error = F("parse failed"); retryable = true;      // truncated/stalled stream
-        } else {
-          r.tag = (const char*)(doc["tag_name"] | "");
-          const char* wantedAsset =
+        const char* wantedAsset =
 #if defined(DESKMATE_EMULATOR)
-              emulatorUpdateAsset();
+            emulatorUpdateAsset();
 #else
-              UPDATE_ASSET;
+            UPDATE_ASSET;
 #endif
-          for (JsonObjectConst a : doc["assets"].as<JsonArrayConst>()) {
-            if (strcmp(a["name"] | "", wantedAsset) == 0) {
-              r.url = (const char*)(a["browser_download_url"] | "");
-              break;
-            }
-          }
-          if (r.tag.length() == 0 || r.url.length() == 0) {
-            r.error = F("no matching asset");                 // not retryable
+        ReleaseParse parsed(wantedAsset);
+        static char valueBuffer[kReleaseUrlCapacity];
+        Stream& stream = client;
+        JsonScanner scanner(stream, client, contentLength, s.httpTimeout,
+                            kMaxReleaseBody);
+        scanner.setValueBuffer(valueBuffer, sizeof(valueBuffer));
+        scanner.setContainerHandler(releaseContainer, &parsed);
+        if (!scanner.walk(releaseValue, &parsed)) {
+          candidate.error = F("parse failed"); retryable = true;  // truncated/stalled stream
+        } else if (parsed.invalidRelevantValue || !parsed.tag[0] ||
+                   !parsed.matchedAsset || !parsed.matchedUrl[0]) {
+          candidate.error = F("no matching asset");           // not retryable
+        } else {
+          candidate.tag = parsed.tag;
+          candidate.url = parsed.matchedUrl;
+          if (candidate.tag.length() != strlen(parsed.tag) ||
+              candidate.url.length() != strlen(parsed.matchedUrl)) {
+            candidate.tag = "";
+            candidate.url = "";
+            candidate.error = F("low heap");
+            retryable = true;
           } else {
-            const char* latest = r.tag.c_str();
+            const char* latest = parsed.tag;
             if (latest[0] == 'v') ++latest;
-            r.newer = verNum(latest) > verNum(FW_VERSION);
-            r.error = "";
-            r.ok = true;
+            candidate.newer = verNum(latest) > verNum(FW_VERSION);
+            candidate.ok = true;
           }
         }
       }
       client.stop();
     }
 
+    // Publish one complete attempt; parser callbacks never expose partial fields.
+    r = candidate;
     if (r.ok || !retryable) return r;
     if (attempt < kAttempts) delay(500);           // brief backoff before the next try
   }

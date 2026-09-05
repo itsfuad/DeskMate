@@ -1,6 +1,5 @@
 #include "WebPortal.h"
 #include "Platform.h"
-#include <ArduinoJson.h>
 #include <LittleFS.h>
 #include "webui.h"
 #include "Net.h"
@@ -10,6 +9,7 @@
 #include "features/radar/RadarClient.h"
 #include <ctype.h>
 #include <math.h>
+#include <new>
 
 // Defined in main.cpp. Full feature changes invalidate data; display-only
 // changes repaint the active mode from cached data without another API poll.
@@ -42,6 +42,14 @@ static uint32_t         g_uploadLastPaint = 0;
 static uint8_t          g_uploadLastPercent = 0xFF;
 static char             g_uploadName[42] = "";
 
+static void closeResponseConnection() {
+#if defined(DESKMATE_ESP8266)
+  // A retained browser client fragments the small heap and can leave no block
+  // large enough for the next BearSSL handshake.
+  server.keepAlive(false);
+#endif
+}
+
 static void scheduleReboot(uint32_t inMs) {
   g_reboot = true;
   g_rebootAt = millis() + inMs;
@@ -60,18 +68,115 @@ static void showFirmwareFailure(const char* artifact, const String& message) {
 }
 
 // ---------------------------------------------------------------------------
-static void sendJson(JsonDocument& doc, int code = 200) {
-  String out;
+class CountingPrint : public Print {
+ public:
+  size_t write(uint8_t) override { ++length_; return 1; }
+  size_t write(const uint8_t*, size_t size) override {
+    length_ += size;
+    return size;
+  }
+  size_t length() const { return length_; }
+
+ private:
+  size_t length_ = 0;
+};
+
+class ServerPrint : public Print {
+ public:
+  size_t write(uint8_t value) override {
+    if (used_ == sizeof(buffer_)) flush();
+    buffer_[used_++] = static_cast<char>(value);
+    return 1;
+  }
+  size_t write(const uint8_t* data, size_t size) override {
+    size_t written = 0;
+    while (written < size) {
+      if (used_ == sizeof(buffer_)) flush();
+      const size_t available = sizeof(buffer_) - used_;
+      const size_t chunk = min(available, size - written);
+      memcpy(buffer_ + used_, data + written, chunk);
+      used_ += chunk;
+      written += chunk;
+    }
+    return written;
+  }
+  void flush() {
+    if (!used_) return;
+    server.sendContent(buffer_, used_);
+    used_ = 0;
+    yield();
+  }
+
+ private:
+  char buffer_[256];
+  size_t used_ = 0;
+};
+
+// ESP8266WebServer is synchronous; all JSON responses can safely share one
+// output buffer instead of putting it on the continuation stack.
+static ServerPrint g_jsonOutput;
+
+static bool jsonMember(JsonWriter& writer, const char* key, const char* value) {
+  return writer.key(key) && writer.value(value);
+}
+static bool jsonMember(JsonWriter& writer, const char* key, const String& value) {
+  return writer.key(key) && writer.value(value);
+}
+static bool jsonMember(JsonWriter& writer, const char* key, bool value) {
+  return writer.key(key) && writer.value(value);
+}
+template <typename T>
+static bool jsonMember(JsonWriter& writer, const char* key, T value) {
+  return writer.key(key) && writer.value(value);
+}
+
+template <typename WriteJson>
+static void writeJsonResponse(int code, WriteJson writeJson) {
+  closeResponseConnection();
+  size_t length = 0;
+  {
+    CountingPrint counter;
+    JsonWriter writer(counter);
+    if (!writeJson(writer) || !writer.complete()) {
+      server.send(500, "text/plain", "could not encode response");
+      return;
+    }
+    length = counter.length();
+  }
+
   server.sendHeader("Cache-Control", "no-store, max-age=0");
-  serializeJson(doc, out);
-  server.send(code, "application/json", out);
+  server.setContentLength(length);
+  server.send(code, "application/json", "");
+  JsonWriter writer(g_jsonOutput);
+  writeJson(writer);
+  g_jsonOutput.flush();
 }
 
 static void handleRoot() {
+  closeResponseConnection();
   server.sendHeader("Cache-Control", "no-store, max-age=0");
   server.sendHeader("Pragma", "no-cache");
   server.sendHeader("Expires", "0");
+#if defined(DESKMATE_ESP8266)
+  // A single 44 KB send can time out after advertising the full Content-Length,
+  // leaving the browser with ERR_CONTENT_LENGTH_MISMATCH. Small writes reset the
+  // core's send timeout and let lwIP release acknowledged buffers between chunks.
+  if (ESP.getFreeHeap() < 4096 || platformMaxFreeBlock() < 2048) {
+    server.send(503, "text/plain", "busy; retry shortly");
+    return;
+  }
+  constexpr size_t pageSize = sizeof(WEBUI_HTML) - 1;
+  constexpr size_t chunkSize = 1024;
+  server.setContentLength(pageSize);
+  server.send(200, "text/html", "");
+  for (size_t offset = 0; offset < pageSize; offset += chunkSize) {
+    const size_t length = min(chunkSize, pageSize - offset);
+    server.sendContent_P(WEBUI_HTML + offset, length);
+    yield();
+  }
+#else
   server.send_P(200, "text/html", WEBUI_HTML);
+#endif
 }
 
 static void handleCrashLog() {
@@ -80,59 +185,124 @@ static void handleCrashLog() {
 }
 
 static void handleGetConfig() {
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-  settingsToJson(*S, root, /*includeSecrets=*/false);
-  // Which features are compiled in (so a lean build hides the tabs it dropped).
-  JsonObject feat = root["features"].to<JsonObject>();
-  feat["weather"]=(bool)WITH_WEATHER; feat["network"]=(bool)WITH_NETWORK; feat["radar"]=(bool)WITH_RADAR; feat["github"]=(bool)WITH_GITHUB;
-  // Which chip this build runs on (the UI warns about per-chip limitations).
 #if defined(DESKMATE_EMULATOR)
-  root["chip"] = emulatorBoardProfile().id;
+  const char* chip = emulatorBoardProfile().id;
 #elif defined(DESKMATE_ESP32C2)
-  root["chip"] = "esp32c2";
+  const char* chip = "esp32c2";
 #elif defined(DESKMATE_ESP32)
-  root["chip"] = "esp32";
+  const char* chip = "esp32";
 #else
-  root["chip"] = "esp8266";
+  const char* chip = "esp8266";
 #endif
-  sendJson(doc);
+  writeJsonResponse(200, [chip](JsonWriter& writer) {
+    return writer.beginObject() &&
+        settingsWriteJsonFields(writer, *S, false) &&
+        writer.key("features") && writer.beginObject() &&
+        jsonMember(writer, "weather", static_cast<bool>(WITH_WEATHER)) &&
+        jsonMember(writer, "network", static_cast<bool>(WITH_NETWORK)) &&
+        jsonMember(writer, "radar", static_cast<bool>(WITH_RADAR)) &&
+        jsonMember(writer, "github", static_cast<bool>(WITH_GITHUB)) &&
+        writer.endObject() && jsonMember(writer, "chip", chip) &&
+        writer.endObject();
+  });
+}
+
+struct StatusSnapshot {
+  char ssid[33];
+  char ip[16];
+  char time[24];
+  const char* updateMsg;
+  const char* timezone;
+  const char* reset;
+  const char* pollCurrent;
+  const char* mode;
+  bool connected;
+  bool synced;
+  bool night;
+  bool nightHeld;
+  bool clockFresh;
+  int rssi;
+  uint32_t heap;
+  uint32_t cpuMhz;
+  uint32_t maxBlock;
+  uint32_t contStack;
+  uint32_t uptime;
+  uint32_t pollCompleted;
+  uint32_t pollFailed;
+  uint32_t pollCoalesced;
+  uint32_t pollDeferrals;
+  uint32_t pollLastMs;
+  uint32_t pollAverageMs;
+  int32_t pollCreditsMs;
+};
+
+static StatusSnapshot g_status;
+
+static bool writeStatusJson(JsonWriter& writer) {
+  const StatusSnapshot& status = g_status;
+  if (!writer.beginObject() ||
+      !jsonMember(writer, "fw", FW_NAME) ||
+      !jsonMember(writer, "version", FW_VERSION) ||
+      !jsonMember(writer, "repo", REPO_URL) ||
+      (status.updateMsg[0] && !jsonMember(writer, "updateMsg", status.updateMsg)) ||
+      !jsonMember(writer, "mode", status.mode) ||
+      !jsonMember(writer, "connected", status.connected) ||
+      !jsonMember(writer, "ssid", status.ssid) ||
+      !jsonMember(writer, "ip", status.ip) ||
+      !jsonMember(writer, "rssi", status.rssi) ||
+      !jsonMember(writer, "heap", status.heap) ||
+      !jsonMember(writer, "cpuMhz", status.cpuMhz) ||
+      !jsonMember(writer, "maxblk", status.maxBlock) ||
+      !jsonMember(writer, "contstk", status.contStack) ||
+      !jsonMember(writer, "uptime", status.uptime) ||
+      !jsonMember(writer, "reset", status.reset) ||
+      !jsonMember(writer, "synced", status.synced) ||
+      (status.time[0] && !jsonMember(writer, "time", status.time)) ||
+      !jsonMember(writer, "tz", status.timezone) ||
+      !jsonMember(writer, "night", status.night) ||
+      !jsonMember(writer, "nightHeld", status.nightHeld) ||
+      !jsonMember(writer, "clockFresh", status.clockFresh) ||
+      !jsonMember(writer, "pollCompleted", status.pollCompleted) ||
+      !jsonMember(writer, "pollFailed", status.pollFailed) ||
+      !jsonMember(writer, "pollCoalesced", status.pollCoalesced) ||
+      !jsonMember(writer, "pollDeferrals", status.pollDeferrals) ||
+      !jsonMember(writer, "pollLastMs", status.pollLastMs) ||
+      !jsonMember(writer, "pollAverageMs", status.pollAverageMs) ||
+      !jsonMember(writer, "pollCreditsMs", status.pollCreditsMs) ||
+      !jsonMember(writer, "pollCurrent", status.pollCurrent)) return false;
+  return writer.endObject();
 }
 
 static void handleStatus() {
-  JsonDocument doc;
-  JsonObject o = doc.to<JsonObject>();
-  o["fw"] = FW_NAME;
-  o["version"] = FW_VERSION;
-  o["repo"] = REPO_URL;
-  if (g_updateMsg.length()) o["updateMsg"] = g_updateMsg;
-  o["mode"] = (netMode() == NET_AP) ? "ap" : "sta";
-  o["connected"] = netConnected();
-  o["ssid"] = netSSID();
-  o["ip"] = netIP();
-  o["rssi"] = netRSSI();
-  o["heap"] = ESP.getFreeHeap();
-  o["cpuMhz"] = platformCpuFreqMhz();
-  o["maxblk"] = platformMaxFreeBlock();     // largest contiguous block (TLS handshake needs one)
-  o["contstk"] = platformFreeContStack();   // primary stack headroom (ESP8266)
-  o["uptime"] = millis() / 1000;
-  o["reset"] = appResetReason();
-  o["synced"] = clockSynced();
-  { String ts = clockTimeStr(*S); if (ts.length()) o["time"] = ts; }
-  o["tz"]        = S->clock.tz;
-  o["night"]     = clockNightActive();   // dimming now
-  o["nightHeld"] = clockNightHeld();      // in the window but waiting for a fresh NTP sync
-  o["clockFresh"] = clockTrusted();
-  o["pollCompleted"] = appPollCompleted();
-  o["pollFailed"] = appPollFailed();
-  o["pollCoalesced"] = appPollCoalesced();
-  o["pollDeferrals"] = appPollDeferrals();
-  o["pollLastMs"] = appPollLastDuration();
-  o["pollAverageMs"] = appPollAverageDuration();
-  o["pollCreditsMs"] = appPollCredits();
-  o["pollCurrent"] = appPollCurrent();
+  StatusSnapshot& status = g_status;
+  netSSID(status.ssid, sizeof(status.ssid));
+  netIP(status.ip, sizeof(status.ip));
+  clockTimeStr(*S, status.time, sizeof(status.time));
+  status.updateMsg = g_updateMsg.c_str();
+  status.timezone = S->clock.tz.c_str();
+  status.reset = appResetReason();
+  status.pollCurrent = appPollCurrent();
+  status.mode = netMode() == NET_AP ? "ap" : "sta";
+  status.connected = netConnected();
+  status.synced = clockSynced();
+  status.night = clockNightActive();
+  status.nightHeld = clockNightHeld();
+  status.clockFresh = clockTrusted();
+  status.rssi = netRSSI();
+  status.heap = ESP.getFreeHeap();
+  status.cpuMhz = platformCpuFreqMhz();
+  status.maxBlock = platformMaxFreeBlock();
+  status.contStack = platformFreeContStack();
+  status.uptime = millis() / 1000;
+  status.pollCompleted = appPollCompleted();
+  status.pollFailed = appPollFailed();
+  status.pollCoalesced = appPollCoalesced();
+  status.pollDeferrals = appPollDeferrals();
+  status.pollLastMs = appPollLastDuration();
+  status.pollAverageMs = appPollAverageDuration();
+  status.pollCreditsMs = appPollCredits();
 
-  sendJson(doc);
+  writeJsonResponse(200, writeStatusJson);
 }
 
 // Cheap server-side structural validation is still required even though the
@@ -164,284 +334,203 @@ static bool validLatLon(float lat, float lon) {
          lon >= -180.0f && lon <= 180.0f;
 }
 
-static bool validAirportCode(const char* value) {
-  if (!value || !value[0] || strlen(value) >= MAX_ICAO_LEN) return false;
-  for (size_t i = 0; value[i]; ++i) {
-    if (!isalnum(static_cast<unsigned char>(value[i]))) return false;
-  }
-  return true;
-}
-
-static bool validHhmm(const char* value) {
-  if (!value || strlen(value) != 5 || value[2] != ':') return false;
-  if (!isdigit(static_cast<unsigned char>(value[0])) ||
-      !isdigit(static_cast<unsigned char>(value[1])) ||
-      !isdigit(static_cast<unsigned char>(value[3])) ||
-      !isdigit(static_cast<unsigned char>(value[4]))) return false;
-  const int hour = (value[0] - '0') * 10 + value[1] - '0';
-  const int minute = (value[3] - '0') * 10 + value[4] - '0';
-  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
-}
-
-static bool validateConfigInput(JsonObjectConst root, String& error) {
-  if (root["hostname"].is<const char*>() &&
-      !validDeviceHostname(root["hostname"].as<String>())) {
+static bool validateConfigInput(const Settings& candidate,
+                                const SettingsJsonPresence& presence,
+                                String& error) {
+  if (presence.hostname && !validDeviceHostname(candidate.hostname)) {
     error = F("invalid hostname"); return false;
   }
-  if (root["carouselSec"].is<int>()) {
-    const int value = root["carouselSec"].as<int>();
-    if (value < 5 || value > 3600) { error = F("invalid carousel interval"); return false; }
+  if (presence.carouselSec && !presence.carouselSecValid) {
+    error = F("invalid carousel interval"); return false;
   }
-  if (root["brightness"].is<int>()) {
-    const int value = root["brightness"].as<int>();
-    if (value < 0 || value > 100) { error = F("invalid brightness"); return false; }
+  if (presence.brightnessValue && !presence.brightnessValueValid) {
+    error = F("invalid brightness"); return false;
   }
-  if (root["rotation"].is<int>()) {
-    const int value = root["rotation"].as<int>();
-    if (value < 0 || value > 3) { error = F("invalid rotation"); return false; }
+  if (presence.rotation && !presence.rotationValid) {
+    error = F("invalid rotation"); return false;
   }
-
-  const bool hasCarouselSelection =
-      root["carouselWeather"].is<bool>() ||
-      root["carouselNetwork"].is<bool>() ||
-      root["carouselRadar"].is<bool>() ||
-      root["carouselGithub"].is<bool>();
-  if (hasCarouselSelection) {
-    // Display controls use partial auto-save requests. Missing members inherit
-    // the currently persisted state instead of being interpreted as false.
-    const bool weather = root["carouselWeather"].is<bool>()
-        ? root["carouselWeather"].as<bool>()
-        : (S && S->carouselWeather);
-    const bool network = root["carouselNetwork"].is<bool>()
-        ? root["carouselNetwork"].as<bool>()
-        : (S && S->carouselNetwork);
-    const bool radar = root["carouselRadar"].is<bool>()
-        ? root["carouselRadar"].as<bool>()
-        : (S && S->carouselRadar);
-    const bool github = root["carouselGithub"].is<bool>()
-        ? root["carouselGithub"].as<bool>()
-        : (S && S->carouselGithub);
-    if (!weather && !network && !radar && !github) {
-      error = F("select at least one carousel screen"); return false;
-    }
+  if (presence.carouselSelection && !presence.carouselSelectionValid) {
+    error = F("select at least one carousel screen"); return false;
+  }
+  if (presence.wifi && !presence.wifiEntriesValid) {
+    error = F("invalid Wi-Fi credentials"); return false;
+  }
+  if (presence.clockNightStart && !presence.clockNightStartValid) {
+    error = F("invalid night start time"); return false;
+  }
+  if (presence.clockNightEnd && !presence.clockNightEndValid) {
+    error = F("invalid night end time"); return false;
+  }
+  if (presence.clockUse24HourInvalid) {
+    error = F("invalid time format"); return false;
+  }
+  if (presence.clockNightLevel && !presence.clockNightLevelValid) {
+    error = F("invalid night brightness"); return false;
   }
 
-  if (root["wifi"].is<JsonArrayConst>()) {
-    for (JsonObjectConst entry : root["wifi"].as<JsonArrayConst>()) {
-      const String ssid = entry["ssid"] | "";
-      const String pass = entry["pass"] | "";
-      if (!ssid.length() || ssid.length() > 32 || pass.length() > 64) {
-        error = F("invalid Wi-Fi credentials"); return false;
-      }
-    }
-  }
-
-  if (root["clock"].is<JsonObjectConst>()) {
-    const JsonObjectConst clock = root["clock"].as<JsonObjectConst>();
-    if (clock["nightStart"].is<const char*>() &&
-        !validHhmm(clock["nightStart"].as<const char*>())) {
-      error = F("invalid night start time"); return false;
-    }
-    if (clock["nightEnd"].is<const char*>() &&
-        !validHhmm(clock["nightEnd"].as<const char*>())) {
-      error = F("invalid night end time"); return false;
-    }
-    if (!clock["use24Hour"].isNull() && !clock["use24Hour"].is<bool>()) {
-      error = F("invalid time format"); return false;
-    }
-    if (clock["nightLevel"].is<int>()) {
-      const int value = clock["nightLevel"].as<int>();
-      if (value < 0 || value > 100) { error = F("invalid night brightness"); return false; }
-    }
-  }
-
-  if (root["weather"].is<JsonObjectConst>()) {
-    const JsonObjectConst weather = root["weather"].as<JsonObjectConst>();
-    const float lat = weather["lat"] | 999.0f;
-    const float lon = weather["lon"] | 999.0f;
-    const String city = weather["city"] | "";
-    const String timezone = weather["timezone"] | "";
-    if (!validLatLon(lat, lon) || !city.length() || city.length() > 80 ||
-        !timezone.length() || timezone.length() > 64 ||
-        (weather["locationVerified"].is<bool>() &&
-         !weather["locationVerified"].as<bool>())) {
+  if (presence.weather) {
+    if (!presence.weatherLat || !presence.weatherLon ||
+        !presence.weatherCity || !presence.weatherTimezone ||
+        !validLatLon(candidate.weather.lat, candidate.weather.lon) ||
+        !candidate.weather.city.length() || candidate.weather.city.length() > 80 ||
+        !candidate.weather.timezone.length() || candidate.weather.timezone.length() > 64 ||
+        (presence.weatherLocationVerified && !candidate.weather.locationVerified)) {
       error = F("weather location was not verified"); return false;
     }
-    if (weather["pollSec"].is<int>()) {
-      const int value = weather["pollSec"].as<int>();
-      if (value < 300 || value > 3600) { error = F("invalid weather interval"); return false; }
+    if (presence.weatherPollSec && !presence.weatherPollSecValid) {
+      error = F("invalid weather interval"); return false;
     }
-    if (weather["apiKey"].is<const char*>() &&
-        weather["apiKey"].as<String>().length() > 160) {
+    if (presence.weatherApiKey && !presence.weatherApiKeyValid) {
       error = F("weather key is too long"); return false;
     }
   }
 
-  if (root["network"].is<JsonObjectConst>()) {
-    const JsonObjectConst network = root["network"].as<JsonObjectConst>();
-    const String probe = network["probeHost"] | "";
-    const String dns = network["dnsHost"] | "";
-    const int port = network["probePort"] | 0;
-    const int interval = network["pollSec"] | 0;
-    if (!validHostLabel(probe) || !validHostLabel(dns) || port < 1 || port > 65535 ||
-        interval < 3 || interval > 300) {
-      error = F("invalid network target"); return false;
-    }
+  if (presence.network &&
+      (!presence.networkProbeHost || !presence.networkProbePort ||
+       !presence.networkDnsHost || !presence.networkPollSec ||
+       !validHostLabel(candidate.network.probeHost) ||
+       !validHostLabel(candidate.network.dnsHost) ||
+       !presence.networkProbePortValid || !presence.networkPollSecValid)) {
+    error = F("invalid network target"); return false;
   }
 
-  if (root["radar"].is<JsonObjectConst>()) {
-    const JsonObjectConst radar = root["radar"].as<JsonObjectConst>();
-    const float lat = radar["lat"] | 999.0f;
-    const float lon = radar["lon"] | 999.0f;
-    const int range = radar["rangeKm"] | 0;
-    const int interval = radar["pollSec"] | 0;
-    const String source = radar["source"] | "direct";
-    const String webhook = radar["webhookUrl"] | "";
-    if (!validLatLon(lat, lon) || range < 1 || range > 500 ||
-        interval < 3 || interval > 3600 ||
-        (source == "webhook" &&
-         !(webhook.startsWith("http://") || webhook.startsWith("https://")))) {
+  if (presence.radar) {
+    const bool invalidWebhook = presence.radarSource &&
+        candidate.radar.source == RADAR_SRC_WEBHOOK &&
+        (!presence.radarWebhookUrl ||
+         !(candidate.radar.webhookUrl.startsWith("http://") ||
+           candidate.radar.webhookUrl.startsWith("https://")));
+    if (!presence.radarLat || !presence.radarLon || !presence.radarRangeKm ||
+        !presence.radarPollSec ||
+        !validLatLon(candidate.radar.lat, candidate.radar.lon) ||
+        !presence.radarRangeKmValid || !presence.radarPollSecValid ||
+        invalidWebhook) {
       error = F("invalid radar configuration"); return false;
     }
-    if (radar["airports"].is<JsonArrayConst>()) {
-      uint8_t count = 0;
-      for (JsonObjectConst airport : radar["airports"].as<JsonArrayConst>()) {
-        if (++count > MAX_AIRPORTS || !validAirportCode(airport["icao"] | "") ||
-            !validLatLon(airport["lat"] | 999.0f,
-                         airport["lon"] | 999.0f)) {
-          error = F("invalid radar airport"); return false;
-        }
-      }
+    if (presence.radarAirports && !presence.radarAirportsValid) {
+      error = F("invalid radar airport"); return false;
     }
   }
 
-  if (root["github"].is<JsonObjectConst>()) {
-    const JsonObjectConst github = root["github"].as<JsonObjectConst>();
-    // Validate only the keys the request actually carries. Page selection is
-    // posted on its own, and treating an absent interval as zero would reject
-    // every such display-only change.
-    if (github["rangeMonths"].is<int>() &&
-        github["rangeMonths"].as<int>() != 3) {
-      error = F("GitHub range is fixed at 3 months"); return false;
-    }
-    if (github["pollSec"].is<int>()) {
-      const int interval = github["pollSec"].as<int>();
-      if (interval < 300 || interval > 3600) {
-        error = F("invalid GitHub interval"); return false;
-      }
-    }
-    if (github["token"].is<const char*>() &&
-        github["token"].as<String>().length() > 512) {
-      error = F("GitHub token is too long"); return false;
-    }
+  if (presence.githubRangeMonths && !presence.githubRangeMonthsValid) {
+    error = F("GitHub range is fixed at 3 months"); return false;
+  }
+  if (presence.githubPollSec && !presence.githubPollSecValid) {
+    error = F("invalid GitHub interval"); return false;
+  }
+  if (presence.githubToken && !presence.githubTokenValid) {
+    error = F("GitHub token is too long"); return false;
   }
   return true;
 }
 
-// Fingerprint of everything network-identity related: the WiFi list and the
-// hostname. Changing any of it needs a reboot, because the connection and the
-// mDNS registration are established once at boot.
-static String netFingerprint(const Settings& s) {
-  String f((int)s.wifiCount);
-  for (uint8_t i = 0; i < s.wifiCount; i++) {
-    f += '\n';
-    f += s.wifi[i].ssid;
-    f += '\x01';
-    f += s.wifi[i].pass;
+static bool networkIdentityChanged(const Settings& before,
+                                   const Settings& after) {
+  if (before.hostname != after.hostname || before.wifiCount != after.wifiCount)
+    return true;
+  for (uint8_t i = 0; i < before.wifiCount; ++i) {
+    if (before.wifi[i].ssid != after.wifi[i].ssid ||
+        before.wifi[i].pass != after.wifi[i].pass) return true;
   }
-  f += '\n';
-  f += s.hostname;
-  return f;
+  return false;
+}
+
+static bool mutationMemoryReady() {
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
+  const uint32_t contStack = platformFreeContStack();
+  return ESP.getFreeHeap() >= 8192 && platformMaxFreeBlock() >= 1024 &&
+         (!contStack || contStack >= 1024);
+#else
+  return true;
+#endif
+}
+
+static void __attribute__((noinline)) processPostConfig(const String& body) {
+  if (body.length() > JsonScanner::DefaultMaxBytes) {
+    server.send(400, "text/plain", "bad json"); return;
+  }
+
+  Settings* candidate = new (std::nothrow) Settings();
+  if (!candidate) {
+    server.send(503, "text/plain", "busy; retry shortly"); return;
+  }
+  SettingsJsonPresence presence;
+  JsonScanner::Error parseError = JsonScanner::Error::None;
+  if (!settingsParseJson(*candidate, *S, body.c_str(), body.length(), &presence,
+                         &parseError)) {
+    delete candidate;
+    server.send(parseError == JsonScanner::Error::OutOfMemory ? 503 : 400,
+                "text/plain",
+                parseError == JsonScanner::Error::OutOfMemory
+                    ? "busy; retry shortly" : "bad json");
+    return;
+  }
+
+  String validationError;
+  if (!validateConfigInput(*candidate, presence, validationError)) {
+    delete candidate;
+    writeJsonResponse(422, [&](JsonWriter& writer) {
+      return writer.beginObject() && jsonMember(writer, "ok", false) &&
+          jsonMember(writer, "error", validationError) && writer.endObject();
+    });
+    return;
+  }
+
+  const bool wifiChanged = networkIdentityChanged(*S, *candidate);
+  const bool rotationChanged = presence.rotation && candidate->rotation != S->rotation;
+  const bool timeFormatChanged = presence.clock &&
+      candidate->clock.use24Hour != S->clock.use24Hour;
+  const bool featureConfig = presence.weather || presence.network || presence.radar ||
+                             presence.githubData;
+  const bool persisted = saveSettings(*candidate);
+
+  if (persisted) {
+    *S = *candidate;
+    // Night mode is evaluated before resolving the PWM target so changes are
+    // visible immediately when the clock is already trusted.
+    if (presence.clock || presence.weather) {
+      clockReapply(*S);
+      clockService(*S);
+    }
+    if (presence.brightness || presence.clock || presence.weather)
+      appApplyBrightness();
+    if (rotationChanged) gfxSetRotation(S->rotation);
+    if (featureConfig) appInvalidate();
+    else if (presence.mode || rotationChanged || timeFormatChanged ||
+             presence.githubDisplay) appWakeActive();
+  }
+  delete candidate;
+
+  writeJsonResponse(200, [&](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "ok", persisted) &&
+        jsonMember(writer, "reboot", wifiChanged) &&
+        (persisted || jsonMember(writer, "error", "could not save config")) &&
+        writer.endObject();
+  });
+  if (persisted && wifiChanged) scheduleReboot(800);
 }
 
 static void handlePostConfig() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-
-  JsonDocument doc;
-  if (deserializeJson(doc, server.arg("plain"))) {
-    server.send(400, "text/plain", "bad json");
-    return;
+  if (!mutationMemoryReady()) {
+    server.send(503, "text/plain", "busy; retry shortly"); return;
   }
-
-  const JsonObjectConst root = doc.as<JsonObjectConst>();
-  String validationError;
-  if (!validateConfigInput(root, validationError)) {
-    JsonDocument response;
-    response["ok"] = false;
-    response["error"] = validationError;
-    sendJson(response, 422);
-    return;
-  }
-  const String oldNet = netFingerprint(*S);
-  const uint8_t oldRot = S->rotation;
-  const bool oldUse24Hour = S->clock.use24Hour;
-
-  // Partial POSTs are used by the display tab for instant controls. Detect which
-  // subsystems are actually present so moving a brightness slider does not
-  // invalidate every mode or trigger fresh web requests.
-  const bool hasClock = root["clock"].is<JsonObjectConst>();
-  const bool hasBrightness = root["brightness"].is<int>() ||
-                             root["autoBrightness"].is<bool>() ||
-                             root["backlightInverted"].is<bool>();
-  const bool hasMode = root["mode"].is<const char*>();
-  const bool hasRotation = root["rotation"].is<int>();
-  const bool hasWeather = root["weather"].is<JsonObjectConst>();
-  // Choosing which GitHub pages rotate is a display preference. Only the keys
-  // that change what is fetched count as a feature change, so toggling a page
-  // does not discard a good snapshot and re-run the API calls.
-  JsonObjectConst github = root["github"];
-  const bool hasGithubData = !github.isNull() &&
-                             (github["token"].is<const char*>() ||
-                              github["login"].is<const char*>() ||
-                              github["pollSec"].is<int>());
-  const bool hasGithubDisplay = !github.isNull() && !hasGithubData;
-  const bool hasFeatureConfig = hasWeather ||
-                                root["network"].is<JsonObjectConst>() ||
-                                root["radar"].is<JsonObjectConst>() ||
-                                hasGithubData;
-
-  settingsApplyJson(*S, root);
-  const bool persisted = saveSettings(*S);
-
-  // Live apply only what changed. Night mode is evaluated before resolving the
-  // PWM target so enabling/disabling it is visible immediately when the clock is
-  // already trusted.
-  if (hasClock || hasWeather) {
-    clockReapply(*S);
-    clockService(*S);
-  }
-  if (hasBrightness || hasClock || hasWeather) appApplyBrightness();
-  const bool rotationChanged = hasRotation && S->rotation != oldRot;
-  const bool timeFormatChanged = hasClock && S->clock.use24Hour != oldUse24Hour;
-  if (rotationChanged) gfxSetRotation(S->rotation);
-  if (hasFeatureConfig) appInvalidate();
-  else if (hasMode || rotationChanged || timeFormatChanged || hasGithubDisplay) {
-    appWakeActive();
-  }
-
-  const bool wifiChanged = netFingerprint(*S) != oldNet;
-
-  JsonDocument res;
-  res["ok"] = persisted;
-  res["reboot"] = wifiChanged;
-  if (!persisted) res["error"] = "could not save config";
-  sendJson(res);
-
-  if (wifiChanged) scheduleReboot(800);
+  processPostConfig(server.arg("plain"));
 }
 
 static void handleScan() {
-  int n = WiFi.scanNetworks();
-  JsonDocument doc;
-  JsonArray arr = doc.to<JsonArray>();
-  for (int i = 0; i < n && i < 25; i++) {
-    JsonObject o = arr.add<JsonObject>();
-    o["ssid"] = WiFi.SSID(i);
-    o["rssi"] = WiFi.RSSI(i);
-    o["enc"] = !platformScanIsOpen(i);
-  }
+  const int count = WiFi.scanNetworks();
+  writeJsonResponse(200, [count](JsonWriter& writer) {
+    if (!writer.beginArray()) return false;
+    for (int i = 0; i < count && i < 25; ++i) {
+      if (!writer.beginObject() || !jsonMember(writer, "ssid", WiFi.SSID(i)) ||
+          !jsonMember(writer, "rssi", WiFi.RSSI(i)) ||
+          !jsonMember(writer, "enc", !platformScanIsOpen(i)) ||
+          !writer.endObject()) return false;
+    }
+    return writer.endArray();
+  });
   WiFi.scanDelete();
-  sendJson(doc);
 }
 
 static bool validFsPath(const String& path) {
@@ -454,45 +543,58 @@ static bool validFsPath(const String& path) {
   return path != "/";
 }
 
-static void addFsEntry(JsonArray files, const String& path, size_t size) {
-  JsonObject entry = files.add<JsonObject>();
-  entry["path"] = path;
-  entry["size"] = static_cast<uint32_t>(size);
+static bool writeFsEntry(JsonWriter& writer, const String& path, size_t size) {
+  return writer.beginObject() && jsonMember(writer, "path", path) &&
+      jsonMember(writer, "size", static_cast<uint32_t>(size)) &&
+      writer.endObject();
 }
 
-static void handleFsList() {
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-  JsonArray files = root["files"].to<JsonArray>();
-
+static bool writeFsList(JsonWriter& writer) {
 #if defined(DESKMATE_EMULATOR)
-  root["total"] = emulatorFsTotalBytes();
-  root["used"] = emulatorFsUsedBytes();
-  for (size_t i = 0; i < emulatorFsFileCount(); ++i) {
-    String path;
-    size_t size = 0;
-    if (emulatorFsFileAt(i, path, size)) addFsEntry(files, path, size);
-  }
+  const size_t total = emulatorFsTotalBytes();
+  const size_t used = emulatorFsUsedBytes();
 #elif defined(DESKMATE_ESP8266)
   FSInfo info;
   LittleFS.info(info);
-  root["total"] = info.totalBytes;
-  root["used"] = info.usedBytes;
-  Dir dir = LittleFS.openDir("/");
-  while (dir.next()) addFsEntry(files, dir.fileName(), dir.fileSize());
+  const size_t total = info.totalBytes;
+  const size_t used = info.usedBytes;
 #else
-  root["total"] = LittleFS.totalBytes();
-  root["used"] = LittleFS.usedBytes();
+  const size_t total = LittleFS.totalBytes();
+  const size_t used = LittleFS.usedBytes();
+#endif
+  if (!writer.beginObject() ||
+      !jsonMember(writer, "total", static_cast<uint32_t>(total)) ||
+      !jsonMember(writer, "used", static_cast<uint32_t>(used)) ||
+      !writer.key("files") || !writer.beginArray()) return false;
+
+#if defined(DESKMATE_EMULATOR)
+  for (size_t i = 0; i < emulatorFsFileCount(); ++i) {
+    String path;
+    size_t size = 0;
+    if (emulatorFsFileAt(i, path, size) && !writeFsEntry(writer, path, size))
+      return false;
+  }
+#elif defined(DESKMATE_ESP8266)
+  Dir dir = LittleFS.openDir("/");
+  while (dir.next()) {
+    if (!writeFsEntry(writer, dir.fileName(), dir.fileSize())) return false;
+  }
+#else
   File rootDir = LittleFS.open("/");
   if (rootDir) {
     File file = rootDir.openNextFile();
     while (file) {
-      if (!file.isDirectory()) addFsEntry(files, file.name(), file.size());
+      if (!file.isDirectory() && !writeFsEntry(writer, file.name(), file.size()))
+        return false;
       file = rootDir.openNextFile();
     }
   }
 #endif
-  sendJson(doc);
+  return writer.endArray() && writer.endObject();
+}
+
+static void handleFsList() {
+  writeJsonResponse(200, [](JsonWriter& writer) { return writeFsList(writer); });
 }
 
 static void handleFsFile() {
@@ -522,15 +624,22 @@ static void handleFsFile() {
   file.close();
 }
 
+static void writeOkResponse() {
+  writeJsonResponse(200, [](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "ok", true) &&
+           writer.endObject();
+  });
+}
+
 static void handleReboot() {
-  server.send(200, "application/json", "{\"ok\":true}");
+  writeOkResponse();
   scheduleReboot(400);
 }
 
 static void handleFactory() {
   factoryReset(*S);
   saveSettings(*S);
-  server.send(200, "application/json", "{\"ok\":true}");
+  writeOkResponse();
   scheduleReboot(400);
 }
 
@@ -547,36 +656,46 @@ static void handleExport() {
 // Restore a backup: apply everything, persist, reboot (WiFi/hostname may change).
 static void handleImport() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  JsonDocument doc;
-  if (deserializeJson(doc, server.arg("plain"))) {
-    server.send(400, "text/plain", "bad json");
-    return;
+  if (!mutationMemoryReady()) {
+    server.send(503, "text/plain", "busy; retry shortly"); return;
+  }
+  const String body = server.arg("plain");
+  if (body.length() > JsonScanner::DefaultMaxBytes) {
+    server.send(400, "text/plain", "bad json"); return;
+  }
+
+  Settings candidate;
+  SettingsJsonPresence presence;
+  if (!settingsParseJson(candidate, *S, body.c_str(), body.length(), &presence)) {
+    server.send(400, "text/plain", "bad json"); return;
   }
   String validationError;
-  const JsonObjectConst root = doc.as<JsonObjectConst>();
-  if (!validateConfigInput(root, validationError)) {
-    server.send(422, "text/plain", validationError);
-    return;
+  if (!validateConfigInput(candidate, presence, validationError)) {
+    server.send(422, "text/plain", validationError); return;
   }
-  settingsApplyJson(*S, root);
-  saveSettings(*S);
-  server.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
-  scheduleReboot(800);
+  const bool persisted = saveSettings(candidate);
+  if (persisted) *S = candidate;
+  writeJsonResponse(200, [persisted](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "ok", persisted) &&
+        jsonMember(writer, "reboot", persisted) && writer.endObject();
+  });
+  if (persisted) scheduleReboot(800);
 }
 
-static void handleRefresh() { appForceRefresh(); server.send(200, "application/json", "{\"ok\":true}"); }
+static void handleRefresh() { appForceRefresh(); writeOkResponse(); }
 
 // Check the newest GitHub release against the running version.
 static void handleCheckUpdate() {
-  OtaLatest r = otaCheckLatest(*S);
-  JsonDocument doc;
-  JsonObject o = doc.to<JsonObject>();
-  o["current"] = FW_VERSION;
-  o["ok"] = r.ok;
-  o["latest"] = r.tag;
-  o["newer"] = r.newer;
-  if (!r.ok) o["error"] = r.error;
-  sendJson(doc);
+  const OtaLatest result = otaCheckLatest(*S);
+  writeJsonResponse(200, [&](JsonWriter& writer) {
+    return writer.beginObject() &&
+        jsonMember(writer, "current", FW_VERSION) &&
+        jsonMember(writer, "ok", result.ok) &&
+        jsonMember(writer, "latest", result.tag) &&
+        jsonMember(writer, "newer", result.newer) &&
+        (result.ok || jsonMember(writer, "error", result.error)) &&
+        writer.endObject();
+  });
 }
 
 // Trigger the self-update. The actual (blocking) download runs from the loop so
@@ -584,89 +703,150 @@ static void handleCheckUpdate() {
 static void handleSelfUpdate() {
   g_selfUpdate = true;
   g_updateMsg = "starting...";
-  server.send(200, "application/json", "{\"ok\":true}");
+  writeOkResponse();
 }
 
 
 // ---- one-time configuration tests -----------------------------------------
+struct NetworkTestInput {
+  char probeHost[254] = "";
+  char dnsHost[254] = "";
+  uint16_t probePort = 0;
+  uint8_t depth = 0;
+  bool rootObject = false;
+  bool wrongRoot = false;
+  bool valid = true;
+};
+
+static void scanNetworkContainer(void* opaque, const JsonScanner&,
+                                 JsonScanner::Container event) {
+  NetworkTestInput& input = *static_cast<NetworkTestInput*>(opaque);
+  const bool start = event == JsonScanner::Container::ObjectStart ||
+                     event == JsonScanner::Container::ArrayStart;
+  const bool object = event == JsonScanner::Container::ObjectStart ||
+                      event == JsonScanner::Container::ObjectEnd;
+  if (start) {
+    if (!input.depth) {
+      input.rootObject = object;
+      input.wrongRoot = !object;
+    }
+    ++input.depth;
+  } else if (input.depth) {
+    --input.depth;
+  }
+}
+
+static void scanNetworkValue(void* opaque, const JsonScanner& scanner,
+                             JsonScanner::Value type, const char* text,
+                             uint32_t number) {
+  NetworkTestInput& input = *static_cast<NetworkTestInput*>(opaque);
+  if (input.depth != 1) return;
+  if (!strcmp(scanner.key(), "probeHost") && type == JsonScanner::Value::String) {
+    if (strlen(text) >= sizeof(input.probeHost)) input.valid = false;
+    else strlcpy(input.probeHost, text, sizeof(input.probeHost));
+  } else if (!strcmp(scanner.key(), "dnsHost") &&
+             type == JsonScanner::Value::String) {
+    if (strlen(text) >= sizeof(input.dnsHost)) input.valid = false;
+    else strlcpy(input.dnsHost, text, sizeof(input.dnsHost));
+  } else if (!strcmp(scanner.key(), "probePort") &&
+             type == JsonScanner::Value::Number) {
+    if (!scanner.numberIsUnsigned() || number < 1 || number > 65535)
+      input.valid = false;
+    else input.probePort = static_cast<uint16_t>(number);
+  }
+}
+
+static bool parseNetworkTest(const String& body, NetworkTestInput& input) {
+  constexpr size_t maxBody = 1024;
+  if (body.length() > maxBody) return false;
+  JsonScanner scanner(body.c_str(), body.length());
+  scanner.setContainerHandler(scanNetworkContainer, &input);
+  return scanner.walk(scanNetworkValue, &input) && input.rootObject &&
+         !input.wrongRoot;
+}
+
 static void handleTestNetwork() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  JsonDocument input;
-  if (deserializeJson(input, server.arg("plain"))) {
+  if (!mutationMemoryReady()) {
+    server.send(503, "text/plain", "busy; retry shortly"); return;
+  }
+  NetworkTestInput input;
+  if (!parseNetworkTest(server.arg("plain"), input)) {
     server.send(400, "text/plain", "bad json"); return;
   }
-  const String host = input["probeHost"] | "";
-  const String dns = input["dnsHost"] | "";
-  const int port = input["probePort"] | 0;
-  if (!host.length() || host.length() > 253 || !dns.length() || dns.length() > 253 ||
-      port < 1 || port > 65535) {
+  if (!input.valid || !input.probeHost[0] || !input.dnsHost[0] ||
+      !input.probePort) {
     server.send(422, "text/plain", "invalid host, DNS name or port"); return;
   }
 
   IPAddress address;
   const uint32_t dnsStart = millis();
 #if defined(DESKMATE_ESP8266)
-  const bool dnsOk = WiFi.hostByName(dns.c_str(), address, 1200) == 1;
+  const bool dnsOk = WiFi.hostByName(input.dnsHost, address, 1200) == 1;
 #else
-  const bool dnsOk = WiFi.hostByName(dns.c_str(), address) == 1;
+  const bool dnsOk = WiFi.hostByName(input.dnsHost, address) == 1;
 #endif
   const uint32_t dnsMs = millis() - dnsStart;
 
   WiFiClient client;
   const uint32_t tcpStart = millis();
-  const bool tcpOk = platformTcpConnect(
-      client, host.c_str(), static_cast<uint16_t>(port), 1200);
+  const bool tcpOk = platformTcpConnect(client, input.probeHost,
+                                         input.probePort, 1200);
   const uint32_t tcpMs = millis() - tcpStart;
   client.stop();
-
-  JsonDocument output;
-  output["ok"] = dnsOk && tcpOk;
-  output["dnsOk"] = dnsOk;
-  output["dnsMs"] = dnsMs;
-  output["tcpOk"] = tcpOk;
-  output["tcpMs"] = tcpMs;
-  output["resolved"] = dnsOk ? address.toString() : String();
-  sendJson(output, dnsOk && tcpOk ? 200 : 422);
+  const String resolved = dnsOk ? address.toString() : String();
+  const bool ok = dnsOk && tcpOk;
+  writeJsonResponse(ok ? 200 : 422, [&](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "ok", ok) &&
+        jsonMember(writer, "dnsOk", dnsOk) && jsonMember(writer, "dnsMs", dnsMs) &&
+        jsonMember(writer, "tcpOk", tcpOk) && jsonMember(writer, "tcpMs", tcpMs) &&
+        jsonMember(writer, "resolved", resolved) && writer.endObject();
+  });
 }
 
 static void handleTestRadar() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  JsonDocument input;
-  if (deserializeJson(input, server.arg("plain"))) {
+  if (!mutationMemoryReady()) {
+    server.send(503, "text/plain", "busy; retry shortly"); return;
+  }
+  const String body = server.arg("plain");
+  if (body.length() > JsonScanner::DefaultMaxBytes) {
     server.send(400, "text/plain", "bad json"); return;
   }
-  Settings candidate = *S;
-  JsonObjectConst wrapper = input.as<JsonObjectConst>();
-  if (!wrapper["radar"].is<JsonObjectConst>()) {
+  Settings candidate;
+  SettingsJsonPresence presence;
+  if (!settingsParseJson(candidate, *S, body.c_str(), body.length(), &presence)) {
+    server.send(400, "text/plain", "bad json"); return;
+  }
+  if (!presence.radar) {
     server.send(422, "text/plain", "radar settings required"); return;
   }
-  candidate.radar.fromJson(wrapper["radar"].as<JsonObjectConst>());
+
   uint8_t count = 0;
   int httpCode = 0;
   const bool ok = radarTest(candidate, 8000, count, httpCode);
-  JsonDocument output;
-  output["ok"] = ok;
-  output["aircraft"] = count;
-  output["httpCode"] = httpCode;
+  char detail[72] = "";
   if (!ok) {
     // An unreachable endpoint, a rate limit and a malformed body are three
     // different problems with three different fixes, so the test names which.
-    char detail[72];
     if (httpCode == 0) {
       strlcpy(detail, "could not reach the radar endpoint", sizeof(detail));
     } else if (httpCode == 429) {
       strlcpy(detail, "radar endpoint is rate limiting this device (HTTP 429)",
               sizeof(detail));
     } else if (httpCode != 200) {
-      snprintf(detail, sizeof(detail), "radar endpoint returned HTTP %d",
-               httpCode);
+      snprintf(detail, sizeof(detail), "radar endpoint returned HTTP %d", httpCode);
     } else {
       strlcpy(detail, "radar endpoint did not return valid aircraft data",
               sizeof(detail));
     }
-    output["error"] = detail;
   }
-  sendJson(output, ok ? 200 : 422);
+  writeJsonResponse(ok ? 200 : 422, [&](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "ok", ok) &&
+        jsonMember(writer, "aircraft", count) &&
+        jsonMember(writer, "httpCode", httpCode) &&
+        (ok || jsonMember(writer, "error", detail)) && writer.endObject();
+  });
 }
 
 // ---- OTA ------------------------------------------------------------------

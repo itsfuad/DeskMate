@@ -25,6 +25,7 @@ constexpr uint16_t CORAL    = rgb565(244, 103, 112);
 constexpr uint16_t AMBER    = rgb565(244, 186, 82);
 constexpr uint16_t GREEN    = rgb565(80, 204, 127);
 constexpr uint8_t SAMPLE_COUNT = 60;
+PollResult indicatorResult = PollResult::Skipped;
 static_assert(225 - 4 >= DisplayLayout::Left &&
               225 + 4 < DisplayLayout::Right &&
               14 - 4 >= DisplayLayout::Top &&
@@ -94,11 +95,13 @@ uint8_t wifiQuality() {
 }
 
 uint16_t networkStatusColor() {
-  if (connectivityState() == InternetState::Unknown || !count) return BLUE;
-  const Sample& last = samples[(head + SAMPLE_COUNT - 1) % SAMPLE_COUNT];
-  if (last.tcpOk && last.dnsOk) return GREEN;
-  if (last.tcpOk || last.dnsOk) return AMBER;
-  return CORAL;
+  switch (indicatorResult) {
+    case PollResult::Success: return GREEN;
+    case PollResult::Failed: return C_RED;
+    case PollResult::Skipped: return C_WHITE;
+    case PollResult::MoreWork: return AMBER;
+  }
+  return C_WHITE;
 }
 
 void drawNetworkHeartbeat(TileCanvas& g, bool on, bool busy) {
@@ -353,6 +356,7 @@ void NetworkMode::begin(const Settings&) {
   heartbeatEpochMs_ = millis();
   heartbeatOn_ = true;
   pollBusy_ = false;
+  indicatorResult = PollResult::Skipped;
 }
 
 void NetworkMode::invalidate(const Settings&) {
@@ -386,6 +390,10 @@ void NetworkMode::renderHeartbeat(const Settings&) {
   // Push exactly the 11x11 LED region. The dedicated callback avoids rebuilding
   // the full dashboard or allocating temporary Strings before a TLS request.
   gfxRenderRegion(drawNetworkLedRegion, &context, BG, 220, 9, 11, 11);
+}
+
+void NetworkMode::pollResultChanged(const Settings&, PollResult result) {
+  indicatorResult = result;
 }
 
 void NetworkMode::pollActivityChanged(const Settings& settings, bool busy) {

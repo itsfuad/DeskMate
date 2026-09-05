@@ -24,10 +24,17 @@ class FakeMode : public DisplayMode {
     return result;
   }
 
+  void pollResultChanged(const Settings&, PollResult value) override {
+    lastReportedResult = value;
+    ++resultReports;
+  }
+
   uint32_t durationMs = 0;
   PollResult result = PollResult::Success;
   bool probeOnline = true;
   uint8_t attempts = 0;
+  uint8_t resultReports = 0;
+  PollResult lastReportedResult = PollResult::Skipped;
 
  private:
   const char* name_;
@@ -64,6 +71,9 @@ int main() {
   emulatorSetMillis(1000);
   scheduler.service(settings, enabled, &provider, nullptr);
   if (!expect(provider.attempts == 1, "initial provider attempt did not run")) return 1;
+  if (!expect(provider.resultReports == 1 &&
+              provider.lastReportedResult == PollResult::Failed,
+              "visible mode did not receive failed poll result")) return 1;
 
   network.probeOnline = false;
   scheduler.force(network.modeConst());
