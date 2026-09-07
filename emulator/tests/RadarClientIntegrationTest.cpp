@@ -85,6 +85,20 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::puts("Recorded ADS-B behavior and failed-response rollback passed.");
+  emulatorConfigure(EmulatorBoard::Esp8266, EmulatorNetwork::Sta, -56, 640,
+                    argv[2], 18082, argv[1]);
+  const uint32_t lastOk = radarLastOkMs();
+  // The checked secure-client factory allocates before the parse context.
+  emulatorFailNothrowAfter(1);
+  if (radarPoll(settings, 3000) || !radarLowMemory() ||
+      radarCount() != countBeforeFailure || radarLastOkMs() != lastOk) {
+    std::fputs("RadarParse allocation failure did not preserve snapshot\n", stderr);
+    return 1;
+  }
+  if (!radarPoll(settings, 3000) || radarLowMemory()) {
+    std::fputs("RadarParse did not recover after allocation failure\n", stderr);
+    return 1;
+  }
+  std::puts("Recorded ADS-B behavior, allocation failure and failed-response rollback passed.");
   return 0;
 }

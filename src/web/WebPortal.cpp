@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <new>
+#include "CrashBreadcrumbs.h"
 
 // Defined in main.cpp. Full feature changes invalidate data; display-only
 // changes repaint the active mode from cached data without another API poll.
@@ -153,18 +154,17 @@ static void writeJsonResponse(int code, WriteJson writeJson) {
 }
 
 static void handleRoot() {
+  crashMark(CrashOperation::WebRoot);
   closeResponseConnection();
   server.sendHeader("Cache-Control", "no-store, max-age=0");
   server.sendHeader("Pragma", "no-cache");
   server.sendHeader("Expires", "0");
-#if defined(DESKMATE_ESP8266)
-  // A single 44 KB send can time out after advertising the full Content-Length,
-  // leaving the browser with ERR_CONTENT_LENGTH_MISMATCH. Small writes reset the
-  // core's send timeout and let lwIP release acknowledged buffers between chunks.
-  if (ESP.getFreeHeap() < 4096 || platformMaxFreeBlock() < 2048) {
+  if (!platformPageMemoryReady()) {
     server.send(503, "text/plain", "busy; retry shortly");
     return;
   }
+#if defined(DESKMATE_ESP8266)
+  // Small writes let lwIP release acknowledged buffers between chunks.
   constexpr size_t pageSize = sizeof(WEBUI_HTML) - 1;
   constexpr size_t chunkSize = 1024;
   server.setContentLength(pageSize);
@@ -274,6 +274,7 @@ static bool writeStatusJson(JsonWriter& writer) {
 }
 
 static void handleStatus() {
+  crashMark(CrashOperation::WebStatus);
   StatusSnapshot& status = g_status;
   netSSID(status.ssid, sizeof(status.ssid));
   netIP(status.ip, sizeof(status.ip));
@@ -435,17 +436,8 @@ static bool networkIdentityChanged(const Settings& before,
   return false;
 }
 
-static bool mutationMemoryReady() {
-#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
-  const uint32_t contStack = platformFreeContStack();
-  return ESP.getFreeHeap() >= 8192 && platformMaxFreeBlock() >= 1024 &&
-         (!contStack || contStack >= 1024);
-#else
-  return true;
-#endif
-}
-
 static void __attribute__((noinline)) processPostConfig(const String& body) {
+  crashMark(CrashOperation::ConfigMutation);
   if (body.length() > JsonScanner::DefaultMaxBytes) {
     server.send(400, "text/plain", "bad json"); return;
   }
@@ -512,7 +504,7 @@ static void __attribute__((noinline)) processPostConfig(const String& body) {
 
 static void handlePostConfig() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  if (!mutationMemoryReady()) {
+  if (!platformMutationMemoryReady()) {
     server.send(503, "text/plain", "busy; retry shortly"); return;
   }
   processPostConfig(server.arg("plain"));
@@ -656,7 +648,7 @@ static void handleExport() {
 // Restore a backup: apply everything, persist, reboot (WiFi/hostname may change).
 static void handleImport() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  if (!mutationMemoryReady()) {
+  if (!platformMutationMemoryReady()) {
     server.send(503, "text/plain", "busy; retry shortly"); return;
   }
   const String body = server.arg("plain");
@@ -767,7 +759,7 @@ static bool parseNetworkTest(const String& body, NetworkTestInput& input) {
 
 static void handleTestNetwork() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  if (!mutationMemoryReady()) {
+  if (!platformMutationMemoryReady()) {
     server.send(503, "text/plain", "busy; retry shortly"); return;
   }
   NetworkTestInput input;
@@ -804,9 +796,40 @@ static void handleTestNetwork() {
   });
 }
 
+enum class RadarTestState : uint8_t { Idle, Queued, Done };
+static RadarTestRequest g_radarTestRequest;
+static RadarTestState g_radarTestState = RadarTestState::Idle;
+static uint32_t g_radarTestId = 0, g_radarTestAt = 0;
+static bool g_radarRequestReleased = false, g_radarTestOk = false;
+static uint8_t g_radarTestCount = 0;
+static int g_radarTestHttpCode = 0;
+static char g_radarTestError[72] = "";
+
+static void handleRadarTestResult() {
+  if (server.hasArg("id") && server.arg("id") != String(g_radarTestId)) {
+    server.send(409, "text/plain", "test result was replaced; start a new test");
+    return;
+  }
+  server.sendHeader("Cache-Control", "no-store");
+  writeJsonResponse(200, [](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "id", g_radarTestId) &&
+        jsonMember(writer, "state", g_radarTestState == RadarTestState::Queued ? "queued" :
+                   g_radarTestState == RadarTestState::Done ? "done" : "idle") &&
+        jsonMember(writer, "ok", g_radarTestOk) &&
+        jsonMember(writer, "aircraft", g_radarTestCount) &&
+        jsonMember(writer, "httpCode", g_radarTestHttpCode) &&
+        jsonMember(writer, "error", g_radarTestError) && writer.endObject();
+  });
+}
+
 static void handleTestRadar() {
+  if (g_radarTestState == RadarTestState::Queued || g_reboot || g_selfUpdate ||
+      g_firmwareUpdateActive) {
+    server.send(409, "text/plain", "device busy; retry after the current operation");
+    return;
+  }
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  if (!mutationMemoryReady()) {
+  if (!platformMutationMemoryReady()) {
     server.send(503, "text/plain", "busy; retry shortly"); return;
   }
   const String body = server.arg("plain");
@@ -822,31 +845,64 @@ static void handleTestRadar() {
     server.send(422, "text/plain", "radar settings required"); return;
   }
 
-  uint8_t count = 0;
-  int httpCode = 0;
-  const bool ok = radarTest(candidate, 8000, count, httpCode);
-  char detail[72] = "";
-  if (!ok) {
+  String validationError;
+  if (!validateConfigInput(candidate, presence, validationError)) {
+    server.send(422, "text/plain", validationError); return;
+  }
+  if (!radarPrepareTest(candidate, g_radarTestRequest)) {
+    g_radarTestRequest.url = String();
+    server.send(422, "text/plain", "invalid radar location/URL or insufficient memory");
+    return;
+  }
+  ++g_radarTestId;
+  if (!g_radarTestId) ++g_radarTestId;
+  g_radarTestState = RadarTestState::Queued;
+  g_radarRequestReleased = false;
+  g_radarTestAt = millis() + 1000;
+  g_radarTestOk = false;
+  g_radarTestCount = 0;
+  g_radarTestHttpCode = 0;
+  g_radarTestError[0] = 0;
+  closeResponseConnection();
+  writeJsonResponse(202, [](JsonWriter& writer) {
+    return writer.beginObject() && jsonMember(writer, "id", g_radarTestId) &&
+        jsonMember(writer, "state", "queued") && writer.endObject();
+  });
+}
+
+static void serviceRadarTest() {
+  if (g_radarTestState != RadarTestState::Queued || !g_radarRequestReleased ||
+      static_cast<int32_t>(millis() - g_radarTestAt) < 0) return;
+  if (g_reboot || g_selfUpdate || g_firmwareUpdateActive) {
+    strlcpy(g_radarTestError, "test cancelled by reboot or firmware update", sizeof(g_radarTestError));
+    g_radarTestState = RadarTestState::Done;
+    g_radarTestRequest.url = String();
+    return;
+  }
+  crashMark(CrashOperation::RadarTestBegin, g_radarTestId);
+  g_radarTestOk = radarTest(g_radarTestRequest, 8000, g_radarTestCount, g_radarTestHttpCode);
+  crashMark(CrashOperation::RadarTestEnd, g_radarTestOk);
+  g_radarTestRequest.url = String();
+  const int httpCode = g_radarTestHttpCode;
+  char* detail = g_radarTestError;
+  constexpr size_t detailSize = sizeof(g_radarTestError);
+  if (!g_radarTestOk) {
     // An unreachable endpoint, a rate limit and a malformed body are three
     // different problems with three different fixes, so the test names which.
-    if (httpCode == 0) {
-      strlcpy(detail, "could not reach the radar endpoint", sizeof(detail));
+    if (radarLowMemory()) {
+      strlcpy(detail, "insufficient TLS memory; request skipped", detailSize);
+    } else if (httpCode == 0) {
+      strlcpy(detail, "could not reach the radar endpoint", detailSize);
     } else if (httpCode == 429) {
       strlcpy(detail, "radar endpoint is rate limiting this device (HTTP 429)",
-              sizeof(detail));
+              detailSize);
     } else if (httpCode != 200) {
-      snprintf(detail, sizeof(detail), "radar endpoint returned HTTP %d", httpCode);
+      snprintf(detail, detailSize, "radar endpoint returned HTTP %d", httpCode);
     } else {
-      strlcpy(detail, "radar endpoint did not return valid aircraft data",
-              sizeof(detail));
+      strlcpy(detail, "radar endpoint did not return valid aircraft data", detailSize);
     }
   }
-  writeJsonResponse(ok ? 200 : 422, [&](JsonWriter& writer) {
-    return writer.beginObject() && jsonMember(writer, "ok", ok) &&
-        jsonMember(writer, "aircraft", count) &&
-        jsonMember(writer, "httpCode", httpCode) &&
-        (ok || jsonMember(writer, "error", detail)) && writer.endObject();
-  });
+  g_radarTestState = RadarTestState::Done;
 }
 
 // ---- OTA ------------------------------------------------------------------
@@ -960,6 +1016,30 @@ static void handleNotFound() {
 }
 
 // ---------------------------------------------------------------------------
+#if defined(DESKMATE_EMULATOR)
+extern bool emulatorWeatherSnapshot(JsonWriter&);
+extern bool emulatorGithubSnapshot(JsonWriter&);
+extern uint32_t appCarouselSwitches();
+extern uint32_t appInvalidations();
+extern const char* appActiveMode();
+static void handleEmulatorSnapshots() {
+  writeJsonResponse(200, [](JsonWriter& writer) {
+    return writer.beginObject() &&
+        jsonMember(writer, "active", appActiveMode()) &&
+        jsonMember(writer, "switches", appCarouselSwitches()) &&
+        jsonMember(writer, "invalidations", appInvalidations()) &&
+        writer.key("weather") && emulatorWeatherSnapshot(writer) &&
+        writer.key("github") && emulatorGithubSnapshot(writer) &&
+        writer.key("radar") && writer.beginObject() &&
+        jsonMember(writer, "valid", radarLastOkMs() != 0) &&
+        jsonMember(writer, "error", radarError()) &&
+        jsonMember(writer, "count", radarCount()) &&
+        jsonMember(writer, "updated", radarLastOkMs()) &&
+        writer.endObject() && writer.endObject();
+  });
+}
+#endif
+
 void webPortalBegin(Settings& settings) {
   S = &settings;
 
@@ -969,6 +1049,9 @@ void webPortalBegin(Settings& settings) {
 
   server.on("/", HTTP_GET, handleRoot);
   server.on("/crashlog", HTTP_GET, handleCrashLog);
+#if defined(DESKMATE_EMULATOR)
+  server.on("/api/emulator/snapshots", HTTP_GET, handleEmulatorSnapshots);
+#endif
   server.on("/api/config", HTTP_GET, handleGetConfig);
   server.on("/api/config", HTTP_POST, handlePostConfig);
   server.on("/api/status", HTTP_GET, handleStatus);
@@ -980,6 +1063,7 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/refresh", HTTP_POST, handleRefresh);
   server.on("/api/test/network", HTTP_POST, handleTestNetwork);
   server.on("/api/test/radar", HTTP_POST, handleTestRadar);
+  server.on("/api/test/radar", HTTP_GET, handleRadarTestResult);
   server.on("/api/export", HTTP_GET, handleExport);
   server.on("/api/import", HTTP_POST, handleImport);
   server.on("/api/checkupdate", HTTP_GET, handleCheckUpdate);
@@ -998,7 +1082,16 @@ void webPortalBegin(Settings& settings) {
 }
 
 void webPortalLoop() {
+  serviceRadarTest();
   server.handleClient();
+  if (g_radarTestState == RadarTestState::Queued) {
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
+    g_radarRequestReleased = server.releaseCompletedRequest();
+#else
+    server.client().stop();
+    g_radarRequestReleased = true;
+#endif
+  }
 
   // Run the GitHub self-update outside the request handler so the browser gets its
   // response first.

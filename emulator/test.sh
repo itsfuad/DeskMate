@@ -15,15 +15,22 @@ printf '{}' > "$RADAR_FIXTURES/radar-5.json"
 "$ROOT/emulator/build/deskmate-radar-client-test" \
   "$RADAR_FIXTURES" "$TEST_DIR/radar-state"
 "$ROOT/emulator/build/deskmate-connectivity-test"
+"$ROOT/emulator/build/deskmate-http-test"
+"$ROOT/emulator/build/deskmate-tile-test"
 "$ROOT/emulator/build/deskmate-json-scanner-test"
 "$ROOT/emulator/build/deskmate-json-writer-test"
 "$ROOT/emulator/build/deskmate-settings-test"
+"$ROOT/emulator/build/deskmate-storage-constraint-test"
+python3 "$ROOT/emulator/tests/StressRunnerTest.py"
+python3 "$ROOT/emulator/tests/DeferredRadarTest.py"
+python3 "$ROOT/emulator/stress.py" --seconds 2
 
 for board in esp8266 esp32c2 esp32; do
   image="$TEST_DIR/$board.bmp"
   (cd "$ROOT" && "$ROOT/emulator/build/deskmate-emulator" \
     --headless --duration-ms 350 --board "$board" \
     --state-dir "$TEST_DIR/$board-state" --web-port 0 \
+    --responses "$ROOT/emulator/tests/fixtures" \
     --output "$image" --scale 1)
   size="$(stat -c '%s' "$image")"
   if [[ "$size" -ne 230454 ]]; then

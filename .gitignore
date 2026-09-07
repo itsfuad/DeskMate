@@ -14,6 +14,9 @@ sdkconfig
 sdkconfig.*
 /CMakeLists.txt
 
+/artifacts/
+/firmware-artifacts/
+
 # Build output we DO want to keep out of git (CI produces it)
 firmware*.bin
 
@@ -46,6 +49,7 @@ dependencies.lock
 
 # Native ESP emulator output and persistent virtual flash
 /emulator/build/
+/emulator/build-sanitize/
 /emulator/.state/
 *.bmp
 

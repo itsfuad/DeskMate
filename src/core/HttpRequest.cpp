@@ -1,12 +1,15 @@
 #include "HttpRequest.h"
+#include "CrashBreadcrumbs.h"
 
 namespace {
 bool readHeaderLine(NetClient& client, char* output, size_t outputSize,
                     uint32_t timeoutMs) {
   if (!outputSize) return false;
   size_t length = 0;
+  size_t received = 0;
   const uint32_t started = millis();
   for (;;) {
+    if (millis() - started >= timeoutMs) return false;
     if (client.available()) {
       const int value = client.read();
       if (value < 0) continue;
@@ -15,8 +18,8 @@ bool readHeaderLine(NetClient& client, char* output, size_t outputSize,
         output[length < outputSize ? length : outputSize - 1] = 0;
         return true;
       }
-      if (length + 1 < outputSize) output[length] = static_cast<char>(value);
-      ++length;
+      if (++received > 4096) return false;
+      if (length + 1 < outputSize) output[length++] = static_cast<char>(value);
       continue;
     }
     if (!client.connected() || millis() - started >= timeoutMs) return false;
@@ -35,6 +38,7 @@ bool httpReadResponseHeaders(NetClient& client, uint32_t timeoutMs,
                              size_t maximumBytes, int* code,
                              int* contentLength, bool* chunked,
                              bool allowUnknownLength) {
+  crashMark(CrashOperation::HttpHeaders);
   if (code) *code = 0;
   if (contentLength) *contentLength = -1;
   if (chunked) *chunked = false;
@@ -50,8 +54,11 @@ bool httpReadResponseHeaders(NetClient& client, uint32_t timeoutMs,
   if (!status || !code) return false;
   *code = atoi(status + 1);
 
+  const uint32_t headerStarted = millis();
+  uint16_t headerCount = 0;
   for (;;) {
-    if (!readHeaderLine(client, line, sizeof(line), timeoutMs)) return false;
+    if (++headerCount > 64 || millis() - headerStarted >= timeoutMs ||
+        !readHeaderLine(client, line, sizeof(line), timeoutMs)) return false;
     if (!line[0]) break;
 
     if (headerNameIs(line, "Content-Length")) {
@@ -88,26 +95,56 @@ bool httpGet(NetClient& client, const char* url, const char* userAgent,
     return false;
   }
 
-  const char* path = strchr(hostStart, '/');
-  if (!path) path = "/";
-  const size_t hostLength = static_cast<size_t>(path - hostStart);
+  const bool https = port == 443;
+  const char* path = strpbrk(hostStart, "/?#");
+  const size_t hostLength = path ? static_cast<size_t>(path - hostStart) : strlen(hostStart);
+  if (!path) path = "";
   char host[128];
   if (!hostLength || hostLength >= sizeof(host)) return false;
   memcpy(host, hostStart, hostLength);
   host[hostLength] = 0;
+  for (const char* p = host; *p; ++p)
+    if (static_cast<unsigned char>(*p) <= 32 || *p == '@' || *p == '[' || *p == ']') return false;
+  char* explicitPort = strchr(host, ':');
+  if (explicitPort) {
+    *explicitPort++ = 0;
+    uint32_t parsedPort = 0;
+    if (!host[0] || !*explicitPort) return false;
+    for (const char* p = explicitPort; *p; ++p) {
+      if (*p < '0' || *p > '9') return false;
+      parsedPort = parsedPort * 10 + (*p - '0');
+      if (parsedPort > 65535) return false;
+    }
+    if (!parsedPort) return false;
+    port = static_cast<uint16_t>(parsedPort);
+  }
+  const size_t pathLength = strcspn(path, "#");
+  for (size_t i = 0; i < pathLength; ++i)
+    if (static_cast<unsigned char>(path[i]) <= 32) return false;
 
   client.setTimeout(timeoutMs);
-  if (!client.connect(host, port)) return false;
+  if (https && !platformTlsConnectMemoryReady()) {
+    crashMark(CrashOperation::TlsAdmissionRejected, port);
+    return false;
+  }
+  crashMark(CrashOperation::HttpConnect, port);
+  const bool connected = client.connect(host, port);
+  crashMark(CrashOperation::HttpConnected, connected ? port : 0);
+  if (!connected) return false;
 
-  client.print(F("GET "));
-  client.print(path);
-  client.print(F(" HTTP/1.0\r\nHost: "));
-  client.print(host);
-  client.print(F("\r\nAccept: "));
-  client.print(accept && accept[0] ? accept : "*/*");
-  client.print(F("\r\nUser-Agent: "));
-  client.print(userAgent && userAgent[0] ? userAgent : "DeskMate");
-  client.print(F("\r\nConnection: close\r\n\r\n"));
+  crashMark(CrashOperation::HttpWriteBegin, port);
+  const char* accepted = accept && accept[0] ? accept : "*/*";
+  const char* agent = userAgent && userAgent[0] ? userAgent : "DeskMate";
+  bool sent = client.print(F("GET ")) == 4 &&
+      (path[0] == '/' || client.print('/') == 1) &&
+      client.write(reinterpret_cast<const uint8_t*>(path), pathLength) == pathLength &&
+      client.print(F(" HTTP/1.0\r\nHost: ")) == 17 &&
+      client.write(reinterpret_cast<const uint8_t*>(hostStart), hostLength) == hostLength &&
+      client.print(F("\r\nAccept: ")) == 10 && client.print(accepted) == strlen(accepted) &&
+      client.print(F("\r\nUser-Agent: ")) == 14 && client.print(agent) == strlen(agent) &&
+      client.print(F("\r\nConnection: close\r\n\r\n")) == 23;
+  if (!sent) { client.stop(); return false; }
+  crashMark(CrashOperation::HttpWriteEnd, port);
 
   return httpReadResponseHeaders(client, timeoutMs, maximumBytes, code,
                                  contentLength, chunked, allowUnknownLength);

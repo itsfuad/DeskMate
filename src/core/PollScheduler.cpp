@@ -1,5 +1,6 @@
 #include "PollScheduler.h"
 #include "Connectivity.h"
+#include "CrashBreadcrumbs.h"
 
 namespace {
 // At least this much foreground time is given back after every network job.
@@ -213,7 +214,10 @@ void PollScheduler::service(const Settings& settings, const bool* enabled,
   // the visible blue LED makes the pause explicit instead of appearing stuck.
   if (active) active->pollActivityChanged(settings, true);
   const uint32_t started = millis();
+  crashMark(CrashOperation::PollBegin, mode->modeConst());
   const PollResult result = mode->poll(settings, budget);
+  crashMark(CrashOperation::PollEnd,
+            (static_cast<uint32_t>(mode->modeConst()) << 8) | static_cast<uint32_t>(result));
   const uint32_t finished = millis();
   if (active) {
     active->pollResultChanged(settings, result);

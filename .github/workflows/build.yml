@@ -25,10 +25,19 @@ jobs:
         with: {python-version: '3.x'}
       - run: pip install platformio
       - run: pio run -e deskmate
+      - name: Preserve exact binary and ELF from this build
+        run: |
+          python3 scripts/preserve_firmware.py --source .pio/build/deskmate --output firmware-artifacts
+          pio pkg list -e deskmate > firmware-artifacts/packages.txt
+          tar -czf deskmate-esp8266-debug.tar.gz -C firmware-artifacts .
+          mv deskmate-esp8266-debug.tar.gz firmware-artifacts/
       - uses: actions/upload-artifact@v4
         with:
           name: deskmate-esp8266-firmware
-          path: .pio/build/deskmate/firmware.bin
+          path: |
+            firmware-artifacts/firmware.bin
+            firmware-artifacts/deskmate-esp8266-debug.tar.gz
+          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -51,7 +60,7 @@ jobs:
         run: |
           asset="release/deskmate-${GITHUB_REF_NAME}-esp8266.bin"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$asset" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$asset" release/deskmate-esp8266-debug.tar.gz --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$asset" --verify-tag --generate-notes --title "DeskMate $GITHUB_REF_NAME"
+            gh release create "$GITHUB_REF_NAME" "$asset" release/deskmate-esp8266-debug.tar.gz --verify-tag --generate-notes --title "DeskMate $GITHUB_REF_NAME"
           fi

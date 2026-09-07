@@ -8,13 +8,23 @@
 #pragma once
 #include <Arduino.h>
 #include <time.h>
+#include <new>
 
 // Deliberately use the low-RAM BearSSL receive buffer. This is not a security
 // downgrade; it is a protocol-compatibility risk because an endpoint may send
 // a TLS record larger than this buffer and fail the request.
 static constexpr uint16_t PLATFORM_TLS_RX_BYTES = 4096;
 static constexpr uint16_t PLATFORM_TLS_TX_BYTES = 512;
+// Restore the pre-regression TOTAL overhead estimate; it is not an additional
+// 8 KB required after StackThunk construction. Hardware peaks remain workload-dependent.
 static constexpr uint16_t PLATFORM_TLS_HEAP_OVERHEAD_BYTES = 8000;
+static constexpr uint16_t PLATFORM_TLS_CLIENT_ALLOWANCE_BYTES = 512;
+// Arduino ESP8266 3.1.2 StackThunk.cpp: shared DRAM stack, allocated by
+// the first secure-client constructor, released by the last destructor.
+static constexpr uint16_t PLATFORM_TLS_STACK_BYTES = 6200;
+static inline bool platformTlsMemoryReady();
+static inline bool platformTlsConnectMemoryReady(uint16_t rxBuf = PLATFORM_TLS_RX_BYTES,
+                                                 uint16_t txBuf = PLATFORM_TLS_TX_BYTES);
 
 #if defined(DESKMATE_EMULATOR)
 // ================================ Desktop ==================================
@@ -56,7 +66,10 @@ static inline SecureClient* platformMakeSecureClient(
     uint16_t rxBuf = PLATFORM_TLS_RX_BYTES, TlsSession* session = nullptr,
     uint16_t txBuf = PLATFORM_TLS_TX_BYTES, bool cheapCiphers = false) {
   (void)rxBuf; (void)session; (void)txBuf; (void)cheapCiphers;
-  SecureClient* client = new SecureClient();
+  if (!platformTlsMemoryReady()) return nullptr;
+  SecureClient* client = new (std::nothrow) SecureClient();
+  if (!client) return nullptr;
+  if (!platformTlsConnectMemoryReady(rxBuf, txBuf)) { delete client; return nullptr; }
   client->setInsecure();
   return client;
 }
@@ -139,11 +152,29 @@ static inline uint32_t platformFreeContStack() { return 0; }   // N/A on ESP32
 #include <ESP8266mDNS.h>
 #include <ESP8266httpUpdate.h>
 #include <WiFiUdp.h>
+#include <StackThunk.h>
 extern "C" {
 #include <user_interface.h>   // struct rst_info + REASON_* (reset cause / crash PC)
 }
 
-using WebServerClass = ESP8266WebServer;
+class WebServerClass : public ESP8266WebServer {
+ public:
+  using ESP8266WebServer::ESP8266WebServer;
+  // Only after handleClient returns: the core otherwise retains arguments
+  // until the next request, overlapping the deferred test's TLS allocation.
+  bool releaseCompletedRequest() {
+    if (_currentStatus == HC_WAIT_READ) return false;
+    _currentClient.stop(100);
+    _currentClient = ClientType();
+    _currentStatus = HC_NONE;
+    _currentUpload.reset();
+    delete[] _currentArgs;
+    _currentArgs = nullptr;
+    _currentArgCount = 0;
+    _currentArgsHavePlain = 0;
+    return true;
+  }
+};
 using SecureClient   = BearSSL::WiFiClientSecure;
 // On the ESP8266, BearSSL::WiFiClientSecure derives from WiFiClient, so WiFiClient
 // is the base that can hold either a plain or a TLS client.
@@ -185,8 +216,10 @@ static inline SecureClient* platformMakeSecureClient(
                                                      TlsSession* session = nullptr,
                                                      uint16_t txBuf = PLATFORM_TLS_TX_BYTES,
                                                      bool cheapCiphers = false) {
-  SecureClient* sc = new SecureClient();
+  if (!platformTlsMemoryReady()) return nullptr;
+  SecureClient* sc = new (std::nothrow) SecureClient();
   if (!sc) return nullptr;
+  if (!platformTlsConnectMemoryReady(rxBuf, txBuf)) { delete sc; return nullptr; }
   sc->setInsecure();
   sc->setBufferSizes(rxBuf, txBuf);
   if (session) sc->setSession(session);
@@ -201,22 +234,63 @@ static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); 
 
 #endif
 
-// Every direct HTTPS caller uses this same low-RAM admission test. The values
-// are intentionally optimistic; a server record larger than the receive buffer
-// can still make an individual request fail.
-static inline bool platformTlsMemoryReady() {
+// Split the historical total budget across construction and connection instead
+// of charging the secondary stack twice. This is admission, not an OOM guarantee.
+static inline bool platformTlsConnectMemoryReady(uint16_t rxBuf, uint16_t txBuf) {
 #if defined(DESKMATE_EMULATOR)
-  return emulatorTlsMemoryReady();
-#elif defined(DESKMATE_ESP8266)
-  constexpr uint32_t requiredFree =
-      PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
-      PLATFORM_TLS_HEAP_OVERHEAD_BYTES;
-  return ESP.getFreeHeap() >= requiredFree &&
-         platformMaxFreeBlock() >= PLATFORM_TLS_RX_BYTES + 1024UL;
+  if (strcmp(emulatorBoardProfile().id, "esp8266") != 0) return true;
+#endif
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
+  return ESP.getFreeHeap() >= uint32_t(rxBuf) + txBuf +
+               (PLATFORM_TLS_HEAP_OVERHEAD_BYTES - PLATFORM_TLS_STACK_BYTES) &&
+         platformMaxFreeBlock() >= uint32_t(rxBuf) + 1024UL;
 #else
   return true;
 #endif
 }
+
+static inline bool platformTlsMemoryReady() {
+#if defined(DESKMATE_EMULATOR)
+  if (strcmp(emulatorBoardProfile().id, "esp8266") != 0) return true;
+  const uint32_t stack = emulatorTlsStackBytesNeeded();
+#elif defined(DESKMATE_ESP8266)
+  const uint32_t stack = stack_thunk_get_refcnt() ? 0 : PLATFORM_TLS_STACK_BYTES;
+#else
+  return true;
+#endif
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
+  return platformTlsConnectMemoryReady() &&
+      ESP.getFreeHeap() >= stack + PLATFORM_TLS_CLIENT_ALLOWANCE_BYTES +
+                          PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
+                          (PLATFORM_TLS_HEAP_OVERHEAD_BYTES - PLATFORM_TLS_STACK_BYTES) &&
+      platformMaxFreeBlock() >= stack;
+#endif
+}
+
+static inline bool platformPageMemoryReady() {
+#if defined(DESKMATE_EMULATOR)
+  if (strcmp(emulatorBoardProfile().id, "esp8266") != 0) return true;
+#endif
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
+  return ESP.getFreeHeap() >= 4096 && platformMaxFreeBlock() >= 2048;
+#else
+  return true;
+#endif
+}
+
+static inline bool platformMutationMemoryReady() {
+#if defined(DESKMATE_EMULATOR)
+  if (strcmp(emulatorBoardProfile().id, "esp8266") != 0) return true;
+#endif
+#if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
+  const uint32_t stack = platformFreeContStack();
+  return ESP.getFreeHeap() >= 8192 && platformMaxFreeBlock() >= 1024 &&
+         (!stack || stack >= 1024);
+#else
+  return true;
+#endif
+}
+
 
 // ---- common: bounded plain-TCP connect -----------------------------------
 // ESP8266 core 3.1.x exposes only the two-argument WiFiClient::connect().

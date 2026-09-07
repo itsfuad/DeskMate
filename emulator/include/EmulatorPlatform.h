@@ -33,10 +33,21 @@ struct EmulatorResetInfoData {
   char addr[16] = "";
 };
 
+struct EmulatorConstraints {
+  uint32_t freeHeapBytes = 0;
+  uint32_t maximumBlockBytes = 0;
+  uint32_t freeStackBytes = 0;
+  uint32_t filesystemBytes = 0;
+  uint32_t timeScale = 1;
+  uint32_t networkFailEvery = 0;
+  uint32_t networkTruncateEvery = 0;
+};
+
 void emulatorConfigure(EmulatorBoard board, EmulatorNetwork network,
                        int rssi, int ldr, const std::string& stateDirectory,
                        uint16_t webPort,
-                       const std::string& responseDirectory = {});
+                       const std::string& responseDirectory = {},
+                       const EmulatorConstraints& constraints = {});
 const EmulatorBoardProfile& emulatorBoardProfile();
 EmulatorNetwork emulatorNetworkMode();
 uint16_t emulatorWebPort();
@@ -51,9 +62,17 @@ String emulatorUpdateError();
 uint32_t emulatorChipId();
 uint32_t emulatorCpuFreqMhz();
 EmulatorResetInfoData emulatorResetInfo();
+uint32_t emulatorFreeHeap();
 uint32_t emulatorMaxFreeBlock();
 uint32_t emulatorFreeContStack();
-bool emulatorTlsMemoryReady();
+uint32_t emulatorTlsStackBytesNeeded();
+bool emulatorReserveHeap(uint32_t bytes);
+void emulatorReleaseHeap(uint32_t bytes);
+uint32_t emulatorHeapHighWater();
+uint32_t emulatorAllocationFailures();
+uint32_t emulatorNetworkRequests();
+uint32_t emulatorInjectedNetworkFailures();
+uint32_t emulatorTimeScale();
 int emulatorLdrValue();
 const char* emulatorUpdateAsset();
 uint32_t emulatorFsTotalBytes();

@@ -5,11 +5,14 @@
 
 // A small RGB565 backbuffer that presents full-screen coordinates to ordinary
 // Adafruit_GFX drawing code. Pixels outside the current tile are clipped.
-// A complete tile is composed in RAM before it replaces the corresponding LCD
+// A complete strip is composed in RAM before it replaces the corresponding LCD
 // pixels, so the user never sees an intermediate clear/draw state.
 class TileCanvas : public Adafruit_GFX {
  public:
   static constexpr int16_t MAX_TILE = 32;
+  // Logical damage tiles remain 32x32; compose them in smaller strips so TLS
+  // gets 1536 bytes of DRAM back without using the secondary IRAM heap.
+  static constexpr int16_t MAX_HEIGHT = 8;
   static constexpr int16_t COLS = (240 + MAX_TILE - 1) / MAX_TILE;
   static constexpr int16_t ROWS = (240 + MAX_TILE - 1) / MAX_TILE;
   static constexpr int16_t COUNT = COLS * ROWS;
@@ -24,6 +27,21 @@ class TileCanvas : public Adafruit_GFX {
   int16_t tileW() const { return tileW_; }
   int16_t tileH() const { return tileH_; }
   uint16_t* pixels() { return pixels_; }
+  bool intersects(int32_t x, int32_t y, int32_t w, int32_t h) const;
+
+  using Adafruit_GFX::write;
+  size_t write(uint8_t c) override;
+  void writeLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                 uint16_t color) override;
+  // GFX's nonvirtual shape methods otherwise rasterize even invisible shapes.
+  void drawCircle(int16_t x, int16_t y, int16_t r, uint16_t color);
+  void fillCircle(int16_t x, int16_t y, int16_t r, uint16_t color);
+  void drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                     int16_t r, uint16_t color);
+  void fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                     int16_t r, uint16_t color);
+  void fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                     int16_t x2, int16_t y2, uint16_t color);
 
   void drawPixel(int16_t x, int16_t y, uint16_t color) override;
   void writePixel(int16_t x, int16_t y, uint16_t color) override;
@@ -36,9 +54,9 @@ class TileCanvas : public Adafruit_GFX {
  private:
   int16_t tileX_ = 0;
   int16_t tileY_ = 0;
-  int16_t tileW_ = 0;
-  int16_t tileH_ = 0;
-  uint16_t pixels_[MAX_TILE * MAX_TILE];
+  uint8_t tileW_ = 0;
+  uint8_t tileH_ = 0;
+  uint16_t pixels_[MAX_TILE * MAX_HEIGHT];
 };
 
 using TileMask = uint64_t;  // 8 x 8 = 64 tiles on the 240 x 240 panel.
@@ -68,7 +86,7 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
 // Compose and push only the requested rectangle. This shares the same static
 // tile buffer as full-screen rendering and is intended for tiny retained UI
 // elements such as status LEDs. Width/height may exceed one tile; the helper
-// splits the rectangle into <=32x32 chunks without allocating another buffer.
+// splits the rectangle into <=32x8 strips without allocating another buffer.
 void gfxRenderRegion(TileRenderCallback render, void* context,
                      uint16_t clearColor, int16_t x, int16_t y,
                      int16_t w, int16_t h);

@@ -17,6 +17,7 @@
 #include "Clock.h"
 #include "Connectivity.h"
 #include "PollScheduler.h"
+#include "CrashBreadcrumbs.h"
 
 #if WITH_WEATHER
 #include "WeatherMode.h"
@@ -56,6 +57,10 @@ static PollScheduler g_pollScheduler;
 // the incoming mode: repaint from cached data, no refetch.
 static size_t   g_carIdx = 0;
 static uint32_t g_carSwitch = 0;
+#if defined(DESKMATE_EMULATOR)
+static uint32_t g_carouselSwitches = 0;
+static uint32_t g_invalidations = 0;
+#endif
 
 static bool carouselHas(const Settings& s, const DisplayMode* m) {
   switch (m->modeConst()) {
@@ -94,6 +99,9 @@ static void carouselNext(const Settings& s) {
     if (!carouselHas(s, kModes[cand])) continue;
     if (cand != g_carIdx) {
       g_carIdx = cand;
+#if defined(DESKMATE_EMULATOR)
+      ++g_carouselSwitches;
+#endif
       kModes[cand]->wake(s);
     }
     return;
@@ -159,6 +167,10 @@ const char* appCrashLog() { return g_crashLog.c_str(); }
 // Called by the web portal after settings are applied: re-init every mode and
 // force a fresh repaint so a mode/API/location change takes effect immediately.
 void appInvalidate() {
+  crashMark(CrashOperation::Invalidate);
+#if defined(DESKMATE_EMULATOR)
+  ++g_invalidations;
+#endif
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->invalidate(g_settings);
   g_pollScheduler.forceAll();
 }
@@ -173,6 +185,16 @@ uint32_t appPollLastDuration() { return g_pollScheduler.lastJobDurationMs(); }
 uint32_t appPollAverageDuration() { return g_pollScheduler.averageJobDurationMs(); }
 int32_t appPollCredits() { return g_pollScheduler.networkCreditsMs(); }
 const char* appPollCurrent() { return g_pollScheduler.currentJob(); }
+#if defined(DESKMATE_EMULATOR)
+uint32_t appCarouselSwitches() { return g_carouselSwitches; }
+uint32_t appInvalidations() { return g_invalidations; }
+const char* appActiveMode() {
+  if (g_settings.mode == MODE_CAROUSEL && kModeCount) return kModes[g_carIdx]->id();
+  for (size_t i = 0; i < kModeCount; ++i)
+    if (kModes[i]->modeConst() == g_settings.mode) return kModes[i]->id();
+  return kModeCount ? kModes[0]->id() : "none";
+}
+#endif
 
 // Lightweight display-only change: repaint the newly selected/current mode from
 // its cached data without forcing every feature to poll its web API again.
@@ -225,15 +247,19 @@ void setup() {
 #endif
   if (!g_crashLog.endsWith("\n")) g_crashLog += '\n';
 
+  crashBegin(g_crashLog);
+  crashMark(CrashOperation::Settings);
   Serial.println("[boot] settings");
   settingsBegin();
   loadSettings(g_settings);
   connectivityBegin(WITH_NETWORK != 0);
 
+  crashMark(CrashOperation::Display);
   Serial.println("[boot] display");
   gfxBegin(g_settings);
   gfxBoot(g_safeMode ? "Crashed" : "DeskMate", FW_VERSION);
 
+  crashMark(CrashOperation::Network);
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
   // Arm SNTP now that Wi-Fi is up. Weather timestamps, GitHub contribution

@@ -11,6 +11,32 @@ std::atomic<bool> realtime{true};
 std::atomic<uint32_t> syntheticMillis{0};
 }
 
+namespace {
+int nothrowCountdown = -1;
+int stringCountdown = -1;
+bool permitAllocation(int& countdown) {
+  if (countdown < 0) return true;
+  if (countdown-- > 0) return true;
+  countdown = -1;
+  return false;
+}
+}
+
+void emulatorFailNothrowAfter(int count) { nothrowCountdown = count; }
+void emulatorFailStringGrowthAfter(int count) { stringCountdown = count; }
+bool emulatorStringGrowthAllowed() { return permitAllocation(stringCountdown); }
+
+// Only explicit checked allocations are intercepted; stdlib/OpenSSL and ordinary
+// new retain their native host allocation behavior and sanitizer instrumentation.
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+  if (!permitAllocation(nothrowCountdown)) return nullptr;
+  try { return ::operator new(size); }
+  catch (const std::bad_alloc&) { return nullptr; }
+}
+void operator delete(void* pointer, const std::nothrow_t&) noexcept {
+  ::operator delete(pointer);
+}
+
 HardwareSerial Serial;
 ESPClass ESP;
 
@@ -35,15 +61,17 @@ void HardwareSerial::print(const String& value) { std::cout << value.c_str(); }
 void HardwareSerial::print(unsigned long value) { std::cout << value; }
 void HardwareSerial::println() { std::cout << '\n' << std::flush; }
 
-uint32_t ESPClass::getFreeHeap() const { return emulatorBoardProfile().heapBytes; }
+uint32_t ESPClass::getFreeHeap() const { return emulatorFreeHeap(); }
 uint32_t ESPClass::getFreeSketchSpace() const { return emulatorBoardProfile().otaSlotBytes; }
 String ESPClass::getResetInfo() const { return emulatorResetInfo().reason; }
 void ESPClass::restart() { emulatorRequestRestart(); }
 
 uint32_t millis() {
   if (!realtime.load()) return syntheticMillis.load();
-  return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - startedAt).count());
+  const uint64_t elapsed = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - startedAt).count());
+  return static_cast<uint32_t>(elapsed * emulatorTimeScale());
 }
 
 void emulatorSetMillis(uint32_t value) {
@@ -54,8 +82,11 @@ void emulatorSetMillis(uint32_t value) {
 void emulatorUseRealtime(bool enabled) { realtime.store(enabled); }
 
 void delay(uint32_t milliseconds) {
-  if (realtime.load()) std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
-  else syntheticMillis.fetch_add(milliseconds);
+  if (realtime.load()) {
+    const uint32_t scale = emulatorTimeScale();
+    const uint32_t wallMs = std::max<uint32_t>(1, milliseconds / scale);
+    std::this_thread::sleep_for(std::chrono::milliseconds(wallMs));
+  } else syntheticMillis.fetch_add(milliseconds);
 }
 
 void yield() { std::this_thread::yield(); }

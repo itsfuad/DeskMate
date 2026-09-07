@@ -80,7 +80,8 @@ struct ParsedAircraft {
 static ParsedAircraft candidates[MAX_AIRCRAFT];
 
 struct RadarParse {
-  const Settings& settings;
+  const RadarOrigin& origin;
+  bool publish;
   ParsedAircraft current{};
   int16_t index = -1;
   uint8_t count = 0;
@@ -121,12 +122,12 @@ void radarJsonContainer(void* context, const JsonScanner& scanner,
 void commitRadarRow(RadarParse& parse) {
   ParsedAircraft& row = parse.current;
   if (!parse.hasLat || !parse.hasLon ||
-      (parse.settings.radar.minAltFt > 0 &&
-       row.aircraft.altFt < static_cast<int32_t>(parse.settings.radar.minAltFt))) return;
+      (parse.origin.minAltFt > 0 &&
+       row.aircraft.altFt < static_cast<int32_t>(parse.origin.minAltFt))) return;
 
-  radarTrailObserve(row.aircraft.callsign, parse.settings.radar.lat,
-                    parse.settings.radar.lon, row.lat, row.lon, millis());
-  geo(parse.settings.radar.lat, parse.settings.radar.lon, row.lat, row.lon,
+  if (parse.publish) radarTrailObserve(row.aircraft.callsign, parse.origin.lat,
+                                      parse.origin.lon, row.lat, row.lon, millis());
+  geo(parse.origin.lat, parse.origin.lon, row.lat, row.lon,
       row.aircraft.distKm, row.aircraft.bearingDeg);
   if (row.aircraft.headingDeg < 0.0f || row.aircraft.headingDeg > 360.0f)
     row.aircraft.headingDeg = row.aircraft.bearingDeg;
@@ -164,16 +165,19 @@ void radarJsonValue(void* context, const JsonScanner& scanner,
   if (type != JsonScanner::Value::String) {
     char* end = nullptr;
     const float value = strtof(text, &end);
-    if (end == text || *end) return;
+    if (end == text || *end || !isfinite(value)) return;
     if (!strcmp(key, "lat")) {
+      if (value < -90.0f || value > 90.0f) return;
       parse.current.lat = value;
       parse.hasLat = true;
     } else if (!strcmp(key, "lon")) {
+      if (value < -180.0f || value > 180.0f) return;
       parse.current.lon = value;
       parse.hasLon = true;
     } else if (!strcmp(key, "track")) {
       parse.current.aircraft.headingDeg = value;
     } else if (!strcmp(key, "alt_baro")) {
+      if (static_cast<double>(value) < INT32_MIN || static_cast<double>(value) > INT32_MAX) return;
       parse.current.aircraft.altFt = static_cast<int32_t>(value);
     }
   } else {
@@ -195,22 +199,23 @@ void radarJsonValue(void* context, const JsonScanner& scanner,
 }
 }  // namespace
 
-static bool parseAdsb(const Settings& s, Stream& stream, NetClient& client,
-                      int contentLength, uint32_t timeoutMs) {
-  std::unique_ptr<RadarParse> parse(new (std::nothrow) RadarParse{s});
+static bool parseAdsb(const RadarOrigin& origin, Stream& stream, NetClient& client,
+                      int contentLength, uint32_t timeoutMs, uint8_t* testCount) {
+  std::unique_ptr<RadarParse> parse(new (std::nothrow) RadarParse{origin, !testCount});
   if (!parse) {
     g_lowMemory = true;
     return false;
   }
   JsonScanner& scanner = JsonScanner::shared(stream, client, contentLength, timeoutMs);
   scanner.setContainerHandler(radarJsonContainer, parse.get());
-  radarTrailBeginUpdate();
+  if (!testCount) radarTrailBeginUpdate();
   if (!scanner.walk(radarJsonValue, parse.get()) || !parse->rootObject ||
       !parse->aircraftArray || parse->invalidSchema) {
-    radarTrailDiscardUpdate();
+    if (!testCount) radarTrailDiscardUpdate();
     return false;
   }
   if (parse->index >= 0) commitRadarRow(*parse);
+  if (testCount) { *testCount = parse->count; return true; }
   radarTrailCommitUpdate();
 
   // Publish only after the complete document validates. A timeout or malformed
@@ -223,21 +228,24 @@ static bool parseAdsb(const Settings& s, Stream& stream, NetClient& client,
 }
 
 // ---- one HTTP(S) GET + parse ----------------------------------------------
-static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int* responseCode = nullptr) {
+static bool fetchUrl(const RadarOrigin& origin, uint16_t httpTimeout, const char* url,
+                     uint16_t budgetMs, int* responseCode = nullptr,
+                     uint8_t* testCount = nullptr) {
   const bool https = strncmp(url, "https://", 8) == 0;
 
   std::unique_ptr<NetClient> client;
   if (https) {
-    if (!platformTlsMemoryReady()) return false;
+    if (!platformTlsMemoryReady()) { g_lowMemory = true; return false; }
     client.reset(platformMakeSecureClient(PLATFORM_TLS_RX_BYTES,
                                           &g_radarSession));
   } else {
     client.reset(new WiFiClient());
   }
-  if (!client) return false;
+  if (!client) { g_lowMemory = true; return false; }
+  if (https && !platformTlsConnectMemoryReady()) { g_lowMemory = true; return false; }
 
   const uint16_t timeoutMs =
-      min<uint16_t>(min<uint16_t>(s.httpTimeout, 6000), budgetMs);
+      min<uint16_t>(min<uint16_t>(httpTimeout, 6000), budgetMs);
   int code = 0;
   int contentLength = -1;
   bool chunked = false;
@@ -255,7 +263,7 @@ static bool fetchUrl(const Settings& s, const char* url, uint16_t budgetMs, int*
   }
 
   yield();
-  bool ok = parseAdsb(s, *client, *client, contentLength, timeoutMs);
+  bool ok = parseAdsb(origin, *client, *client, contentLength, timeoutMs, testCount);
   yield();
   client->stop();
   return ok;
@@ -274,32 +282,36 @@ bool radarPoll(const Settings& settings, uint16_t budgetMs) {
       ? buildWebhookUrl(settings, url, sizeof(url))
       : buildDirectUrl(settings, url, sizeof(url));
   if (!urlOk) return false;
-  const bool ok = fetchUrl(settings, url, budgetMs);
+  const RadarOrigin origin{settings.radar.lat, settings.radar.lon, settings.radar.minAltFt};
+  const bool ok = fetchUrl(origin, settings.httpTimeout, url, budgetMs);
   if (!ok) g_error = true;  // keep the previous snapshot visible
   return ok;
 }
 
-bool radarTest(const Settings& settings, uint16_t budgetMs,
-               uint8_t& aircraftCount, int& httpCode) {
+bool radarPrepareTest(const Settings& settings, RadarTestRequest& request) {
   if (settings.radar.lat < -90.0f || settings.radar.lat > 90.0f ||
       settings.radar.lon < -180.0f || settings.radar.lon > 180.0f) {
-    httpCode = 0;
-    aircraftCount = 0;
     return false;
   }
+  if (!isfinite(settings.radar.lat) || !isfinite(settings.radar.lon)) return false;
   const bool useWebhook = settings.radar.source == RADAR_SRC_WEBHOOK &&
                           settings.radar.webhookUrl.length() >= 8;
   char url[kRadarUrlCapacity];
   const bool urlOk = useWebhook
       ? buildWebhookUrl(settings, url, sizeof(url))
       : buildDirectUrl(settings, url, sizeof(url));
-  if (!urlOk) {
-    httpCode = 0;
-    aircraftCount = 0;
-    return false;
-  }
-  const bool ok = fetchUrl(settings, url, budgetMs, &httpCode);
-  aircraftCount = g_count;
-  if (!ok) g_error = true;
-  return ok;
+  if (!urlOk) return false;
+  request.origin = {settings.radar.lat, settings.radar.lon, settings.radar.minAltFt};
+  request.httpTimeout = settings.httpTimeout;
+  request.url = url;
+  return request.url.length() == strlen(url);
+}
+
+bool radarTest(const RadarTestRequest& request, uint16_t budgetMs,
+               uint8_t& aircraftCount, int& httpCode) {
+  g_lowMemory = false;
+  aircraftCount = 0;
+  httpCode = 0;
+  return fetchUrl(request.origin, request.httpTimeout, request.url.c_str(), budgetMs,
+                  &httpCode, &aircraftCount);
 }

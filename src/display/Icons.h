@@ -18,18 +18,18 @@
 #include <Arduino.h>
 #include "IconData.h"
 
-class Adafruit_GFX;
+class TileCanvas;
 
 uint8_t gfxIconW(Icon id);
 uint8_t gfxIconH(Icon id);
 
 // Top-left placement, matching Adafruit_GFX bitmap conventions.
-void gfxDrawIcon(Adafruit_GFX& g, Icon id, int16_t x, int16_t y,
+void gfxDrawIcon(TileCanvas& g, Icon id, int16_t x, int16_t y,
                  uint16_t color);
 
 // Places the glyph box's center on (cx, cy). Row layouts line icons up with
 // text baselines more readably this way than by juggling per-icon offsets.
-void gfxDrawIconCentered(Adafruit_GFX& g, Icon id, int16_t cx, int16_t cy,
+void gfxDrawIconCentered(TileCanvas& g, Icon id, int16_t cx, int16_t cy,
                          uint16_t color);
 
 // How many rotation frames an icon stores. 1 for a glyph that does not point
@@ -40,5 +40,5 @@ uint8_t gfxIconFrames(Icon id);
 // Rotations are rasterized from the vector at build time, so each frame is as
 // clean as the unrotated glyph. An icon with a single frame is simply drawn
 // unrotated, which keeps call sites free of special cases.
-void gfxDrawIconRotated(Adafruit_GFX& g, Icon id, int16_t cx, int16_t cy,
+void gfxDrawIconRotated(TileCanvas& g, Icon id, int16_t cx, int16_t cy,
                         float degrees, uint16_t color);

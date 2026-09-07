@@ -1,4 +1,5 @@
 #include "TileRenderer.h"
+#include "CrashBreadcrumbs.h"
 
 #if defined(DESKMATE_EMULATOR)
 #include "EmulatorDisplay.h"
@@ -9,7 +10,7 @@
 #include "config.h"
 
 namespace {
-// One shared 2 KiB RGB565 backbuffer for full tiles and tiny dirty regions.
+// One shared 512-byte RGB565 backbuffer for strips and tiny dirty regions.
 // Keeping this at file scope avoids allocating a second buffer for LED updates.
 TileCanvas g_tileCanvas;
 }
@@ -21,10 +22,65 @@ void TileCanvas::beginTile(int16_t x, int16_t y, int16_t w, int16_t h,
   tileX_ = x;
   tileY_ = y;
   tileW_ = constrain(w, 0, MAX_TILE);
-  tileH_ = constrain(h, 0, MAX_TILE);
+  tileH_ = constrain(h, 0, MAX_HEIGHT);
   fillScreen(clearColor);
   setCursor(0, 0);
   setTextWrap(false);
+}
+
+bool TileCanvas::intersects(int32_t x, int32_t y, int32_t w, int32_t h) const {
+  return w > 0 && h > 0 && tileW_ && tileH_ &&
+      x < tileX_ + tileW_ && y < tileY_ + tileH_ &&
+      x + w > tileX_ && y + h > tileY_;
+}
+
+size_t TileCanvas::write(uint8_t c) {
+  // Keep GFX's cursor/font/wrapping semantics; only skip invisible fixed-font
+  // glyphs on the no-wrap path used by the dashboard renderers.
+  if (!gfxFont && !wrap && c != '\n' && c != '\r' &&
+      !intersects(cursor_x, cursor_y, 6 * textsize_x, 8 * textsize_y)) {
+    cursor_x += 6 * textsize_x;
+    return 1;
+  }
+  return Adafruit_GFX::write(c);
+}
+
+void TileCanvas::writeLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                            uint16_t color) {
+  const int32_t left = min(x0, x1);
+  const int32_t top = min(y0, y1);
+  if (intersects(left, top, int32_t(max(x0, x1)) - left + 1,
+                 int32_t(max(y0, y1)) - top + 1))
+    Adafruit_GFX::writeLine(x0, y0, x1, y1, color);
+}
+
+void TileCanvas::drawCircle(int16_t x, int16_t y, int16_t r, uint16_t color) {
+  if (r >= 0 && intersects(int32_t(x) - r, int32_t(y) - r, 2L * r + 1, 2L * r + 1))
+    Adafruit_GFX::drawCircle(x, y, r, color);
+}
+
+void TileCanvas::fillCircle(int16_t x, int16_t y, int16_t r, uint16_t color) {
+  if (r >= 0 && intersects(int32_t(x) - r, int32_t(y) - r, 2L * r + 1, 2L * r + 1))
+    Adafruit_GFX::fillCircle(x, y, r, color);
+}
+
+void TileCanvas::drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                                int16_t r, uint16_t color) {
+  if (intersects(x, y, w, h)) Adafruit_GFX::drawRoundRect(x, y, w, h, r, color);
+}
+
+void TileCanvas::fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
+                                int16_t r, uint16_t color) {
+  if (intersects(x, y, w, h)) Adafruit_GFX::fillRoundRect(x, y, w, h, r, color);
+}
+
+void TileCanvas::fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                               int16_t x2, int16_t y2, uint16_t color) {
+  const int32_t left = min(x0, min(x1, x2));
+  const int32_t top = min(y0, min(y1, y2));
+  if (intersects(left, top, int32_t(max(x0, max(x1, x2))) - left + 1,
+                 int32_t(max(y0, max(y1, y2))) - top + 1))
+    Adafruit_GFX::fillTriangle(x0, y0, x1, y1, x2, y2, color);
 }
 
 void TileCanvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
@@ -145,12 +201,13 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
   if (!out || !render || !mask) return;
 #endif
 
-  for (int16_t row = 0; row < TileCanvas::ROWS; ++row) {
+  crashMark(CrashOperation::RenderBegin, 1);
+  for (int16_t y = 0; y < TFT_HEIGHT; y += TileCanvas::MAX_HEIGHT) {
     bool wroteRow = false;
-    const int16_t y = row * TileCanvas::MAX_TILE;
+    const int16_t row = y / TileCanvas::MAX_TILE;
     const int16_t remainingH = TFT_HEIGHT - y;
-    const int16_t h = remainingH < TileCanvas::MAX_TILE
-        ? remainingH : TileCanvas::MAX_TILE;
+    const int16_t h = remainingH < TileCanvas::MAX_HEIGHT
+        ? remainingH : TileCanvas::MAX_HEIGHT;
     for (int16_t col = 0; col < TileCanvas::COLS; ++col) {
       const int16_t index = row * TileCanvas::COLS + col;
       if ((mask & (static_cast<TileMask>(1) << index)) == 0) continue;
@@ -170,6 +227,7 @@ void gfxRenderTileMask(TileRenderCallback render, void* context,
     // Feed Wi-Fi/watchdog only between complete rows, never during a tile push.
     if (wroteRow) yield();
   }
+  crashMark(CrashOperation::RenderEnd, 1);
 }
 
 void gfxRenderRegion(TileRenderCallback render, void* context,
@@ -188,10 +246,11 @@ void gfxRenderRegion(TileRenderCallback render, void* context,
   const int16_t y1 = constrain(y + h, 0, TFT_HEIGHT);
   if (x1 <= x0 || y1 <= y0) return;
 
-  for (int16_t yy = y0; yy < y1; yy += TileCanvas::MAX_TILE) {
+  crashMark(CrashOperation::RenderBegin, 2);
+  for (int16_t yy = y0; yy < y1; yy += TileCanvas::MAX_HEIGHT) {
     const int16_t remainingH = y1 - yy;
-    const int16_t chunkH = remainingH < TileCanvas::MAX_TILE
-        ? remainingH : TileCanvas::MAX_TILE;
+    const int16_t chunkH = remainingH < TileCanvas::MAX_HEIGHT
+        ? remainingH : TileCanvas::MAX_HEIGHT;
     for (int16_t xx = x0; xx < x1; xx += TileCanvas::MAX_TILE) {
       const int16_t remainingW = x1 - xx;
       const int16_t chunkW = remainingW < TileCanvas::MAX_TILE
@@ -207,6 +266,7 @@ void gfxRenderRegion(TileRenderCallback render, void* context,
     }
     yield();
   }
+  crashMark(CrashOperation::RenderEnd, 2);
 }
 
 void gfxRenderTiled(TileRenderCallback render, void* context,

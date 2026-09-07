@@ -5,6 +5,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(DESKMATE_SANITIZERS "Enable host AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(DESKMATE_SANITIZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "DESKMATE_SANITIZERS requires GCC or Clang")
+  endif()
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
 set(DESKMATE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
 set(DESKMATE_SHARED_SOURCES
@@ -82,6 +91,31 @@ add_executable(deskmate-settings-test
   ${DESKMATE_ROOT}/src/core/Settings.cpp
 )
 
+add_executable(deskmate-storage-constraint-test
+  tests/StorageConstraintTest.cpp
+  src/ArduinoCompat.cpp
+  src/EmulatorPlatform.cpp
+  src/EmulatorStorage.cpp
+  ${DESKMATE_ROOT}/src/core/JsonScanner.cpp
+  ${DESKMATE_ROOT}/src/core/JsonWriter.cpp
+  ${DESKMATE_ROOT}/src/core/Settings.cpp
+)
+
+add_executable(deskmate-tile-test
+  tests/TileRendererTest.cpp
+  src/ArduinoCompat.cpp
+  src/EmulatorPlatform.cpp
+  vendor/Adafruit_GFX/Adafruit_GFX.cpp
+  ${DESKMATE_ROOT}/src/display/TileRenderer.cpp
+)
+
+add_executable(deskmate-http-test
+  tests/HttpRequestTest.cpp
+  src/ArduinoCompat.cpp
+  src/EmulatorPlatform.cpp
+  ${DESKMATE_ROOT}/src/core/HttpRequest.cpp
+)
+
 add_executable(deskmate-connectivity-test
   tests/ConnectivitySchedulerTest.cpp
   src/ArduinoCompat.cpp
@@ -94,7 +128,7 @@ add_executable(deskmate-connectivity-test
 foreach(target deskmate-emulator deskmate-radar-trail-test
                deskmate-radar-client-test deskmate-connectivity-test
                deskmate-json-scanner-test deskmate-json-writer-test
-               deskmate-settings-test)
+               deskmate-settings-test deskmate-storage-constraint-test deskmate-http-test deskmate-tile-test)
   target_compile_definitions(${target} PRIVATE DESKMATE_EMULATOR ARDUINO=10819)
   target_include_directories(${target} PRIVATE
     include
@@ -136,9 +170,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   foreach(target deskmate-emulator deskmate-radar-trail-test
                  deskmate-radar-client-test deskmate-connectivity-test
                  deskmate-json-scanner-test deskmate-json-writer-test
-                 deskmate-settings-test)
+                 deskmate-settings-test deskmate-storage-constraint-test deskmate-http-test deskmate-tile-test)
     target_compile_options(${target} PRIVATE
       -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-nonnull-compare
       -Wno-array-bounds)
   endforeach()
 endif()
+
+target_link_libraries(deskmate-storage-constraint-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(deskmate-http-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(deskmate-tile-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)

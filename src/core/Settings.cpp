@@ -1,5 +1,6 @@
 #include "Settings.h"
 #include "Platform.h"
+#include "CrashBreadcrumbs.h"
 #include <LittleFS.h>
 
 #include <ctype.h>
@@ -699,6 +700,7 @@ bool parseScanner(Settings& out, const Settings& base, JsonScanner& scanner,
   static char valueBuffer[513];
   // The shared scanner removes the largest stack/heap object. Keep the
   // transactional settings copy temporary so TLS gets this memory back.
+  crashMark(CrashOperation::Parse);
   ParseContext* context = new (std::nothrow) ParseContext(base);
   if (!context) {
     if (error) *error = JsonScanner::Error::OutOfMemory;
@@ -897,19 +899,12 @@ bool loadSettings(Settings& settings) {
 }
 
 bool saveSettings(const Settings& settings) {
-#if defined(DESKMATE_EMULATOR)
-  File file = LittleFS.open(CONFIG_PATH, "w");
-#else
   LittleFS.remove(CONFIG_TEMP_PATH);
   File file = LittleFS.open(CONFIG_TEMP_PATH, "w");
-#endif
   if (!file) return false;
   JsonWriter writer(file);
   const bool written = settingsWriteJson(writer, settings, true);
   file.close();
-#if defined(DESKMATE_EMULATOR)
-  return written;
-#else
   if (!written) {
     LittleFS.remove(CONFIG_TEMP_PATH);
     return false;
@@ -917,7 +912,6 @@ bool saveSettings(const Settings& settings) {
   if (LittleFS.rename(CONFIG_TEMP_PATH, CONFIG_PATH)) return true;
   LittleFS.remove(CONFIG_TEMP_PATH);
   return false;
-#endif
 }
 
 void factoryReset(Settings& settings) {

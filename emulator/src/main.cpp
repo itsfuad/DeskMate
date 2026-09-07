@@ -6,6 +6,8 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <charconv>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -32,6 +34,7 @@ struct Options {
   int scale = 2;
   int rssi = -56;
   int ldr = 640;
+  EmulatorConstraints constraints;
   bool headless = false;
 };
 
@@ -50,7 +53,14 @@ void usage(const char* program) {
       << "  --ldr VALUE            ESP8266 ADC input\n"
       << "  --scale N              X11 scale (default 2)\n"
       << "  --headless             Run without X11\n"
-      << "  --duration-ms N        Stop after N milliseconds\n"
+      << "  --duration-ms N        Stop after N emulated milliseconds\n"
+      << "  --time-scale N         Run firmware time N times faster\n"
+      << "  --heap-bytes N         Initial free heap visible to firmware\n"
+      << "  --max-block-bytes N    Largest allocatable heap block\n"
+      << "  --stack-bytes N        Free continuation stack reported by ESP8266\n"
+      << "  --flash-bytes N        LittleFS capacity\n"
+      << "  --network-fail-every N Fail every Nth outbound connection\n"
+      << "  --truncate-every N     Truncate every Nth recorded response\n"
       << "  --output FILE.bmp      Save the final framebuffer\n"
       << "  --responses DIR        Recorded raw HTTP responses for tests\n";
 }
@@ -65,6 +75,22 @@ bool parse(int argc, char** argv, Options& options) {
       }
       return argv[++i];
     };
+    uint32_t numeric = 0;
+    if (argument == "--web-port" || argument == "--duration-ms" ||
+        argument == "--time-scale" || argument == "--heap-bytes" ||
+        argument == "--max-block-bytes" || argument == "--stack-bytes" ||
+        argument == "--flash-bytes" || argument == "--network-fail-every" ||
+        argument == "--truncate-every") {
+      if (i + 1 >= argc) return false;
+      const char* text = argv[i + 1];
+      const auto result = std::from_chars(text, text + std::strlen(text), numeric);
+      if (result.ec != std::errc() || result.ptr != text + std::strlen(text) ||
+          (argument == "--web-port" && numeric > 65535) ||
+          (argument == "--time-scale" && numeric == 0)) {
+        std::cerr << "Invalid value for " << argument << ": " << text << '\n';
+        return false;
+      }
+    }
     if (argument == "--board") {
       const char* selected = value("--board");
       if (!selected) return false;
@@ -90,6 +116,27 @@ bool parse(int argc, char** argv, Options& options) {
     } else if (argument == "--duration-ms") {
       const char* selected = value("--duration-ms"); if (!selected) return false;
       options.durationMs = static_cast<uint32_t>(std::strtoul(selected, nullptr, 10));
+    } else if (argument == "--time-scale") {
+      const char* selected = value("--time-scale"); if (!selected) return false;
+      options.constraints.timeScale = std::max(1UL, std::strtoul(selected, nullptr, 10));
+    } else if (argument == "--heap-bytes") {
+      const char* selected = value("--heap-bytes"); if (!selected) return false;
+      options.constraints.freeHeapBytes = std::strtoul(selected, nullptr, 10);
+    } else if (argument == "--max-block-bytes") {
+      const char* selected = value("--max-block-bytes"); if (!selected) return false;
+      options.constraints.maximumBlockBytes = std::strtoul(selected, nullptr, 10);
+    } else if (argument == "--stack-bytes") {
+      const char* selected = value("--stack-bytes"); if (!selected) return false;
+      options.constraints.freeStackBytes = std::strtoul(selected, nullptr, 10);
+    } else if (argument == "--flash-bytes") {
+      const char* selected = value("--flash-bytes"); if (!selected) return false;
+      options.constraints.filesystemBytes = std::strtoul(selected, nullptr, 10);
+    } else if (argument == "--network-fail-every") {
+      const char* selected = value("--network-fail-every"); if (!selected) return false;
+      options.constraints.networkFailEvery = std::strtoul(selected, nullptr, 10);
+    } else if (argument == "--truncate-every") {
+      const char* selected = value("--truncate-every"); if (!selected) return false;
+      options.constraints.networkTruncateEvery = std::strtoul(selected, nullptr, 10);
     } else if (argument == "--rssi") {
       const char* selected = value("--rssi"); if (!selected) return false;
       options.rssi = std::atoi(selected);
@@ -208,12 +255,17 @@ int main(int argc, char** argv) {
   if (!parse(argc, argv, options)) { usage(argv[0]); return 1; }
   emulatorConfigure(options.board, options.network, options.rssi, options.ldr,
                     options.stateDirectory, options.webPort,
-                    options.responseDirectory);
+                    options.responseDirectory, options.constraints);
   std::signal(SIGINT, stopSignal);
   std::signal(SIGTERM, stopSignal);
 
   std::cout << "DeskMate emulator: " << emulatorBoardProfile().displayName
-            << " | portal http://127.0.0.1:" << options.webPort << '\n';
+            << " | portal http://127.0.0.1:" << options.webPort
+            << " | heap " << emulatorFreeHeap()
+            << " | block " << emulatorMaxFreeBlock()
+            << " | stack " << emulatorFreeContStack()
+            << " | flash " << emulatorFsTotalBytes()
+            << " | time " << emulatorTimeScale() << "x\n";
   setup();
 
   int result = 0;
@@ -234,6 +286,10 @@ int main(int argc, char** argv) {
     std::cerr << "Could not save " << options.output << '\n';
     result = 3;
   }
+  std::cout << "Emulator resources: heap high-water " << emulatorHeapHighWater()
+            << " bytes, allocation failures " << emulatorAllocationFailures()
+            << ", outbound requests " << emulatorNetworkRequests()
+            << ", injected failures " << emulatorInjectedNetworkFailures() << '\n';
   if (emulatorRestartRequested()) {
     std::cout << "Emulated software restart requested\n";
     return 75;

@@ -1,6 +1,7 @@
 #include "GithubMode.h"
 #include "Platform.h"
 #include "HttpRequest.h"
+#include "CrashBreadcrumbs.h"
 #include "JsonScanner.h"
 #include "Gfx.h"
 #include "Icons.h"
@@ -1028,14 +1029,22 @@ bool postGraphql(const Settings& settings, uint16_t budgetMs,
   for (uint8_t attempt = 0; attempt < 2; ++attempt) {
     std::unique_ptr<SecureClient> client(platformMakeSecureClient());
     if (!client) {
-      setError("TLS ALLOCATION FAILED");
+      setError("LOW HEAP - RETRY LATER");
       return false;
     }
 
     const uint16_t timeoutMs = min<uint16_t>(
         min<uint16_t>(settings.httpTimeout, 7000), budgetMs);
     client->setTimeout(timeoutMs);
-    if (!client->connect("api.github.com", 443)) {
+    if (!platformTlsConnectMemoryReady()) {
+      crashMark(CrashOperation::TlsAdmissionRejected, 443);
+      setError("LOW HEAP - RETRY LATER");
+      return false;
+    }
+    crashMark(CrashOperation::HttpConnect, 443);
+    const bool connected = client->connect("api.github.com", 443);
+    crashMark(CrashOperation::HttpConnected, connected ? 443 : 0);
+    if (!connected) {
       if (attempt == 0) {
         delay(100);
         continue;
@@ -1044,21 +1053,26 @@ bool postGraphql(const Settings& settings, uint16_t budgetMs,
       return false;
     }
 
-    client->print(F("POST /graphql HTTP/1.0\r\nHost: api.github.com\r\n"));
-    client->print(F("Accept: application/vnd.github+json\r\nAuthorization: Bearer "));
-    client->print(settings.github.token.c_str());
-    client->print(F("\r\nContent-Type: application/json\r\n"));
-    client->print(F("X-GitHub-Api-Version: 2022-11-28\r\nUser-Agent: "));
-    client->print(FW_NAME);
-    client->print(F("\r\nContent-Length: "));
-    client->print(static_cast<unsigned long>(bodyLength));
-    client->print(F("\r\nConnection: close\r\n\r\n"));
-    if (!writeBody(*client, parts, 5)) {
+    crashMark(CrashOperation::HttpWriteBegin, 443);
+    char lengthText[12];
+    snprintf(lengthText, sizeof(lengthText), "%lu", static_cast<unsigned long>(bodyLength));
+    const bool headersSent =
+        client->print(F("POST /graphql HTTP/1.0\r\nHost: api.github.com\r\n")) == sizeof("POST /graphql HTTP/1.0\r\nHost: api.github.com\r\n") - 1 &&
+        client->print(F("Accept: application/vnd.github+json\r\nAuthorization: Bearer ")) == sizeof("Accept: application/vnd.github+json\r\nAuthorization: Bearer ") - 1 &&
+        client->print(settings.github.token.c_str()) == settings.github.token.length() &&
+        client->print(F("\r\nContent-Type: application/json\r\n")) == sizeof("\r\nContent-Type: application/json\r\n") - 1 &&
+        client->print(F("X-GitHub-Api-Version: 2022-11-28\r\nUser-Agent: ")) == sizeof("X-GitHub-Api-Version: 2022-11-28\r\nUser-Agent: ") - 1 &&
+        client->print(FW_NAME) == sizeof(FW_NAME) - 1 &&
+        client->print(F("\r\nContent-Length: ")) == sizeof("\r\nContent-Length: ") - 1 &&
+        client->print(lengthText) == strlen(lengthText) &&
+        client->print(F("\r\nConnection: close\r\n\r\n")) == sizeof("\r\nConnection: close\r\n\r\n") - 1;
+    if (!headersSent || !writeBody(*client, parts, 5)) {
       client->stop();
       setError("REQUEST SEND FAILED");
       return false;
     }
 
+    crashMark(CrashOperation::HttpWriteEnd, 443);
     int code = 0;
     int contentLength = -1;
     bool chunked = false;
@@ -1127,12 +1141,10 @@ bool tokenAndClockReady() {
     setError("WAITING FOR CLOCK");
     return false;
   }
-#if defined(DESKMATE_ESP8266)
   if (!platformTlsMemoryReady()) {
     setError("LOW HEAP - RETRY LATER");
     return false;
   }
-#endif
   return true;
 }
 
@@ -1236,6 +1248,18 @@ bool GithubMode::calendarDue() const {
   const uint32_t age = millis() - calendarAt_;
   return age >= (G.calendarValid ? kCalendarIntervalMs : kCalendarRetryMs);
 }
+
+#if defined(DESKMATE_EMULATOR)
+#include "JsonWriter.h"
+bool emulatorGithubSnapshot(JsonWriter& writer) {
+  return writer.beginObject() && writer.key("valid") && writer.value(G.valid) &&
+      writer.key("error") && writer.value(G.error) && writer.key("login") && writer.value(G.login) &&
+      writer.key("inbox") && writer.value(G.inboxTotal) && writer.key("pulls") && writer.value(G.mineTotal) &&
+      writer.key("calendarValid") && writer.value(G.calendarValid) &&
+      writer.key("calendarFailed") && writer.value(G.calendarFailed) &&
+      writer.key("contributions") && writer.value(G.totalContributions) && writer.endObject();
+}
+#endif
 
 PollResult GithubMode::poll(const Settings& settings, uint16_t budgetMs) {
   if (!settings.github.token.length()) {

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <new>
 #include <thread>
 #include <type_traits>
 
@@ -46,6 +47,11 @@ inline constexpr double degrees(double value) { return value * 180.0 / PI; }
 
 class __FlashStringHelper;
 
+// One-shot growth fault injection; does not model ESP8266 SSO or fragmentation.
+void emulatorFailStringGrowthAfter(int successfulGrowths);
+bool emulatorStringGrowthAllowed();
+void emulatorFailNothrowAfter(int successfulAllocations);
+
 class String {
  public:
   String() = default;
@@ -64,7 +70,12 @@ class String {
   size_t length() const { return value_.size(); }
   bool isEmpty() const { return value_.empty(); }
   const char* c_str() const { return value_.c_str(); }
-  void reserve(size_t amount) { value_.reserve(amount); }
+  bool reserve(size_t amount) {
+    if (amount <= value_.capacity()) return true;
+    if (!emulatorStringGrowthAllowed()) return false;
+    try { value_.reserve(amount); return true; }
+    catch (const std::bad_alloc&) { return false; }
+  }
   void clear() { value_.clear(); }
 
   char operator[](size_t index) const { return value_[index]; }
@@ -75,12 +86,14 @@ class String {
   bool operator!=(const char* other) const { return !(*this == other); }
 
   String& operator=(const char* value) {
-    value_ = value ? value : "";
+    const char* source = value ? value : "";
+    if (!reserve(std::strlen(source))) value_.clear();
+    else value_ = source;
     return *this;
   }
-  String& operator+=(const String& other) { value_ += other.value_; return *this; }
-  String& operator+=(const char* other) { value_ += other ? other : ""; return *this; }
-  String& operator+=(char other) { value_ += other; return *this; }
+  String& operator+=(const String& other) { concat(other.c_str()); return *this; }
+  String& operator+=(const char* other) { concat(other); return *this; }
+  String& operator+=(char other) { concat(other); return *this; }
   String& operator+=(int value) { value_ += std::to_string(value); return *this; }
   String& operator+=(unsigned value) { value_ += std::to_string(value); return *this; }
   String& operator+=(long value) { value_ += std::to_string(value); return *this; }
@@ -112,10 +125,17 @@ class String {
   long toInt() const { return std::strtol(value_.c_str(), nullptr, 10); }
   void trim();
   bool concat(const char* value) {
-    value_ += value ? value : "";
+    if (!value) return false;
+    if (value_.size() + std::strlen(value) > value_.capacity() &&
+        !emulatorStringGrowthAllowed()) return false;
+    try { value_ += value; return true; }
+    catch (const std::bad_alloc&) { return false; }
+  }
+  bool concat(char value) {
+    if (!reserve(value_.size() + 1)) return false;
+    value_ += value;
     return true;
   }
-  bool concat(char value) { value_ += value; return true; }
 
   explicit operator bool() const { return !value_.empty(); }
   operator std::string() const { return value_; }

@@ -43,6 +43,12 @@ std::string updateError;
 bool restartRequested = false;
 void (*timeSyncCallback)() = nullptr;
 unsigned radarFixtureIndex = 0;
+EmulatorConstraints currentConstraints;
+uint32_t reservedHeap = 0;
+uint32_t heapHighWater = 0;
+uint32_t allocationFailures = 0;
+uint32_t networkRequests = 0;
+uint32_t injectedNetworkFailures = 0;
 
 const EmulatorBoardProfile& profile(EmulatorBoard board) {
   return profiles[static_cast<unsigned>(board)];
@@ -103,7 +109,8 @@ EmulatorUpdate Update;
 
 void emulatorConfigure(EmulatorBoard board, EmulatorNetwork network,
                        int rssi, int ldr, const std::string& stateDirectory,
-                       uint16_t webPort, const std::string& responseDirectory) {
+                       uint16_t webPort, const std::string& responseDirectory,
+                       const EmulatorConstraints& constraints) {
   currentBoard = board;
   currentNetwork = network;
   currentRssi = constrain(rssi, -100, 0);
@@ -113,6 +120,10 @@ void emulatorConfigure(EmulatorBoard board, EmulatorNetwork network,
   currentResponseDirectory = responseDirectory;
   restartRequested = false;
   radarFixtureIndex = 0;
+  currentConstraints = constraints;
+  currentConstraints.timeScale = std::max<uint32_t>(1, constraints.timeScale);
+  reservedHeap = heapHighWater = allocationFailures = 0;
+  networkRequests = injectedNetworkFailures = 0;
   std::filesystem::create_directories(currentStateDirectory);
 }
 
@@ -147,21 +158,44 @@ EmulatorResetInfoData emulatorResetInfo() {
   std::ofstream(path, std::ios::trunc) << "Software restart\n";
   return result;
 }
-uint32_t emulatorMaxFreeBlock() { return emulatorBoardProfile().maximumBlockBytes; }
-uint32_t emulatorFreeContStack() {
-  return currentBoard == EmulatorBoard::Esp8266 ? 4096 : 0;
+uint32_t emulatorFreeHeap() {
+  const uint32_t total = currentConstraints.freeHeapBytes
+      ? currentConstraints.freeHeapBytes : emulatorBoardProfile().heapBytes;
+  return reservedHeap < total ? total - reservedHeap : 0;
 }
-bool emulatorTlsMemoryReady() {
-  if (currentNetwork == EmulatorNetwork::Offline) return false;
-  if (currentBoard != EmulatorBoard::Esp8266) return true;
-  return emulatorBoardProfile().heapBytes >=
-      PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
-      PLATFORM_TLS_HEAP_OVERHEAD_BYTES;
+uint32_t emulatorMaxFreeBlock() {
+  const uint32_t maximum = currentConstraints.maximumBlockBytes
+      ? currentConstraints.maximumBlockBytes : emulatorBoardProfile().maximumBlockBytes;
+  return std::min(maximum, emulatorFreeHeap());
+}
+uint32_t emulatorFreeContStack() {
+  return currentBoard == EmulatorBoard::Esp8266
+      ? (currentConstraints.freeStackBytes ? currentConstraints.freeStackBytes : 4096) : 0;
+}
+bool emulatorReserveHeap(uint32_t bytes) {
+  if (bytes > emulatorMaxFreeBlock()) { ++allocationFailures; return false; }
+  reservedHeap += bytes;
+  heapHighWater = std::max(heapHighWater, reservedHeap);
+  return true;
+}
+void emulatorReleaseHeap(uint32_t bytes) {
+  if (bytes > reservedHeap) std::abort();
+  reservedHeap -= bytes;
+}
+uint32_t emulatorHeapHighWater() { return heapHighWater; }
+uint32_t emulatorAllocationFailures() { return allocationFailures; }
+uint32_t emulatorNetworkRequests() { return networkRequests; }
+uint32_t emulatorInjectedNetworkFailures() { return injectedNetworkFailures; }
+uint32_t emulatorTimeScale() { return currentConstraints.timeScale; }
+static uint32_t secureStackReferences = 0;
+uint32_t emulatorTlsStackBytesNeeded() {
+  return secureStackReferences ? 0 : PLATFORM_TLS_STACK_BYTES;
 }
 int emulatorLdrValue() { return emulatorBoardProfile().hasLdr ? currentLdr : 0; }
 const char* emulatorUpdateAsset() { return emulatorBoardProfile().updateAsset; }
 
 uint32_t emulatorFsTotalBytes() {
+  if (currentConstraints.filesystemBytes) return currentConstraints.filesystemBytes;
   return currentBoard == EmulatorBoard::Esp8266 ? 1024UL * 1024UL : 0xF0000UL;
 }
 
@@ -231,6 +265,10 @@ int EmulatorWiFi::RSSI() const {
 }
 int EmulatorWiFi::hostByName(const char* host, IPAddress& result, uint32_t) const {
   if (emulatorNetworkMode() != EmulatorNetwork::Sta || !host || !host[0]) return 0;
+  if (!emulatorResponseDirectory().empty()) {
+    result = IPAddress("127.0.0.1");
+    return 1;
+  }
   addrinfo hints{};
   hints.ai_family = AF_INET;
   addrinfo* addresses = nullptr;
@@ -257,6 +295,10 @@ struct EmulatorClient::Impl {
   std::string request;
   std::string response;
   size_t responsePosition = 0;
+  uint32_t heapReservation = 0;
+  bool truncateResponse = false;
+  bool stackHeld = false;
+  bool stackReady = true;
 
   // The fixture is chosen the first time the caller reads, by which point the
   // whole request -- headers and body -- has been written.
@@ -275,15 +317,46 @@ struct EmulatorClient::Impl {
           "Content-Length: " + std::to_string(body.size()) +
           "\r\nConnection: close\r\n\r\n" + body;
     }
+    if (truncateResponse && !response.empty()) {
+      response.resize(response.size() / 2);
+      ++injectedNetworkFailures;
+    }
   }
 };
 
-EmulatorClient::EmulatorClient(bool secure) : impl_(new Impl(secure)) {}
-EmulatorClient::~EmulatorClient() { stop(); }
+EmulatorClient::EmulatorClient(bool secure) : impl_(new Impl(secure)) {
+  if (secure && currentBoard == EmulatorBoard::Esp8266) {
+    impl_->stackReady = secureStackReferences || emulatorReserveHeap(PLATFORM_TLS_STACK_BYTES);
+    if (impl_->stackReady) {
+      ++secureStackReferences;
+      impl_->stackHeld = true;
+    }
+  }
+}
+EmulatorClient::~EmulatorClient() {
+  stop();
+  if (impl_->stackHeld && --secureStackReferences == 0)
+    emulatorReleaseHeap(PLATFORM_TLS_STACK_BYTES);
+}
 
 int EmulatorClient::connect(const char* host, uint16_t port) {
   stop();
+  if (!impl_->stackReady || (impl_->secure && !platformTlsConnectMemoryReady())) return 0;
   if (emulatorNetworkMode() != EmulatorNetwork::Sta || !host || !host[0]) return 0;
+  ++networkRequests;
+  if (currentConstraints.networkFailEvery &&
+      networkRequests % currentConstraints.networkFailEvery == 0) {
+    ++injectedNetworkFailures;
+    return 0;
+  }
+  // Logical reservations model network working memory, not the desktop TLS
+  // library's much larger allocations. Only the configured RX chunk is reserved;
+  // this is not a complete TLS working-set or host allocation model.
+  const uint32_t bytes = impl_->secure ? PLATFORM_TLS_RX_BYTES : 512;
+  if (!emulatorReserveHeap(bytes)) return 0;
+  impl_->heapReservation = bytes;
+  impl_->truncateResponse = currentConstraints.networkTruncateEvery &&
+      networkRequests % currentConstraints.networkTruncateEvery == 0;
 
   if (!emulatorResponseDirectory().empty()) {
     impl_->fixture = true;
@@ -405,6 +478,9 @@ void EmulatorClient::stop() {
   impl_->request.clear();
   impl_->response.clear();
   impl_->responsePosition = 0;
+  if (impl_->heapReservation) emulatorReleaseHeap(impl_->heapReservation);
+  impl_->heapReservation = 0;
+  impl_->truncateResponse = false;
 }
 
 void EmulatorClient::setTimeout(unsigned long timeout) {

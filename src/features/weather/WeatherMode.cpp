@@ -78,7 +78,7 @@ struct WeatherTheme {
   uint8_t nightAmount;
   uint8_t warmAmount;
   uint8_t cloudLevel;
-  uint8_t precipitation;
+
 };
 
 constexpr uint16_t WINDOW_LIGHT = rgb565(255, 198, 102);
@@ -294,7 +294,7 @@ WeatherTheme weatherThemeForMinute(int minute) {
   uint8_t terrainTint = 0;
   uint8_t extraPanelAlpha = 0;
   uint8_t cloudLevel = 0;
-  uint8_t precipitation = 0;
+
 
   if (isPartlyCloudy(W.conditionId)) {
     conditionTint = rgb565(117, 143, 165);
@@ -316,7 +316,7 @@ WeatherTheme weatherThemeForMinute(int minute) {
     terrainTint = 170;
     extraPanelAlpha = 28;
     cloudLevel = 5;
-    precipitation = 2;
+
   } else if (isAtmosphere(W.conditionId)) {
     conditionTint = rgb565(103, 116, 126);
     topTint = 48;
@@ -331,7 +331,7 @@ WeatherTheme weatherThemeForMinute(int minute) {
     terrainTint = 43;
     extraPanelAlpha = 5;
     cloudLevel = 4;
-    precipitation = 1;
+
   }
 
   WeatherTheme theme;
@@ -384,7 +384,7 @@ WeatherTheme weatherThemeForMinute(int minute) {
   theme.nightAmount = palette.nightAmount;
   theme.warmAmount = palette.warmAmount;
   theme.cloudLevel = cloudLevel;
-  theme.precipitation = precipitation;
+
   return theme;
 }
 
@@ -393,7 +393,7 @@ struct WeatherRenderContext {
   struct tm nowTm{};
   WeatherTheme theme{};
   int minute = 0;
-  uint32_t animationMs = 0;
+
 };
 
 void copyShort(const char* source, char* target, size_t targetSize,
@@ -588,17 +588,16 @@ void drawSceneCloud(TileCanvas& g, int x, int y, int scale,
   g.drawFastHLine(x + 5 * s, y + 15 * s, 22 * s, shade);
 }
 
-void drawStars(TileCanvas& g, const WeatherTheme& theme,
-               uint32_t animationMs) {
+void drawStars(TileCanvas& g, const WeatherTheme& theme) {
   if (theme.nightAmount < 18) return;
-  const uint16_t phase = static_cast<uint16_t>(animationMs / 180UL);
+
   uint16_t seed = 0xA53CU;
   for (uint8_t i = 0; i < 62; ++i) {
     seed = static_cast<uint16_t>(seed * 2053U + 13849U);
     const int x = 1 + seed % 238U;
     seed = static_cast<uint16_t>(seed * 2053U + 13849U);
     const int y = 3 + seed % 104U + WEATHER_SCENE_SHIFT_Y;
-    const uint8_t pulse = static_cast<uint8_t>((phase + i * 7U) % 13U);
+    const uint8_t pulse = static_cast<uint8_t>((i * 7U) % 13U);
     const uint8_t twinkle = pulse < 3 ? 65 : (pulse > 10 ? 24 : 0);
     const uint8_t alpha = static_cast<uint8_t>(min<int>(235,
         (theme.nightAmount - 18) * 3 / 4 + twinkle));
@@ -747,26 +746,23 @@ void drawLensFlare(TileCanvas& g, const WeatherTheme& theme, int minute) {
   blendFlareHexagon(g, lowerX, lowerY, 14, SUN, strength / 2);
 }
 
-void drawMovingClouds(TileCanvas& g, const WeatherTheme& theme,
-                      uint32_t animationMs) {
+void drawClouds(TileCanvas& g, const WeatherTheme& theme) {
   if (!theme.cloudLevel) return;
-  static const int seed[] = {15, 126, 242, 68, 188};
-  static const int yPos[] = {19, 48, 72, 82, 102};
-  static const int scale[] = {1, 1, 1, 1, 1};
-  static const uint16_t speedMs[] = {1450, 1950, 1250, 2500, 3100};
+  static const uint8_t seed[] = {15, 126, 242, 68, 188};
+  static const uint8_t yPos[] = {19, 48, 72, 82, 102};
+
   const uint8_t count = constrain(theme.cloudLevel, 1, 5);
 
   for (uint8_t i = 0; i < count; ++i) {
-    const int travel = static_cast<int>(animationMs / speedMs[i]);
-    const int x = ((seed[i] + travel) % 330) - 70;
+    const int x = seed[i] - 70;
     int y = yPos[i] + WEATHER_SCENE_SHIFT_Y;
     const uint8_t visibility = count == 1 ? 30
         : static_cast<uint8_t>(min<int>(120, 50 + count * 12 + i * 2));
-    const uint16_t localSky = skyColorAt(theme, y + 7 * scale[i]);
+    const uint16_t localSky = skyColorAt(theme, y + 7);
     const uint16_t light = blend565(localSky, theme.cloudLight, visibility);
     const uint16_t shade = blend565(localSky, theme.cloudShade,
                                     static_cast<uint8_t>(visibility * 3 / 4));
-    drawSceneCloud(g, x, y, scale[i], light, shade);
+    drawSceneCloud(g, x, y, 1, light, shade);
   }
 }
 
@@ -847,51 +843,14 @@ void drawAlpineValley(TileCanvas& g, const WeatherTheme& theme) {
              105, 162 + WEATHER_SCENE_SHIFT_Y, tentEdge);
 }
 
-void drawPrecipitation(TileCanvas& g, const WeatherTheme& theme,
-                       uint32_t animationMs) {
-  if (!theme.precipitation) return;
-  // Rain was visually crawling because both its simulation step and the
-  // retained upper-screen redraw were too slow for a 240x240 panel.
-  const uint32_t tick = animationMs / 80UL;
-  if (theme.precipitation == 2) {
-    static const uint8_t rainSeeds[][2] = {
-        {4, 12},   {19, 91},  {31, 45},  {47, 132}, {58, 19},
-        {73, 108}, {86, 63},  {101, 3},  {113, 118}, {126, 72},
-        {139, 35}, {151, 143}, {164, 88}, {178, 14}, {191, 125},
-        {205, 54}, {219, 101}, {233, 28}, {12, 61},  {42, 7},
-        {67, 149}, {96, 99},  {132, 16}, {171, 67}, {211, 145},
-        {238, 83}};
-    for (uint8_t i = 0; i < sizeof(rainSeeds) / sizeof(rainSeeds[0]); ++i) {
-      const int drift = static_cast<int>(
-          tick * static_cast<uint32_t>(1 + i % 3) % 248UL);
-      const int x = (rainSeeds[i][0] + 248 - drift) % 248 - 4;
-      const int y = 10 + (rainSeeds[i][1] +
-                          tick * static_cast<uint32_t>(5 + i % 4)) % 153 +
-                    WEATHER_SCENE_SHIFT_Y;
-      const int length = 3 + i % 3;
-      g.drawLine(x, y, x - 1, y + length, theme.rainColor);
-    }
-  } else {
-    const int phase = static_cast<int>(tick % 9UL);
-    for (int i = 0; i < 18; ++i) {
-      const int x = (i * 37 + phase * 4) % 240;
-      const int y = 14 + (i * 23 + phase * 3) % 150 +
-                    WEATHER_SCENE_SHIFT_Y;
-      g.drawPixel(x, y, SNOW);
-      if ((i & 3) == 0) g.drawPixel(x + 1, y, SNOW);
-    }
-  }
-}
 
-void drawBackdrop(TileCanvas& g, const WeatherTheme& theme, int minute,
-                  uint32_t animationMs) {
+void drawBackdrop(TileCanvas& g, const WeatherTheme& theme, int minute) {
   drawSkyGradient(g, theme);
-  drawStars(g, theme, animationMs);
+  drawStars(g, theme);
   drawCelestial(g, theme, minute);
-  drawMovingClouds(g, theme, animationMs);
+  drawClouds(g, theme);
   drawAlpineValley(g, theme);
   drawLensFlare(g, theme, minute);
-  drawPrecipitation(g, theme, animationMs);
 }
 
 void blendRoundedPanel(TileCanvas& g, int x, int y, int width, int height,
@@ -986,7 +945,8 @@ void drawScreen(TileCanvas& g, void* opaque) {
     return;
   }
 
-  drawBackdrop(g, theme, context.minute, context.animationMs);
+  if (g.tileY() < WEATHER_PANEL_Y)
+    drawBackdrop(g, theme, context.minute);
   g.fillRect(0, WEATHER_PANEL_Y, TFT_WIDTH, TFT_HEIGHT - WEATHER_PANEL_Y,
              theme.near);
 
@@ -1064,6 +1024,9 @@ void drawScreen(TileCanvas& g, void* opaque) {
                      conditionSize, scenicText, 1);
   }
 
+  // Upper strips cannot touch the forecast card; skip its formatting and icons.
+  if (g.tileY() + g.tileH() <= WEATHER_PANEL_Y) return;
+
   const char unit = s.weather.metric ? 'C' : 'F';
 
   constexpr int panelX = DisplayLayout::Left;
@@ -1137,7 +1100,7 @@ WeatherRenderContext makeWeatherContext(const Settings& settings) {
   context.settings = &settings;
   currentLocalTm(context.nowTm);
   context.minute = context.nowTm.tm_hour * 60 + context.nowTm.tm_min;
-  context.animationMs = millis();
+
   context.theme = weatherThemeForMinute(context.minute);
   return context;
 }
@@ -1147,13 +1110,6 @@ void renderWeatherScreen(const Settings& settings) {
   gfxRenderTiled(drawScreen, &context, context.theme.near);
 }
 
-void renderWeatherAnimatedTop(const Settings& settings) {
-  WeatherRenderContext context = makeWeatherContext(settings);
-  // Recompose only the scenic/header area. The forecast panel stays
-  // in LCD RAM, keeping the animation affordable on the ESP8266.
-  gfxRenderRegion(drawScreen, &context, context.theme.near,
-                  0, 0, TFT_WIDTH, WEATHER_PANEL_Y);
-}
 
 static TlsSession g_weatherSession;
 constexpr size_t kWeatherUrlCapacity = 320;
@@ -1173,10 +1129,16 @@ static bool buildWeatherUrl(const Settings& s, bool forecast,
 bool beginGet(const Settings& s, const char* url,
               std::unique_ptr<SecureClient>& client, uint16_t budgetMs,
               int& code, int& contentLength, bool& chunked) {
-  if (!platformTlsMemoryReady()) return false;
+  if (!platformTlsMemoryReady()) {
+    strlcpy(W.errorText, "LOW HEAP - RETRY LATER", sizeof(W.errorText));
+    return false;
+  }
   client.reset(platformMakeSecureClient(PLATFORM_TLS_RX_BYTES,
                                         &g_weatherSession));
-  if (!client) return false;
+  if (!client || !platformTlsConnectMemoryReady()) {
+    strlcpy(W.errorText, "LOW HEAP - RETRY LATER", sizeof(W.errorText));
+    return false;
+  }
   const uint16_t timeoutMs = min<uint16_t>(budgetMs, s.httpTimeout);
   return httpGet(*client, url, FW_NAME, "application/json", timeoutMs,
                  24576, &code, &contentLength, &chunked);
@@ -1200,7 +1162,7 @@ struct CurrentParse {
 bool parseFloat(const char* text, float& output) {
   char* end = nullptr;
   const float value = strtof(text, &end);
-  if (end == text || *end) return false;
+  if (end == text || *end || !isfinite(value)) return false;
   output = value;
   return true;
 }
@@ -1354,7 +1316,7 @@ bool fetchCurrent(const Settings& s, uint16_t budgetMs) {
   int contentLength = -1;
   bool chunked = false;
   if (!beginGet(s, url, client, budgetMs, code, contentLength, chunked)) {
-    strlcpy(W.errorText, "CONNECTION FAILED", sizeof(W.errorText));
+    if (!W.errorText[0]) strlcpy(W.errorText, "CONNECTION FAILED", sizeof(W.errorText));
     return false;
   }
 
@@ -1495,19 +1457,26 @@ void WeatherMode::begin(const Settings& settings) {
   pollStage_ = 0;
   W.timezone = settings.weather.utcOffsetSec;
   renderedMinute_ = -1;
-  nextAnimationMs_ = millis();
   dirty_ = true;
 }
+
+#if defined(DESKMATE_EMULATOR)
+#include "JsonWriter.h"
+bool emulatorWeatherSnapshot(JsonWriter& writer) {
+  return writer.beginObject() && writer.key("valid") && writer.value(W.valid) &&
+      writer.key("error") && writer.value(W.error) && writer.key("city") && writer.value(W.city) &&
+      writer.key("temp") && writer.value(W.temp) && writer.key("updated") && writer.value(W.updatedMs) &&
+      writer.endObject();
+}
+#endif
 
 void WeatherMode::invalidate(const Settings& settings) {
   pollStage_ = 0;
   W.timezone = settings.weather.utcOffsetSec;
-  nextAnimationMs_ = millis();
   dirty_ = true;
 }
 
 void WeatherMode::wake(const Settings&) {
-  nextAnimationMs_ = millis();
   dirty_ = true;
 }
 
@@ -1521,7 +1490,6 @@ void WeatherMode::displayTick(const Settings& settings) {
   const int32_t minute = static_cast<int32_t>(current.tm_yday) * 1440L +
                          static_cast<int32_t>(current.tm_hour) * 60L +
                          current.tm_min;
-  const uint32_t nowMs = millis();
   if (minute != renderedMinute_) {
     renderedMinute_ = minute;
     dirty_ = true;
@@ -1529,15 +1497,6 @@ void WeatherMode::displayTick(const Settings& settings) {
   if (dirty_) {
     render(settings);
     dirty_ = false;
-    nextAnimationMs_ = nowMs + (isRain(W.conditionId) ? 1000UL : 2500UL);
-    return;
   }
-
-  // The ESP8266 does not redraw the whole 240x240 display for weather motion.
-  // Rain gets a 1-second upper-region redraw; slower cloud/snow motion keeps
-  // the cheaper 2.5-second cadence.
-  if (W.valid && static_cast<int32_t>(nowMs - nextAnimationMs_) >= 0) {
-    renderWeatherAnimatedTop(settings);
-    nextAnimationMs_ = nowMs + (isRain(W.conditionId) ? 1000UL : 2500UL);
-  }
+  // Keep the LCD contents between data changes and minute-based solar updates.
 }

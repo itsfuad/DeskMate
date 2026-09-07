@@ -35,6 +35,12 @@ class EmulatorWebServer {
   void onNotFound(std::function<void()> handler) { notFound_ = std::move(handler); }
   void begin();
   void handleClient();
+  bool releaseCompletedRequest() {
+    args_.clear();
+    responseHeaders_.clear();
+    std::string().swap(responseBody_);
+    return true;
+  }
 
   bool hasArg(const char* name) const;
   String arg(const char* name) const;

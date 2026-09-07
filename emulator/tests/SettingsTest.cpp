@@ -279,6 +279,27 @@ void runWriterRoundTrips() {
         "redacted round trip retains supplied secrets");
 }
 
+void runAllocationFailure() {
+  const Settings base = baseSettings();
+  Settings output = base;
+  const char* json = "{\"hostname\":\"changed\"}";
+  JsonScanner::Error error = JsonScanner::Error::None;
+  emulatorFailNothrowAfter(0);
+  check(!settingsParseJson(output, base, json, std::strlen(json), nullptr, &error),
+        "injected parse allocation fails");
+  check(error == JsonScanner::Error::OutOfMemory && output.hostname == base.hostname,
+        "allocation failure preserves settings and reports OOM");
+  check(settingsParseJson(output, base, json, std::strlen(json)),
+        "settings parser recovers after one-shot allocation failure");
+  String text("retained");
+  emulatorFailStringGrowthAfter(0);
+  check(!text.reserve(4096) && text == "retained", "failed reserve retains text");
+  emulatorFailStringGrowthAfter(0);
+  check(!text.concat("a deliberately long suffix that requires buffer growth") &&
+        text == "retained", "failed concat retains text");
+  check(text.reserve(4096), "string allocation recovers after one-shot failure");
+}
+
 }  // namespace
 
 int main() {
@@ -289,6 +310,7 @@ int main() {
   runWifiAndLegacy();
   runInvalidContainerShapes();
   runTransactionalFailure();
+  runAllocationFailure();
   runWriterRoundTrips();
   runPersistenceAndMigration();
 

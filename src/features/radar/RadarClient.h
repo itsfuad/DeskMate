@@ -6,7 +6,17 @@
 
 void radarInit(const Settings& settings);
 bool radarPoll(const Settings& settings, uint16_t budgetMs);
-bool radarTest(const Settings& settings, uint16_t budgetMs,
+struct RadarOrigin {
+  float lat, lon;
+  uint16_t minAltFt;
+};
+struct RadarTestRequest {
+  RadarOrigin origin{};
+  String url;
+  uint16_t httpTimeout = 0;
+};
+bool radarPrepareTest(const Settings& settings, RadarTestRequest& request);
+bool radarTest(const RadarTestRequest& request, uint16_t budgetMs,
                uint8_t& aircraftCount, int& httpCode);
 
 uint8_t radarCount();

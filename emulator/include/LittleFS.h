@@ -10,7 +10,7 @@ class File : public Stream {
   explicit File(std::shared_ptr<struct EmulatorFileData> data) : data_(std::move(data)) {}
   ~File() override;
 
-  explicit operator bool() const { return static_cast<bool>(data_); }
+  explicit operator bool() const;
   int available() override;
   int read() override;
   int peek() override;
@@ -30,6 +30,7 @@ class EmulatorLittleFS {
   bool format();
   bool exists(const char* path) const;
   bool remove(const char* path) const;
+  bool rename(const char* from, const char* to) const;
   File open(const char* path, const char* mode) const;
 };
 

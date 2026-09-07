@@ -1,5 +1,5 @@
 #include "Icons.h"
-#include <Adafruit_GFX.h>
+#include "TileRenderer.h"
 #include <math.h>
 
 namespace {
@@ -40,18 +40,19 @@ uint8_t gfxIconFrames(Icon id) {
   return frames ? frames : 1;
 }
 
-void gfxDrawIcon(Adafruit_GFX& g, Icon id, int16_t x, int16_t y,
+void gfxDrawIcon(TileCanvas& g, Icon id, int16_t x, int16_t y,
                  uint16_t color) {
   uint8_t index;
   if (!valid(id, index)) return;
   const uint8_t w = metaByte(index, 2);
   const uint8_t h = metaByte(index, 3);
+  if (!g.intersects(x, y, w, h)) return;
   // drawBitmap reads the mask with pgm_read_byte and skips clear bits, so the
   // flash-resident glyph needs no RAM copy and leaves the background intact.
   g.drawBitmap(x, y, kIconBits + metaOffset(index), w, h, color);
 }
 
-void gfxDrawIconCentered(Adafruit_GFX& g, Icon id, int16_t cx, int16_t cy,
+void gfxDrawIconCentered(TileCanvas& g, Icon id, int16_t cx, int16_t cy,
                          uint16_t color) {
   uint8_t index;
   if (!valid(id, index)) return;
@@ -60,12 +61,13 @@ void gfxDrawIconCentered(Adafruit_GFX& g, Icon id, int16_t cx, int16_t cy,
   gfxDrawIcon(g, id, cx - w / 2, cy - h / 2, color);
 }
 
-void gfxDrawIconRotated(Adafruit_GFX& g, Icon id, int16_t cx, int16_t cy,
+void gfxDrawIconRotated(TileCanvas& g, Icon id, int16_t cx, int16_t cy,
                         float degrees, uint16_t color) {
   uint8_t index;
   if (!valid(id, index)) return;
   const uint8_t w = metaByte(index, 2);
   const uint8_t h = metaByte(index, 3);
+  if (!g.intersects(cx - w / 2, cy - h / 2, w, h)) return;
   const uint8_t frames = gfxIconFrames(id);
   if (frames < 2) {
     gfxDrawIcon(g, id, cx - w / 2, cy - h / 2, color);
