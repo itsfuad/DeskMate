@@ -6,16 +6,17 @@
 
 // Changing the referenced icons or a vendored SVG changes this
 // value; CI compares it so generated data cannot go stale.
-#define DESKMATE_ICON_DIGEST "d42d04167d1cde7f"
+#define DESKMATE_ICON_DIGEST "ae732cd3db9d8360"
 
 enum class Icon : uint8_t {
   Activity,  // lucide:activity @16px
   AtSign,  // lucide:at-sign @16px
+  CircleAlert14,  // lucide:circle-alert @14px
   CircleCheck,  // lucide:circle-check @16px
   CircleCheck14,  // lucide:circle-check @14px
   CircleCheck24,  // lucide:circle-check @24px
   CircleDot,  // lucide:circle-dot @16px
-  CircleSmall14,  // lucide:circle-small @14px
+  CircleDot14,  // lucide:circle-dot @14px
   CircleX14,  // lucide:circle-x @14px
   Flame14,  // lucide:flame @14px
   GitCommitHorizontal,  // lucide:git-commit-horizontal @16px
@@ -25,6 +26,7 @@ enum class Icon : uint8_t {
   GitPullRequestClosed,  // lucide:git-pull-request-closed @16px
   GitPullRequestDraft,  // lucide:git-pull-request-draft @16px
   Inbox,  // lucide:inbox @16px
+  LoaderCircle14,  // lucide:loader-circle @14px
   MessageSquareCode,  // lucide:message-square-code @16px
   Plane12,  // lucide:plane @12px, 24 rotations
   Plane16,  // lucide:plane @16px, 24 rotations

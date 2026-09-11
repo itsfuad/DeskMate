@@ -23,8 +23,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.x'}
-      - run: pip install platformio
+      - name: Install icon rasterizer dependencies
+        run: sudo apt-get update && sudo apt-get install -y librsvg2-bin
+      - run: pip install platformio pillow
       - run: pio run -e deskmate
+      - name: Verify generated icons are committed
+        run: python3 scripts/gen_icons.py --check
       - name: Preserve exact binary and ELF from this build
         run: |
           python3 scripts/preserve_firmware.py --source .pio/build/deskmate --output firmware-artifacts

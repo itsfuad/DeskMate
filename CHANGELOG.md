@@ -1,5 +1,43 @@
 # Changelog
 
+## 4.8.8
+
+### Stability and networking
+
+- Removed the ArduinoJson runtime dependency while retaining streaming, bounded JSON parsing for provider responses and configuration data.
+- Hardened HTTP URL parsing, header limits, short-write handling, close-delimited responses, timeout handling and response-size bounds for GitHub, weather and radar requests.
+- Added conservative TLS admission checks for ESP8266 heap, contiguous blocks, BearSSL buffers and the shared TLS stack. Requests are skipped and retried when memory is not sufficient instead of constructing a client that can destabilize the device.
+- Added deferred radar source testing so web requests do not hold a parsed request or large settings copy while a TLS request is running.
+- Added optional RTC crash breadcrumbs for diagnosis; runtime crash tracing remains disabled by default.
+- Added constrained emulator resources, allocation-failure rollback tests, provider-recovery tests, stress scenarios and sanitizer coverage.
+
+### Display and memory
+
+- Reduced the shared RGB565 renderer buffer from 2048 to 512 bytes by composing 32×8 strips, returning approximately 1.5 KB of static RAM to TLS and application work.
+- Added strip-boundary, clipping, stride and exact framebuffer-coverage tests.
+- Removed periodic weather particle redraws: rain, snow, moving clouds and star twinkling no longer repaint the display continuously. Static condition icons and the day/night cycle remain.
+- Added early clipping for invisible text, lines, circles, rounded rectangles, triangles and icons before GFX rasterization.
+- Changed full-page strip traversal to top-to-bottom scanline order to make retained-display transitions more coherent without allocating a second framebuffer.
+- Weather condition icons remain visible in the header and identify sun, moon, cloud, rain, thunder, mist and snow conditions.
+
+### GitHub
+
+- Added distinct expressive action/check icons for queued, running, successful, failed and cancelled states.
+- Added separate review icons for approved, review required and changes requested instead of treating review and CI states as interchangeable.
+- Added parsing for GitHub `IN_PROGRESS`, `RUNNING`, `QUEUED` and `CANCELLED` status values.
+- GitHub icons are resolved from SVG sources and rasterized into flash-resident 1-bit bitmaps; raw SVG parsing is never performed on the device.
+
+### Build and tooling
+
+- PlatformIO now automatically scans `Icon::...` references, vendors required SVGs, rasterizes only used icons and regenerates `IconData.h/.cpp` before firmware compilation.
+- Emulator builds verify that generated icon data is current.
+- GitHub Actions now installs the icon rasterizer dependencies, runs the automatic icon build, and verifies generated assets are committed and synchronized.
+- Added exact firmware/ELF preservation tooling so tested binaries can be archived with their matching debug symbols.
+
+### Web portal
+
+- Formats raw uptime seconds in the browser as compact human-readable durations such as `4d 13h 29min` while keeping the status API numeric.
+
 ## 4.8.0 — 2026-09-04
 
 ### GitHub screen

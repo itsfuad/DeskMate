@@ -74,21 +74,14 @@ constexpr size_t kMaxResponseBytes = 96 * 1024;
 enum : uint8_t { PAGE_INBOX, PAGE_PULLS, PAGE_PULSE, PAGE_TOTAL };
 enum : uint8_t { KIND_REVIEW, KIND_MENTION, KIND_ISSUE, KIND_PR };
 enum : uint8_t { STATE_OPEN, STATE_DRAFT, STATE_MERGED, STATE_CLOSED };
-enum : uint8_t { CHECK_NONE, CHECK_PENDING, CHECK_SUCCESS, CHECK_FAILURE };
-enum : uint8_t { REVIEW_NONE, REVIEW_REQUIRED, REVIEW_APPROVED, REVIEW_CHANGES };
+enum : uint8_t {
+  CHECK_NONE, CHECK_PENDING, CHECK_RUNNING, CHECK_SUCCESS, CHECK_FAILURE
+};
+enum : uint8_t {
+  REVIEW_NONE, REVIEW_REQUIRED, REVIEW_APPROVED, REVIEW_CHANGES
+};
 enum : uint8_t { SEC_NONE, SEC_REV, SEC_MEN, SEC_ASG, SEC_OWN };
 
-// drawBadge() renders review state and check state from one switch, which is
-// only correct while the two enumerations agree on "waiting", "good" and "bad".
-static_assert(static_cast<uint8_t>(CHECK_PENDING) ==
-                  static_cast<uint8_t>(REVIEW_REQUIRED),
-              "badge states must align");
-static_assert(static_cast<uint8_t>(CHECK_SUCCESS) ==
-                  static_cast<uint8_t>(REVIEW_APPROVED),
-              "badge states must align");
-static_assert(static_cast<uint8_t>(CHECK_FAILURE) ==
-                  static_cast<uint8_t>(REVIEW_CHANGES),
-              "badge states must align");
 
 struct ActivityRow {
   char repo[kRepoLen];
@@ -331,15 +324,20 @@ ActivityRow* resolveRow(ListStage& stage, uint8_t section, int16_t index) {
 
 uint8_t checkStateOf(const char* text) {
   if (!strcmp(text, "SUCCESS")) return CHECK_SUCCESS;
-  if (!strcmp(text, "FAILURE") || !strcmp(text, "ERROR")) return CHECK_FAILURE;
-  if (!strcmp(text, "PENDING") || !strcmp(text, "EXPECTED")) return CHECK_PENDING;
+  if (!strcmp(text, "FAILURE") || !strcmp(text, "ERROR") ||
+      !strcmp(text, "CANCELLED")) return CHECK_FAILURE;
+  if (!strcmp(text, "IN_PROGRESS") || !strcmp(text, "RUNNING"))
+    return CHECK_RUNNING;
+  if (!strcmp(text, "PENDING") || !strcmp(text, "EXPECTED") ||
+      !strcmp(text, "QUEUED")) return CHECK_PENDING;
   return CHECK_NONE;
 }
 
 uint8_t reviewStateOf(const char* text) {
   if (!strcmp(text, "APPROVED")) return REVIEW_APPROVED;
   if (!strcmp(text, "CHANGES_REQUESTED")) return REVIEW_CHANGES;
-  if (!strcmp(text, "REVIEW_REQUIRED")) return REVIEW_REQUIRED;
+  if (!strcmp(text, "REVIEW_REQUIRED") || !strcmp(text, "PENDING"))
+    return REVIEW_REQUIRED;
   return REVIEW_NONE;
 }
 
@@ -584,19 +582,29 @@ uint16_t colorForState(uint8_t state) {
 
 void drawBadge(TileCanvas& g, int16_t x, int16_t y, uint8_t state,
                bool isReview) {
+  if (isReview) {
+    switch (state) {
+      case REVIEW_APPROVED:
+        gfxDrawIcon(g, Icon::CircleCheck14, x, y, GREEN_4); return;
+      case REVIEW_CHANGES:
+        gfxDrawIcon(g, Icon::CircleAlert14, x, y, ERROR_C); return;
+      case REVIEW_REQUIRED:
+        gfxDrawIcon(g, Icon::CircleAlert14, x, y, AMBER); return;
+      default:
+        gfxDrawIcon(g, Icon::CircleDot14, x, y, MUTED); return;
+    }
+  }
   switch (state) {
-    case CHECK_SUCCESS:  // shares a value with REVIEW_APPROVED
-      gfxDrawIcon(g, Icon::CircleCheck14, x, y, GREEN_4);
-      break;
-    case CHECK_FAILURE:  // shares a value with REVIEW_CHANGES
-      gfxDrawIcon(g, Icon::CircleX14, x, y, ERROR_C);
-      break;
-    case CHECK_PENDING:  // shares a value with REVIEW_REQUIRED
-      gfxDrawIcon(g, Icon::CircleSmall14, x, y, isReview ? MUTED : AMBER);
-      break;
+    case CHECK_SUCCESS:
+      gfxDrawIcon(g, Icon::CircleCheck14, x, y, GREEN_4); return;
+    case CHECK_FAILURE:
+      gfxDrawIcon(g, Icon::CircleX14, x, y, ERROR_C); return;
+    case CHECK_RUNNING:
+      gfxDrawIcon(g, Icon::LoaderCircle14, x, y, BLUE); return;
+    case CHECK_PENDING:
+      gfxDrawIcon(g, Icon::CircleDot14, x, y, AMBER); return;
     default:
-      gfxDrawIcon(g, Icon::CircleSmall14, x, y, rgb565(72, 79, 88));
-      break;
+      gfxDrawIcon(g, Icon::CircleDot14, x, y, MUTED); return;
   }
 }
 
