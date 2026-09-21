@@ -61,7 +61,7 @@ for attempt in {1..30}; do
   sleep 0.1
 done
 status="$(curl --silent --show-error --fail "$BASE/api/status")"
-grep -q '"version":"4.8.7"' <<<"$status"
+grep -q '"version":"4.8.9"' <<<"$status"
 for request in {1..100}; do
   curl --silent --show-error --fail "$BASE/api/status" >/dev/null
 done

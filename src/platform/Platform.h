@@ -22,6 +22,9 @@ static constexpr uint16_t PLATFORM_TLS_CLIENT_ALLOWANCE_BYTES = 512;
 // Arduino ESP8266 3.1.2 StackThunk.cpp: shared DRAM stack, allocated by
 // the first secure-client constructor, released by the last destructor.
 static constexpr uint16_t PLATFORM_TLS_STACK_BYTES = 6200;
+// Wi-Fi/BearSSL connect can use the primary contiguous stack too. Below this
+// floor the SDK may enter its connect path with too little call-stack headroom.
+static constexpr uint16_t PLATFORM_TLS_MIN_CONT_STACK_BYTES = 1024;
 static inline bool platformTlsMemoryReady();
 static inline bool platformTlsConnectMemoryReady(uint16_t rxBuf = PLATFORM_TLS_RX_BYTES,
                                                  uint16_t txBuf = PLATFORM_TLS_TX_BYTES);
@@ -260,6 +263,7 @@ static inline bool platformTlsMemoryReady() {
 #endif
 #if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
   return platformTlsConnectMemoryReady() &&
+      platformFreeContStack() >= PLATFORM_TLS_MIN_CONT_STACK_BYTES &&
       ESP.getFreeHeap() >= stack + PLATFORM_TLS_CLIENT_ALLOWANCE_BYTES +
                           PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
                           (PLATFORM_TLS_HEAP_OVERHEAD_BYTES - PLATFORM_TLS_STACK_BYTES) &&
