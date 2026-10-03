@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <charconv>
 #include <cstring>
@@ -28,9 +29,11 @@ struct Options {
   std::string boardName = "esp8266";
   std::string stateDirectory;
   std::string output;
+  std::string captureDirectory;
   std::string responseDirectory;
   uint16_t webPort = 8080;
   uint32_t durationMs = 0;
+  uint32_t captureMs = 500;
   int scale = 2;
   int rssi = -56;
   int ldr = 640;
@@ -62,6 +65,8 @@ void usage(const char* program) {
       << "  --network-fail-every N Fail every Nth outbound connection\n"
       << "  --truncate-every N     Truncate every Nth recorded response\n"
       << "  --output FILE.bmp      Save the final framebuffer\n"
+      << "  --capture-dir DIR      Save numbered framebuffer BMPs while running\n"
+      << "  --capture-ms N         Frame interval in firmware ms (default 500)\n"
       << "  --responses DIR        Recorded raw HTTP responses for tests\n";
 }
 
@@ -80,13 +85,13 @@ bool parse(int argc, char** argv, Options& options) {
         argument == "--time-scale" || argument == "--heap-bytes" ||
         argument == "--max-block-bytes" || argument == "--stack-bytes" ||
         argument == "--flash-bytes" || argument == "--network-fail-every" ||
-        argument == "--truncate-every") {
+        argument == "--truncate-every" || argument == "--capture-ms") {
       if (i + 1 >= argc) return false;
       const char* text = argv[i + 1];
       const auto result = std::from_chars(text, text + std::strlen(text), numeric);
       if (result.ec != std::errc() || result.ptr != text + std::strlen(text) ||
           (argument == "--web-port" && numeric > 65535) ||
-          (argument == "--time-scale" && numeric == 0)) {
+          ((argument == "--time-scale" || argument == "--capture-ms") && numeric == 0)) {
         std::cerr << "Invalid value for " << argument << ": " << text << '\n';
         return false;
       }
@@ -149,6 +154,11 @@ bool parse(int argc, char** argv, Options& options) {
     } else if (argument == "--output") {
       const char* selected = value("--output"); if (!selected) return false;
       options.output = selected;
+    } else if (argument == "--capture-dir") {
+      const char* selected = value("--capture-dir"); if (!selected) return false;
+      options.captureDirectory = selected;
+    } else if (argument == "--capture-ms") {
+      value("--capture-ms"); options.captureMs = numeric;
     } else if (argument == "--responses") {
       const char* selected = value("--responses"); if (!selected) return false;
       options.responseDirectory = selected;
@@ -166,6 +176,21 @@ bool parse(int argc, char** argv, Options& options) {
     options.stateDirectory = "emulator/.state/" + options.boardName;
   if (options.headless && options.durationMs == 0) options.durationMs = 1200;
   return true;
+}
+
+bool captureFrame(const Options& options) {
+  if (options.captureDirectory.empty()) return true;
+  static uint32_t previous = 0;
+  const uint32_t now = millis();
+  if (now - previous < options.captureMs) return true;
+  previous = now;
+  // Timestamp names preserve the actual cadence if rendering or polling is slow.
+  char name[32];
+  std::snprintf(name, sizeof(name), "frame-%010u.bmp", now);
+  const auto path = std::filesystem::path(options.captureDirectory) / name;
+  if (EmulatorDisplay::saveBmp(path.string(), options.scale)) return true;
+  std::cerr << "Could not save " << path << '\n';
+  return false;
 }
 
 #if defined(DESKMATE_HAVE_X11)
@@ -225,6 +250,7 @@ int runWindow(const Options& options) {
       static_cast<size_t>(image->bytes_per_line), height));
 
   const uint32_t started = millis();
+  int result = 0;
   while (running.load() && !emulatorRestartRequested()) {
     while (XPending(display)) {
       XEvent event;
@@ -235,6 +261,7 @@ int runWindow(const Options& options) {
             XLookupKeysym(&event.xkey, 0) == XK_q))) running.store(false);
     }
     loop();
+    if (!captureFrame(options)) { result = 3; break; }
     paint(image, visual);
     XPutImage(display, window, graphics, image, 0, 0, 0, 0, width, height);
     XFlush(display);
@@ -245,7 +272,7 @@ int runWindow(const Options& options) {
   XFreeGC(display, graphics);
   XDestroyWindow(display, window);
   XCloseDisplay(display);
-  return 0;
+  return result;
 }
 #endif
 }
@@ -272,7 +299,10 @@ int main(int argc, char** argv) {
   if (options.headless) {
     const uint32_t started = millis();
     while (running.load() && !emulatorRestartRequested() &&
-           (!options.durationMs || millis() - started < options.durationMs)) loop();
+           (!options.durationMs || millis() - started < options.durationMs)) {
+      loop();
+      if (!captureFrame(options)) { result = 3; break; }
+    }
   } else {
 #if defined(DESKMATE_HAVE_X11)
     result = runWindow(options);

@@ -84,6 +84,36 @@ For a headless framebuffer capture:
   --board esp8266 --output deskmate.bmp --scale 1
 ```
 
+To record a sequence of framebuffer captures, use `--capture-dir` and
+`--capture-ms` (default: 500 firmware milliseconds):
+
+```bash
+./emulator/run.sh --headless --duration-ms 15000 --scale 1 \
+  --capture-dir /tmp/deskmate-frames --capture-ms 250
+```
+
+Each BMP is captured after a complete application loop and named with its
+firmware-millisecond timestamp. Capture works in both headless and windowed mode;
+`--time-scale` accelerates acquisition without changing the timestamp units.
+`--output` can still save the final framebuffer in the same run.
+
+### README screenshots and GIFs
+
+Install Pillow alongside the native build dependencies
+(`sudo dnf install python3-pillow` on Fedora), then run from the repository root:
+
+```bash
+python3 emulator/capture_readme.py
+```
+
+This rebuilds the emulator and captures weather, network, radar and all three
+GitHub pages, plus looping carousel and GitHub-page GIFs, into `assets/readme/`.
+It uses the checked-in response fixtures and separate temporary virtual flash
+for each run. PNGs use lossless nearest-neighbour 2× scaling; GIFs use the same
+scaling with a 256-colour palette and preserve firmware display timing. The first
+animation cycle is discarded to allow provider polling to populate the screens.
+The host clock still supplies the displayed date/time and weather scene palette.
+
 ## Automatic rebuild
 
 ```bash

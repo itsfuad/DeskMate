@@ -2,6 +2,15 @@
 
 DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789 display devices such as the SD Pro and compatible DeskMate hardware.
 
+## In action
+
+| View carousel | GitHub page rotation |
+| :---: | :---: |
+| <img src="assets/readme/carousel.gif" alt="DeskMate cycling through weather, network guardian, aircraft radar and GitHub activity" width="320" height="320"> | <img src="assets/readme/github-pages.gif" alt="GitHub screen rotating through inbox, pull requests and contribution pulse" width="320" height="320"> |
+| Four views, 12 seconds per view. | Inbox, pull requests and pulse, 4 seconds per page. |
+
+Captured directly from the desktop emulator's real firmware framebuffer at 2× scale. Weather, radar and GitHub use the checked-in response fixtures; network values reflect emulated resources. Both GIFs retain the firmware's display timing.
+
 ## DeskMate 4.8.0
 
 DeskMate 4.8.0 rebuilds the GitHub screen around pending work — an inbox of review requests, mentions and assigned issues, the viewer's pull requests with review and CI state, and the contribution pulse — across selectable pages that share the screen's display window. UI glyphs are now generated from real icon packs rather than drawn by hand, and radar targets are heading-rotated icons coloured by altitude band.
@@ -31,6 +40,14 @@ When demand exceeds the ESP8266's capacity, DeskMate degrades predictably instea
 - scheduler load, coalescing and deferrals are exposed in the web status page.
 
 ## Views
+
+| Weather | Network guardian | Aircraft radar |
+| :---: | :---: | :---: |
+| <img src="assets/readme/weather.png" alt="Nighttime alpine weather scene with clock, current conditions and four forecast points" width="240" height="240"> | <img src="assets/readme/network.png" alt="Network guardian showing latency history, availability, DNS timing and Wi-Fi signal" width="240" height="240"> | <img src="assets/readme/radar.png" alt="Aircraft radar with heading-rotated targets, altitude colours, range rings and an airport" width="240" height="240"> |
+
+| GitHub inbox | My pull requests | Contribution pulse |
+| :---: | :---: | :---: |
+| <img src="assets/readme/github-inbox.png" alt="GitHub inbox listing review requests, mentions and assigned issues" width="240" height="240"> | <img src="assets/readme/github-pulls.png" alt="GitHub pull requests with open, draft, merged and closed states plus review and CI badges" width="240" height="240"> | <img src="assets/readme/github-pulse.png" alt="GitHub activity totals, streak and three-month contribution heatmap" width="240" height="240"> |
 
 - **Weather** — OpenWeather current conditions and four upcoming 3-hour forecast points. The reference-traced scene includes an alpine valley, layered mountains, lake reflections, pine forests, a foreground tent, static clouds and stars, sun and moon arcs, and optical-axis flare artifacts. A dedicated condition marker remains visible even in clear weather. Two-tone pixel typography reverses its face/shadow contrast between day and night. Morning, noon, afternoon, evening, and night blend continuously through explicit dawn/dusk transition ranges. Weather conditions tint the same time-driven scene instead of replacing it. Telemetry shares the unified forecast card so the lake remains unobstructed. The browser resolves a city through Open-Meteo, verifies the OpenWeather key, and sends canonical coordinates/timezone data to DeskMate.
 - **Network guardian** — TCP latency, DNS timing, availability, outage history, Wi-Fi quality and local IP.
@@ -91,6 +108,14 @@ Run headlessly or rebuild automatically while editing:
 ```
 
 No feature state is mocked. Deterministic tests replay recorded raw provider responses through the real clients. See [`emulator/README.md`](emulator/README.md) for resource controls, OTA behavior, watch mode, and verification.
+
+Regenerate the screenshots and GIFs above with Python 3 and Pillow installed:
+
+```bash
+python3 emulator/capture_readme.py
+```
+
+The script rebuilds the emulator, uses temporary virtual flash and the checked-in response fixtures, and writes the media to [`assets/readme/`](assets/readme/).
 
 ## Build
 
