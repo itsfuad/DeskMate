@@ -4,12 +4,20 @@ DeskMate is a custom 240 × 240 desk-dashboard firmware for ESP8266/ESP32 ST7789
 
 ## In action
 
+### Morning → night → morning
+
+<p align="center">
+  <img src="assets/readme/weather-cycle.gif" alt="DeskMate's alpine weather scene transitioning through morning, noon, sunset, a starry night and the next morning" width="480" height="480">
+</p>
+
+A full day in about 24 seconds: the emulator advances the firmware clock at **3600×**, capturing the real dawn/dusk palette blends, sun and moon paths, stars, flare and day/night typography.
+
 | View carousel | GitHub page rotation |
 | :---: | :---: |
 | <img src="assets/readme/carousel.gif" alt="DeskMate cycling through weather, network guardian, aircraft radar and GitHub activity" width="320" height="320"> | <img src="assets/readme/github-pages.gif" alt="GitHub screen rotating through inbox, pull requests and contribution pulse" width="320" height="320"> |
 | Four views, 12 seconds per view. | Inbox, pull requests and pulse, 4 seconds per page. |
 
-Captured directly from the desktop emulator's real firmware framebuffer at 2× scale. Weather, radar and GitHub use the checked-in response fixtures; network values reflect emulated resources. Both GIFs retain the firmware's display timing.
+Captured directly from the desktop emulator's real firmware framebuffer at 2× scale. Weather, radar and GitHub use the checked-in response fixtures; network values reflect emulated resources. The carousel and GitHub GIFs retain the firmware's display timing.
 
 ## DeskMate 4.8.0
 
@@ -113,6 +121,8 @@ Regenerate the screenshots and GIFs above with Python 3 and Pillow installed:
 
 ```bash
 python3 emulator/capture_readme.py
+# Regenerate only the accelerated weather cycle:
+python3 emulator/capture_readme.py --weather-cycle-only
 ```
 
 The script rebuilds the emulator, uses temporary virtual flash and the checked-in response fixtures, and writes the media to [`assets/readme/`](assets/readme/).

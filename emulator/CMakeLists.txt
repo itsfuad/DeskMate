@@ -53,6 +53,7 @@ set(DESKMATE_SHARED_SOURCES
 add_executable(deskmate-emulator
   src/main.cpp
   src/ArduinoCompat.cpp
+  src/EmulatorClock.cpp
   src/EmulatorPlatform.cpp
   src/EmulatorStorage.cpp
   src/EmulatorWebServer.cpp
@@ -164,6 +165,7 @@ find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(X11)
 target_link_libraries(deskmate-emulator PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_options(deskmate-emulator PRIVATE "-Wl,--wrap=time")
 target_link_libraries(deskmate-radar-client-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_link_libraries(deskmate-connectivity-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_link_libraries(deskmate-json-scanner-test PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)

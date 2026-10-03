@@ -57,6 +57,7 @@ bool emulatorRestartRequested();
 void emulatorRequestRestart();
 void emulatorSetHostname(const char* hostname);
 void emulatorTimeBegin(const char* tz, const char*, const char*);
+void emulatorSetEpoch(uint32_t epoch);
 bool emulatorScanIsOpen(int index);
 String emulatorUpdateError();
 uint32_t emulatorChipId();

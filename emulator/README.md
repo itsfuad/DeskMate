@@ -97,6 +97,11 @@ firmware-millisecond timestamp. Capture works in both headless and windowed mode
 `--time-scale` accelerates acquisition without changing the timestamp units.
 `--output` can still save the final framebuffer in the same run.
 
+To drive the real day/night renderer, set `--epoch` to a UTC Unix timestamp.
+With this option, the firmware wall clock advances with `--time-scale` alongside
+the scheduler clock. Without it (or with `--epoch 0`), wall time comes from the
+host as before. The host system clock is never modified.
+
 ### README screenshots and GIFs
 
 Install Pillow alongside the native build dependencies
@@ -104,15 +109,24 @@ Install Pillow alongside the native build dependencies
 
 ```bash
 python3 emulator/capture_readme.py
+# Capture only morning → night → morning:
+python3 emulator/capture_readme.py --weather-cycle-only
 ```
 
 This rebuilds the emulator and captures weather, network, radar and all three
-GitHub pages, plus looping carousel and GitHub-page GIFs, into `assets/readme/`.
+GitHub pages, plus looping weather-cycle, carousel and GitHub-page GIFs, into
+`assets/readme/`.
 It uses the checked-in response fixtures and separate temporary virtual flash
 for each run. PNGs use lossless nearest-neighbour 2× scaling; GIFs use the same
-scaling with a 256-colour palette and preserve firmware display timing. The first
-animation cycle is discarded to allow provider polling to populate the screens.
-The host clock still supplies the displayed date/time and weather scene palette.
+scaling with a 256-colour palette. Carousel and GitHub GIFs preserve firmware
+display timing and discard the first cycle to allow provider polling to populate
+the screens. Those captures use the host date/time.
+
+The weather-cycle capture starts at 06:00 in the fixture's Dhaka timezone using
+`--epoch`, runs at 3600×, and retains a full day after a one-hour warmup. It samples
+every five firmware minutes and plays the day in approximately 24 seconds. A
+shared palette keeps the gradual colour blends stable across frames; the clock,
+solar paths, condition marker and typography all come from the shared renderer.
 
 ## Automatic rebuild
 

@@ -34,6 +34,7 @@ struct Options {
   uint16_t webPort = 8080;
   uint32_t durationMs = 0;
   uint32_t captureMs = 500;
+  uint32_t epoch = 0;
   int scale = 2;
   int rssi = -56;
   int ldr = 640;
@@ -58,6 +59,7 @@ void usage(const char* program) {
       << "  --headless             Run without X11\n"
       << "  --duration-ms N        Stop after N emulated milliseconds\n"
       << "  --time-scale N         Run firmware time N times faster\n"
+      << "  --epoch N              Start UTC epoch; advance with firmware time\n"
       << "  --heap-bytes N         Initial free heap visible to firmware\n"
       << "  --max-block-bytes N    Largest allocatable heap block\n"
       << "  --stack-bytes N        Free continuation stack reported by ESP8266\n"
@@ -85,7 +87,8 @@ bool parse(int argc, char** argv, Options& options) {
         argument == "--time-scale" || argument == "--heap-bytes" ||
         argument == "--max-block-bytes" || argument == "--stack-bytes" ||
         argument == "--flash-bytes" || argument == "--network-fail-every" ||
-        argument == "--truncate-every" || argument == "--capture-ms") {
+        argument == "--truncate-every" || argument == "--capture-ms" ||
+        argument == "--epoch") {
       if (i + 1 >= argc) return false;
       const char* text = argv[i + 1];
       const auto result = std::from_chars(text, text + std::strlen(text), numeric);
@@ -124,6 +127,8 @@ bool parse(int argc, char** argv, Options& options) {
     } else if (argument == "--time-scale") {
       const char* selected = value("--time-scale"); if (!selected) return false;
       options.constraints.timeScale = std::max(1UL, std::strtoul(selected, nullptr, 10));
+    } else if (argument == "--epoch") {
+      value("--epoch"); options.epoch = numeric;
     } else if (argument == "--heap-bytes") {
       const char* selected = value("--heap-bytes"); if (!selected) return false;
       options.constraints.freeHeapBytes = std::strtoul(selected, nullptr, 10);
@@ -282,7 +287,8 @@ int main(int argc, char** argv) {
   if (!parse(argc, argv, options)) { usage(argv[0]); return 1; }
   emulatorConfigure(options.board, options.network, options.rssi, options.ldr,
                     options.stateDirectory, options.webPort,
-                    options.responseDirectory, options.constraints);
+                     options.responseDirectory, options.constraints);
+  emulatorSetEpoch(options.epoch);
   std::signal(SIGINT, stopSignal);
   std::signal(SIGTERM, stopSignal);
 
