@@ -82,6 +82,9 @@ static inline uint32_t platformMaxFreeBlock() {
 static inline uint32_t platformFreeContStack() {
   return emulatorFreeContStack();
 }
+static inline uint32_t platformContHeadroom() {
+  return emulatorFreeContStack();
+}
 
 #elif defined(DESKMATE_ESP32C2) || defined(DESKMATE_ESP32)
 // ================== ESP32 family (C2/ESP8684 + classic ESP32) ==================
@@ -156,6 +159,7 @@ static inline uint32_t platformFreeContStack() { return 0; }   // N/A on ESP32
 #include <ESP8266httpUpdate.h>
 #include <WiFiUdp.h>
 #include <StackThunk.h>
+#include <cont.h>
 extern "C" {
 #include <user_interface.h>   // struct rst_info + REASON_* (reset cause / crash PC)
 }
@@ -233,7 +237,14 @@ static inline SecureClient* platformMakeSecureClient(
 // Diagnostics for the TLS memory squeeze (largest contiguous heap block the
 // handshake must find, and the separate primary "cont" stack headroom).
 static inline uint32_t platformMaxFreeBlock() { return ESP.getMaxFreeBlockSize(); }
+// Lifetime low-water mark: it only ever falls, so it is telemetry. Admission
+// must use platformContHeadroom() or one deep call locks it out until reboot.
 static inline uint32_t platformFreeContStack() { return ESP.getFreeContStack(); }
+// Stack left below the current frame. Valid only on the cont stack (loop/setup).
+static inline uint32_t platformContHeadroom() {
+  return reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) -
+         reinterpret_cast<uintptr_t>(g_pcont->stack);
+}
 
 #endif
 
@@ -263,7 +274,7 @@ static inline bool platformTlsMemoryReady() {
 #endif
 #if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
   return platformTlsConnectMemoryReady() &&
-      platformFreeContStack() >= PLATFORM_TLS_MIN_CONT_STACK_BYTES &&
+      platformContHeadroom() >= PLATFORM_TLS_MIN_CONT_STACK_BYTES &&
       ESP.getFreeHeap() >= stack + PLATFORM_TLS_CLIENT_ALLOWANCE_BYTES +
                           PLATFORM_TLS_RX_BYTES + PLATFORM_TLS_TX_BYTES +
                           (PLATFORM_TLS_HEAP_OVERHEAD_BYTES - PLATFORM_TLS_STACK_BYTES) &&
@@ -287,9 +298,8 @@ static inline bool platformMutationMemoryReady() {
   if (strcmp(emulatorBoardProfile().id, "esp8266") != 0) return true;
 #endif
 #if defined(DESKMATE_ESP8266) || defined(DESKMATE_EMULATOR)
-  const uint32_t stack = platformFreeContStack();
   return ESP.getFreeHeap() >= 8192 && platformMaxFreeBlock() >= 1024 &&
-         (!stack || stack >= 1024);
+         platformContHeadroom() >= 1024;
 #else
   return true;
 #endif

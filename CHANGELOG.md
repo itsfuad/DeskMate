@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.8.10
+
+### Stability and networking
+
+- Fixed all HTTPS sources stopping until reboot. The 4.8.9 stack guard compared the lifetime stack low-water mark against its 1024-byte floor, so one deep call permanently blocked radar, weather, GitHub and firmware checks, and rejected configuration changes. Admission now measures the stack remaining at the call. The status page still reports the low-water mark.
+
 ## 4.8.9
 
 ### Stability and networking
