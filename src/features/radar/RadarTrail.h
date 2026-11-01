@@ -5,7 +5,8 @@
 constexpr uint8_t RADAR_TRAIL_MAX_POINTS = 10;
 constexpr float RADAR_TRAIL_GAP_KM = 5.0f;
 
-void radarTrailReset();
+// False when the trail buffers could not be allocated.
+bool radarTrailReset();
 void radarTrailBeginUpdate();
 void radarTrailCommitUpdate();
 void radarTrailDiscardUpdate();

@@ -160,6 +160,7 @@ static inline uint32_t platformFreeContStack() { return 0; }   // N/A on ESP32
 #include <WiFiUdp.h>
 #include <StackThunk.h>
 #include <cont.h>
+#include <umm_malloc/umm_heap_select.h>
 extern "C" {
 #include <user_interface.h>   // struct rst_info + REASON_* (reset cause / crash PC)
 }
@@ -247,6 +248,18 @@ static inline uint32_t platformContHeadroom() {
 }
 
 #endif
+
+// Zeroed array for long-lived data that TLS never touches. On ESP8266 it lives
+// in the IRAM heap: a connect can drain DRAM until the Wi-Fi SDK's unchecked
+// allocations fail, while IRAM stays mostly free. Byte access there traps and
+// is slow, so keep hot data out. Null when the heap cannot supply it.
+template <typename T>
+static inline T* platformColdArray(size_t count) {
+#if defined(DESKMATE_ESP8266)
+  HeapSelectIram iram;
+#endif
+  return static_cast<T*>(calloc(count, sizeof(T)));
+}
 
 // Split the historical total budget across construction and connection instead
 // of charging the secondary stack twice. This is admission, not an OOM guarantee.

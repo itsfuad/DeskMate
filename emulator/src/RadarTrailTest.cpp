@@ -21,7 +21,10 @@ int main() {
   float latitudes[20];
   float longitudes[20];
 
-  radarTrailReset();
+  if (!radarTrailReset()) {
+    std::fputs("trail buffers could not be allocated\n", stderr);
+    return 1;
+  }
   observeNorth(0.0f, 1);
   observeNorth(4.9f, 2);
   if (getAircraftTrail("TEST01", kOriginLat, kOriginLon,
@@ -46,6 +49,13 @@ int main() {
   const float newestNorthKm = (latitudes[0] - kOriginLat) * 111.0f;
   if (count != 10 || !near(newestNorthKm, 19.0f * 5.1f, 0.05f)) {
     std::fputs("trail did not retain the newest 10 observations\n", stderr);
+    return 1;
+  }
+
+  if (!radarTrailReset() ||
+      getAircraftTrail("TEST01", kOriginLat, kOriginLon,
+                       latitudes, longitudes, 20) != 0) {
+    std::fputs("trail reset did not clear the allocated buffers\n", stderr);
     return 1;
   }
 

@@ -5,7 +5,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "deskmate"
-#define FW_VERSION  "4.8.10"
+#define FW_VERSION  "4.8.11"
 
 #define REPO_URL      "https://github.com/itsfuad/deskmate"
 #define REPO_OWNER    "itsfuad"

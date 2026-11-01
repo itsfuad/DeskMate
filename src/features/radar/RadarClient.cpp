@@ -6,7 +6,17 @@
 #include <new>
 #include <stdlib.h>
 
-static Aircraft g_ac[MAX_AIRCRAFT];   // kept sorted nearest-first
+namespace {
+struct ParsedAircraft {
+  Aircraft aircraft;
+  float lat;
+  float lon;
+};
+}  // namespace
+
+static Aircraft* g_ac = nullptr;   // kept sorted nearest-first
+static ParsedAircraft* candidates = nullptr;
+static bool     g_buffersReady = false;
 static uint8_t  g_count = 0;
 static uint32_t g_lastOkMs = 0;
 static bool     g_error = false;
@@ -26,7 +36,10 @@ void radarInit(const Settings& settings) {
   g_error = false;
   g_lowMemory = false;
   g_lastOkMs = 0;
-  radarTrailReset();
+  if (!g_ac) g_ac = platformColdArray<Aircraft>(MAX_AIRCRAFT);
+  if (!candidates) candidates = platformColdArray<ParsedAircraft>(MAX_AIRCRAFT);
+  const bool trailsReady = radarTrailReset();
+  g_buffersReady = g_ac && candidates && trailsReady;
 }
 
 // ---- geo: flat-earth projection around home (good enough at radar ranges) --
@@ -71,14 +84,6 @@ static bool buildWebhookUrl(const Settings& s, char* out, size_t outSize) {
 
 // ---- parse the adsb.fi / webhook "ac" array --------------------------------
 namespace {
-struct ParsedAircraft {
-  Aircraft aircraft;
-  float lat;
-  float lon;
-};
-
-static ParsedAircraft candidates[MAX_AIRCRAFT];
-
 struct RadarParse {
   const RadarOrigin& origin;
   bool publish;
@@ -231,6 +236,7 @@ static bool parseAdsb(const RadarOrigin& origin, Stream& stream, NetClient& clie
 static bool fetchUrl(const RadarOrigin& origin, uint16_t httpTimeout, const char* url,
                      uint16_t budgetMs, int* responseCode = nullptr,
                      uint8_t* testCount = nullptr) {
+  if (!g_buffersReady) { g_lowMemory = true; return false; }
   const bool https = strncmp(url, "https://", 8) == 0;
 
   std::unique_ptr<NetClient> client;

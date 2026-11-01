@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.8.11 — 2026-11-01
+
+### Stability and networking
+
+- Moved approximately 4 KB of long-lived radar aircraft, parser candidate and trail buffers to the ESP8266 IRAM heap, leaving more DRAM available for Wi-Fi SDK allocations during TLS connections.
+- Allocate radar buffers once and skip radar requests if initialization cannot allocate all required buffers. Preserve the previous aircraft snapshot and trails when a response fails.
+- Removed temporary TLS soak-test probes from the release build; existing crash breadcrumbs remain available.
+
 ## 4.8.10
 
 ### Stability and networking

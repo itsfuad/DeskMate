@@ -1,4 +1,5 @@
 #include "RadarTrail.h"
+#include "Platform.h"
 
 #include <math.h>
 #include <string.h>
@@ -18,8 +19,10 @@ struct AircraftTrail {
   uint32_t lastSeenMs;
 };
 
-AircraftTrail trails[kMaxTrails];
-AircraftTrail savedTrails[kMaxTrails];
+constexpr size_t kTrailBytes = sizeof(AircraftTrail) * kMaxTrails;
+
+AircraftTrail* trails = nullptr;
+AircraftTrail* savedTrails = nullptr;
 bool updateActive = false;
 
 float distanceKm(float homeLat, float homeLon, float lat, float lon) {
@@ -30,24 +33,30 @@ float distanceKm(float homeLat, float homeLon, float lat, float lon) {
 }
 }  // namespace
 
-void radarTrailReset() {
+bool radarTrailReset() {
+  if (!trails) {
+    trails = platformColdArray<AircraftTrail>(kMaxTrails * 2);
+    if (!trails) return false;
+    savedTrails = trails + kMaxTrails;
+  }
   updateActive = false;
   for (uint8_t i = 0; i < kMaxTrails; ++i) {
     trails[i].callsign[0] = '\0';
     trails[i].count = 0;
     trails[i].lastSeenMs = 0;
   }
+  return true;
 }
 
 void radarTrailBeginUpdate() {
-  memcpy(savedTrails, trails, sizeof(trails));
+  memcpy(savedTrails, trails, kTrailBytes);
   updateActive = true;
 }
 
 void radarTrailCommitUpdate() { updateActive = false; }
 
 void radarTrailDiscardUpdate() {
-  if (updateActive) memcpy(trails, savedTrails, sizeof(trails));
+  if (updateActive) memcpy(trails, savedTrails, kTrailBytes);
   updateActive = false;
 }
 
